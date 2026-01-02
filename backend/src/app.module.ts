@@ -15,11 +15,9 @@ import {
 } from './DB/entities';
 import { UserModule } from './auth/user.module';
 import { ProjectModule } from './book/project.module';
-// import { ProjectModule } from './modules/project/project.module';
-// import { ContentModule } from './modules/content/content.module';
-// import { TranslationModule } from './modules/translation/translation.module';
-// import { DocumentModule } from './modules/document/document.module';
-// import { ImageModule } from './modules/image/image.module';
+import { ContentModule } from './content/content.module';
+import { RedisQueueModule } from './DB/config/redis.config';
+import { DocumentModule } from './documents/document.module';
 
 @Module({
   imports: [
@@ -39,18 +37,12 @@ import { ProjectModule } from './book/project.module';
       inject: [ConfigService],
     }),
     EventEmitterModule.forRoot(),
-    BullModule.forRoot({
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT ?? '6380', 10),
-      },
-    }),
+    RedisQueueModule,
     UserModule,
     ProjectModule,
-
-    // ContentModule,
+    ContentModule,
     // TranslationModule,
-    // DocumentModule,
+    DocumentModule,
     // ImageModule,
   ],
 })
