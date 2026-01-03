@@ -30,6 +30,12 @@ export class Image {
   @Column({ nullable: true, type: 'text' })
   caption: string;
 
+  @Column({ nullable: true })
+  chapterNumber: number;
+
+  @Column({ default: false })
+  isMap: boolean;
+
   @Column()
   projectId: string;
 

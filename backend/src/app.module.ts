@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { BullModule } from '@nestjs/bull';
 
 import {
   User,
@@ -18,6 +17,7 @@ import { ProjectModule } from './book/project.module';
 import { ContentModule } from './content/content.module';
 import { RedisQueueModule } from './DB/config/redis.config';
 import { DocumentModule } from './documents/document.module';
+import { TranslationModule } from './translation/translation.module';
 
 @Module({
   imports: [
@@ -41,7 +41,7 @@ import { DocumentModule } from './documents/document.module';
     UserModule,
     ProjectModule,
     ContentModule,
-    // TranslationModule,
+    TranslationModule,
     DocumentModule,
     // ImageModule,
   ],
