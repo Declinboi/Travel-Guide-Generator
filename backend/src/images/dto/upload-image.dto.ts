@@ -1,14 +1,8 @@
+// src/modules/image/dto/upload-image.dto.ts
 import { IsString, IsOptional, IsInt, IsBoolean, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UploadImageDto {
-  @ApiProperty({ 
-    type: 'string', 
-    format: 'binary',
-    description: 'Image file to upload'
-  })
-  file: any;
-
   @ApiProperty({ 
     example: 1,
     description: 'Chapter number where this image will appear',
@@ -28,8 +22,7 @@ export class UploadImageDto {
   caption?: string;
 
   @ApiProperty({ 
-    example: 1,
-    description: 'Position within the chapter (1 = top, 2 = middle, etc.)',
+    description: 'Position is auto-calculated. Do not provide this field.',
     required: false
   })
   @IsInt()

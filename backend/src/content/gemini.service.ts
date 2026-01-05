@@ -130,7 +130,7 @@ TONE:
 - Honest and authentic
 - Encouraging and exciting about the destination
 
-LENGTH: Write approximately 13,000-15,000 words covering all sections and subsections from the outline.
+LENGTH: Write approximately 1,500-2,000 words covering all sections and subsections from the outline.
 
 Write the complete Introduction chapter now:`;
 

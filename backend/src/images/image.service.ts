@@ -1,8 +1,14 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+// src/modules/image/image.service.ts
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CloudinaryService } from './cloudinary.service';
-import { UploadImageDto} from './dto/upload-image.dto';
+import { UploadImageDto } from './dto/upload-image.dto';
 import { Chapter, Image, Project } from 'src/DB/entities';
 
 @Injectable()
@@ -46,6 +52,22 @@ export class ImageService {
           `Chapter ${uploadDto.chapterNumber} not found in this project`,
         );
       }
+
+      // Auto-calculate position for this chapter
+      const existingImagesInChapter = await this.imageRepository.find({
+        where: {
+          projectId,
+          chapterNumber: uploadDto.chapterNumber,
+          isMap: false,
+        },
+        order: { position: 'DESC' },
+      });
+
+      // Set position as next available position
+      uploadDto.position =
+        existingImagesInChapter.length > 0
+          ? (existingImagesInChapter[0].position || 0) + 1
+          : 1;
     }
 
     // Check if map already exists for this project
@@ -85,7 +107,7 @@ export class ImageService {
     const savedImage = await this.imageRepository.save(image);
 
     this.logger.log(
-      `Image uploaded for project ${projectId}: ${uploadDto.isMap ? 'MAP' : 'Regular'} - ${file.originalname}`,
+      `Image uploaded for project ${projectId}: ${uploadDto.isMap ? 'MAP' : `Chapter ${uploadDto.chapterNumber} - Position ${uploadDto.position}`} - ${file.originalname}`,
     );
 
     return savedImage;
@@ -96,19 +118,34 @@ export class ImageService {
     files: Express.Multer.File[],
     uploadDtos: UploadImageDto[],
   ) {
-    const uploadedImages = [];
+    const uploadedImages: Image[] = [];
+    const errors: {
+      file: string;
+      error: string;
+    }[] = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const dto = uploadDtos[i] || {};
 
-      const image = await this.uploadImage(projectId, file, dto);
-      uploadedImages.push(image);
+      try {
+        const image = await this.uploadImage(projectId, file, dto);
+        uploadedImages.push(image);
+      } catch (error) {
+        errors.push({
+          file: file.originalname,
+          error: error.message,
+        });
+        this.logger.error(`Failed to upload ${file.originalname}:`, error);
+      }
     }
 
     return {
-      message: `${uploadedImages.length} images uploaded successfully`,
+      message: `${uploadedImages.length} of ${files.length} images uploaded successfully`,
       images: uploadedImages,
+      errors: errors.length > 0 ? errors : undefined,
+      success: uploadedImages.length,
+      failed: errors.length,
     };
   }
 
@@ -151,8 +188,11 @@ export class ImageService {
     return image;
   }
 
-  async reorderImages(projectId: string, imageOrders: { id: string; position: number }[]) {
-    const updates = [];
+  async reorderImages(
+    projectId: string,
+    imageOrders: { id: string; position: number }[],
+  ) {
+    const updates: Promise<Image>[] = [];
 
     for (const order of imageOrders) {
       const image = await this.imageRepository.findOne({

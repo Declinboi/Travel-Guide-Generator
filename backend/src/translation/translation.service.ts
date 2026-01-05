@@ -130,9 +130,16 @@ export class TranslationService {
     jobId: string,
   ) {
     const job = await this.jobRepository.findOne({ where: { id: jobId } });
+    if (!job) {
+      throw new Error(`Job ${jobId} not found`);
+    }
+
     const translation = await this.translationRepository.findOne({
       where: { id: translationId },
     });
+    if (!translation) {
+      throw new Error(`Translation ${translationId} not found`);
+    }
 
     try {
       job.status = JobStatus.IN_PROGRESS;
@@ -145,6 +152,10 @@ export class TranslationService {
         where: { id: projectId },
         relations: ['chapters'],
       });
+
+      if (!project) {
+        throw new Error(`Project ${projectId} not found`);
+      }
 
       // Sort chapters by order
       const chapters = project.chapters.sort((a, b) => a.order - b.order);
@@ -172,7 +183,14 @@ export class TranslationService {
       this.logger.log(`Translating ${chapters.length} chapters...`);
 
       const progressPerChapter = 85 / chapters.length;
-      const translatedChapters = [];
+      
+      type TranslatedChapter = {
+        title: string;
+        content: string;
+        order: number;
+      };
+
+      const translatedChapters: TranslatedChapter[] = [];
 
       for (let i = 0; i < chapters.length; i++) {
         const chapter = chapters[i];
@@ -280,7 +298,16 @@ export class TranslationService {
       throw new BadRequestException('No valid target languages specified');
     }
 
-    const jobs = [];
+    // Type the jobs array properly
+    type TranslationJob = {
+      message: string;
+      jobId: string;
+      translationId: string;
+      projectId: string;
+      targetLanguage: Language;
+    };
+
+    const jobs: TranslationJob[] = [];
 
     for (const language of targetLanguages) {
       try {
@@ -291,7 +318,7 @@ export class TranslationService {
         jobs.push(result);
       } catch (error) {
         // If translation already exists, skip it
-        if (error.message.includes('already exists')) {
+        if (error.message && error.message.includes('already exists')) {
           this.logger.log(`Skipping ${language} - translation already exists`);
         } else {
           throw error;

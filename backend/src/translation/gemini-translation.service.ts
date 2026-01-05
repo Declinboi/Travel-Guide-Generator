@@ -74,7 +74,13 @@ Provide ONLY the translated text, no explanations or notes:`;
     targetLanguage: Language,
     maintainStyle: boolean = true,
   ): Promise<any[]> {
-    const translatedChapters = [];
+    type TranslatedChapter = {
+      title: string;
+      content: string;
+      order: number;
+    };
+
+    const translatedChapters: TranslatedChapter[] = [];
 
     for (const chapter of chapters) {
       this.logger.log(`Translating chapter: ${chapter.title}`);
