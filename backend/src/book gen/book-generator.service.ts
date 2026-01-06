@@ -19,8 +19,8 @@ export class BookGeneratorService {
   constructor(
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
-    @InjectRepository(Job)
-    private readonly jobRepository: Repository<Job>,
+    // @InjectRepository(Job)
+    // private readonly jobRepository: Repository<Job>,
     private readonly projectService: ProjectService,
     private readonly contentService: ContentService,
     private readonly translationService: TranslationService,

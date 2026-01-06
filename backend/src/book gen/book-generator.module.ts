@@ -8,10 +8,11 @@ import { ContentModule } from 'src/content/content.module';
 import { TranslationModule } from 'src/translation/translation.module';
 import { DocumentModule } from 'src/documents/document.module';
 import { ImageModule } from 'src/images/image.module';
+import { BookController } from './book.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Project, Job]),
+    TypeOrmModule.forFeature([Project]),
 
     ProjectModule,
     ContentModule,
@@ -19,6 +20,7 @@ import { ImageModule } from 'src/images/image.module';
     DocumentModule,
     ImageModule,
   ],
+  controllers: [BookController],
   providers: [BookGeneratorService],
   exports: [BookGeneratorService],
 })
