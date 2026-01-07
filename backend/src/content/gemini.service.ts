@@ -1,3 +1,4 @@
+// src/content/gemini.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -9,30 +10,149 @@ import {
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
-  private genAI: GoogleGenerativeAI;
-  private model: any;
+  private apiKeys: string[];
+  private currentKeyIndex: number = 0;
+  private genAIInstances: GoogleGenerativeAI[];
+  private readonly MODEL_NAME = 'gemini-2.5-flash-lite';
+  private readonly MAX_RETRIES = 5;
+  private readonly INITIAL_RETRY_DELAY = 6000;
 
   constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is not configured');
+    // Load multiple API keys from environment
+    const primaryKey = this.configService.get<string>('GEMINI_API_KEY');
+    const secondaryKeys = this.configService.get<string>('GEMINI_API_KEYS'); // Comma-separated list
+
+    if (!primaryKey && !secondaryKeys) {
+      throw new Error('At least one GEMINI_API_KEY must be configured');
     }
-    this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
+
+    // Build array of API keys
+    this.apiKeys = [];
+    if (primaryKey) {
+      this.apiKeys.push(primaryKey);
+    }
+    if (secondaryKeys) {
+      const keys = secondaryKeys
+        .split(',')
+        .map((k) => k.trim())
+        .filter((k) => k);
+      this.apiKeys.push(...keys);
+    }
+
+    // Remove duplicates
+    this.apiKeys = [...new Set(this.apiKeys)];
+
+    // Create GoogleGenerativeAI instance for each key
+    this.genAIInstances = this.apiKeys.map(
+      (key) => new GoogleGenerativeAI(key),
+    );
+
+    this.logger.log(
+      `Gemini service initialized with ${this.apiKeys.length} API key(s)`,
+    );
+    this.logger.log(`Using model: ${this.MODEL_NAME}`);
+  }
+
+  /**
+   * Get the next API key in round-robin fashion
+   */
+  private getNextModel(): any {
+    const genAI = this.genAIInstances[this.currentKeyIndex];
+    const model = genAI.getGenerativeModel({ model: this.MODEL_NAME });
+
+    // Rotate to next key for next request
+    this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
+
+    this.logger.debug(
+      `Using API key ${this.currentKeyIndex + 1}/${this.apiKeys.length}`,
+    );
+
+    return model;
+  }
+
+  /**
+   * Try all available API keys before giving up
+   */
+  private async generateWithKeyRotation(prompt: string): Promise<string> {
+    const keysToTry = this.apiKeys.length;
+    let lastError: any;
+
+    for (let keyAttempt = 0; keyAttempt < keysToTry; keyAttempt++) {
+      const model = this.getNextModel();
+
+      try {
+        this.logger.log(
+          `Attempting with API key ${keyAttempt + 1}/${keysToTry}...`,
+        );
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        return response.text();
+      } catch (error: any) {
+        lastError = error;
+        const isRateLimitError =
+          error?.status === 429 ||
+          error?.message?.includes('rate limit') ||
+          error?.message?.includes('quota');
+
+        if (isRateLimitError && keyAttempt < keysToTry - 1) {
+          this.logger.warn(
+            `API key ${keyAttempt + 1} rate limited, trying next key...`,
+          );
+          continue;
+        }
+
+        // If not a rate limit error, or last key, throw
+        throw error;
+      }
+    }
+
+    throw lastError;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async generateText(prompt: string): Promise<string> {
-    try {
-      this.logger.log('Generating content with Gemini AI...');
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
-      this.logger.log('Content generated successfully');
-      return text;
-    } catch (error) {
-      this.logger.error('Error generating content with Gemini:', error);
-      throw error;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
+      try {
+        this.logger.log(
+          `Generating content (attempt ${attempt}/${this.MAX_RETRIES})...`,
+        );
+
+        // Try with key rotation first
+        const text = await this.generateWithKeyRotation(prompt);
+
+        this.logger.log('Content generated successfully');
+        return text;
+      } catch (error: any) {
+        lastError = error;
+        const is503Error =
+          error?.status === 503 || error?.message?.includes('overloaded');
+        const is429Error =
+          error?.status === 429 || error?.message?.includes('rate limit');
+
+        if (is503Error || is429Error) {
+          if (attempt < this.MAX_RETRIES) {
+            // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+            const delay = this.INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+            this.logger.warn(
+              `All keys overloaded/rate limited (attempt ${attempt}/${this.MAX_RETRIES}). Retrying in ${delay}ms...`,
+            );
+            await this.sleep(delay);
+            continue;
+          }
+        }
+
+        this.logger.error('Error generating content with Gemini:', error);
+        throw error;
+      }
     }
+
+    this.logger.error(`All ${this.MAX_RETRIES} retry attempts failed`);
+    throw lastError;
   }
 
   async generateBookOutline(

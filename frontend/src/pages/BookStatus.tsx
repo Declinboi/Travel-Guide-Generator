@@ -1,47 +1,47 @@
 // src/pages/BookStatus.tsx
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
+// import axios from "axios";
+import { useGetBookStatusQuery } from "../redux/api/booksApiSlice";
 
 const BookStatus = () => {
-  const { projectId } = useParams();
+  const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const [status, setStatus] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
 
+  // Use RTK Query hook with polling enabled
+  const {
+    data: status,
+    isLoading,
+    isError,
+  } = useGetBookStatusQuery(projectId!, {
+    pollingInterval: 5000, // Poll every 5 seconds
+    skip: !projectId, // Skip query if no projectId
+  });
+
+  // Handle redirect when complete
   useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const response = await axios.get(
-          `http://localhost:4000/api/books/status/${projectId}`
-        );
-        setStatus(response.data);
-        setLoading(false);
+    if (status?.isComplete) {
+      const timer = setTimeout(() => {
+        navigate(`/downloads/${projectId}`);
+      }, 2000);
 
-        // Redirect when complete
-        if (response.data.isComplete) {
-          setTimeout(() => {
-            navigate(`/downloads/${projectId}`);
-          }, 2000);
-        }
-      } catch (error) {
-        console.error("Error fetching status:", error);
-        setLoading(false);
-      }
-    };
+      return () => clearTimeout(timer);
+    }
+  }, [status?.isComplete, navigate, projectId]);
 
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 5000); // Poll every 5 seconds
-
-    return () => clearInterval(interval);
-  }, [projectId, navigate]);
-
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-12">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading status...</p>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-xl">Loading status...</div>
+      </div>
+    );
+  }
+
+  if (isError || !status) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-xl text-red-600">
+          ❌ Error loading status. Please try again.
         </div>
       </div>
     );

@@ -63,7 +63,6 @@ export class ImageService {
         order: { position: 'DESC' },
       });
 
-      // Set position as next available position
       uploadDto.position =
         existingImagesInChapter.length > 0
           ? (existingImagesInChapter[0].position || 0) + 1
@@ -83,7 +82,7 @@ export class ImageService {
       }
     }
 
-    // Upload to Cloudinary
+    // Upload to Cloudinary with retries
     const uploadResult = await this.cloudinaryService.uploadImage(
       file,
       uploadDto.isMap,
@@ -118,27 +117,93 @@ export class ImageService {
     files: Express.Multer.File[],
     uploadDtos: UploadImageDto[],
   ) {
-    const uploadedImages: Image[] = [];
-    const errors: {
-      file: string;
-      error: string;
-    }[] = [];
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+    });
 
-    for (let i = 0; i < files.length; i++) {
+    if (!project) {
+      throw new NotFoundException(`Project with ID ${projectId} not found`);
+    }
+
+    this.logger.log(
+      `Starting batch upload of ${files.length} images for project ${projectId}`,
+    );
+
+    // Validate all files first
+    for (const file of files) {
+      this.cloudinaryService.validateImageFile(file);
+    }
+
+    // Upload to Cloudinary in parallel batches (3 at a time)
+    const uploadResults =
+      await this.cloudinaryService.uploadMultipleImagesParallel(
+        files,
+        false,
+        3, // Upload 3 images concurrently
+      );
+
+    this.logger.log(
+      `Successfully uploaded ${uploadResults.length}/${files.length} images to Cloudinary`,
+    );
+
+    // Save to database
+    const uploadedImages: Image[] = [];
+    const errors: { file: string; error: string }[] = [];
+
+    for (let i = 0; i < uploadResults.length; i++) {
+      const result = uploadResults[i];
+      if (!result) continue;
+
       const file = files[i];
       const dto = uploadDtos[i] || {};
 
       try {
-        const image = await this.uploadImage(projectId, file, dto);
-        uploadedImages.push(image);
+        // Calculate chapter and position
+        if (dto.chapterNumber) {
+          const existingImagesInChapter = await this.imageRepository.find({
+            where: {
+              projectId,
+              chapterNumber: dto.chapterNumber,
+              isMap: false,
+            },
+            order: { position: 'DESC' },
+          });
+
+          dto.position =
+            existingImagesInChapter.length > 0
+              ? (existingImagesInChapter[0].position || 0) + 1
+              : 1;
+        }
+
+        const image = this.imageRepository.create({
+          projectId,
+          filename: result.public_id,
+          originalName: file.originalname,
+          mimeType: file.mimetype,
+          size: file.size,
+          url: result.secure_url,
+          storageKey: result.public_id,
+          position: dto.position,
+          caption: dto.caption,
+          chapterNumber: dto.chapterNumber,
+          isMap: dto.isMap || false,
+        });
+
+        const savedImage = await this.imageRepository.save(image);
+        uploadedImages.push(savedImage);
       } catch (error) {
         errors.push({
           file: file.originalname,
           error: error.message,
         });
-        this.logger.error(`Failed to upload ${file.originalname}:`, error);
+        this.logger.error(
+          `Failed to save image record for ${file.originalname}:`,
+          error,
+        );
       }
     }
+
+    this.logger.log(`Saved ${uploadedImages.length} image records to database`);
 
     return {
       message: `${uploadedImages.length} of ${files.length} images uploaded successfully`,

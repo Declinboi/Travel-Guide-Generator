@@ -38,27 +38,24 @@ function AppRouter() {
           path: "/register",
           element: <Register />,
         },
-        {
-          path: "/status/:projectId",
-          element: <BookStatus />,
-        },
-        {
-          path: "/downloads/:projectId",
-          element: <Downloads />,
-        },
 
-         { path: "/create", element: <CreateBook /> },
+        // Protected Routes
+        {
+          element: <PrivateRoute />,
+          children: [
+            { path: "/create", element: <CreateBook /> },
             { path: "/profile", element: <Profile /> },
             { path: "/my-books", element: <MyBooks /> },
-        // Protected Routes
-        // {
-        //   element: <PrivateRoute />,
-        //   children: [
-        //     { path: "/create", element: <CreateBook /> },
-        //     { path: "/profile", element: <Profile /> },
-        //     { path: "/my-books", element: <MyBooks /> },
-        //   ],
-        // },
+            {
+              path: "/status/:projectId",
+              element: <BookStatus />,
+            },
+            {
+              path: "/downloads/:projectId",
+              element: <Downloads />,
+            },
+          ],
+        },
       ],
     },
   ]);
