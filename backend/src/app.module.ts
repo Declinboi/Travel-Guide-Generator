@@ -20,6 +20,7 @@ import { DocumentModule } from './documents/document.module';
 import { TranslationModule } from './translation/translation.module';
 import { ImageModule } from './images/image.module';
 import { BookGeneratorModule } from './book gen/book-generator.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { BookGeneratorModule } from './book gen/book-generator.module';
     }),
     EventEmitterModule.forRoot(),
     RedisQueueModule,
+    AuthModule,
     UserModule,
     ProjectModule,
     ContentModule,

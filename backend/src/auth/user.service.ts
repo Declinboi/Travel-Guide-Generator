@@ -103,4 +103,12 @@ export class UserService {
 
     return user.projects;
   }
+
+  async findByEmailWithPassword(email: string): Promise<User | null> {
+    return await this.userRepository
+      .createQueryBuilder('user')
+      .addSelect('user.password') // Explicitly select password
+      .where('user.email = :email', { email })
+      .getOne();
+  }
 }

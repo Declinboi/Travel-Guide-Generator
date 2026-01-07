@@ -8,6 +8,7 @@ import {
   UploadedFiles,
   Res,
   NotFoundException,
+  UseGuards,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import {
@@ -15,14 +16,18 @@ import {
   ApiOperation,
   ApiConsumes,
   ApiResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { BookGeneratorService } from './book-generator.service';
 import * as fs from 'fs';
 import { DocumentService } from 'src/documents/document.service';
 import { CreateBookDto } from './create-book.dto';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 
 @ApiTags('books')
+@ApiBearerAuth('JWT-auth')
+@UseGuards(JwtAuthGuard)
 @Controller('books')
 export class BookController {
   constructor(
