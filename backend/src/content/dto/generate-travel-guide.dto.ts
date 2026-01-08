@@ -27,7 +27,7 @@ export class GenerateTravelGuideDto {
   description?: string;
 
   @ApiProperty({ example: 10, default: 10 })
-  numberOfChapters?: number;
+  numberOfChapters?: number = 10;
 }
 
 export class BookOutlineDto {

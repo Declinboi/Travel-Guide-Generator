@@ -173,9 +173,13 @@ export class BookGeneratorService {
     let chapterNumbers = createBookDto.imageChapterNumbers;
 
     if (!chapterNumbers || chapterNumbers.length !== totalImages) {
-      // Auto-distribute: spread images evenly across main chapters (2-9)
-      // Skip chapter 1 (intro) and chapter 10 (conclusion)
-      const mainChapters = [2, 3, 4, 5, 6, 7, 8, 9];
+      // Auto-distribute: spread images evenly across main chapters
+      // Skip chapter 1 (intro) and last chapter (conclusion)
+      const mainChapters = Array.from(
+        { length: numberOfChapters - 2 },
+        (_, i) => i + 2,
+      ); // Creates [2, 3, 4, 5, 6, 7, 8, 9]
+
       chapterNumbers = [];
 
       for (let i = 0; i < totalImages; i++) {
@@ -202,7 +206,7 @@ export class BookGeneratorService {
       );
     }
   }
-
+  
   private async waitForJobCompletion(jobId: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const checkInterval = setInterval(async () => {

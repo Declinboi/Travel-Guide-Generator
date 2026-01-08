@@ -1,4 +1,4 @@
-// // src/modules/document/docx.service.ts
+// src/modules/document/docx.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -9,7 +9,9 @@ import {
   HeadingLevel,
   AlignmentType,
   ImageRun,
-  PageBreak,
+  PageNumber,
+  Footer,
+  NumberFormat,
 } from 'docx';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -135,12 +137,10 @@ export class DocxService {
           }),
         );
 
-        // Get images for this chapter
         const chapterImages = images
           .filter((img) => img.chapterNumber === chapterNumber && !img.isMap)
           .sort((a, b) => (a.position || 0) - (b.position || 0));
 
-        // Insert images throughout chapter
         if (chapterImages.length > 0) {
           const contentWithImages = await this.insertImagesInContent(
             chapter.content,
@@ -179,7 +179,25 @@ export class DocxService {
                   left: 720,
                   right: 720,
                 },
+                pageNumbers: {
+                  start: 1,
+                  formatType: NumberFormat.DECIMAL,
+                },
               },
+            },
+            footers: {
+              default: new Footer({
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [
+                      new TextRun({
+                        children: [PageNumber.CURRENT],
+                      }),
+                    ],
+                  }),
+                ],
+              }),
             },
             children: sections,
           },
@@ -218,14 +236,12 @@ export class DocxService {
     for (let i = 0; i < chapterImages.length; i++) {
       const image = chapterImages[i];
 
-      // Add text before image
       const textSection = textParagraphs.slice(
         currentIndex,
         currentIndex + sectionsPerImage,
       );
       paragraphs.push(...this.textToParagraphs(textSection));
 
-      // Insert image
       try {
         const imageParagraphs = await this.createImageParagraph(image);
         paragraphs.push(...imageParagraphs);
@@ -236,7 +252,6 @@ export class DocxService {
       currentIndex += sectionsPerImage;
     }
 
-    // Add remaining text
     const remainingText = textParagraphs.slice(currentIndex);
     paragraphs.push(...this.textToParagraphs(remainingText));
 
@@ -247,14 +262,12 @@ export class DocxService {
     const paragraphs: Paragraph[] = [];
 
     try {
-      // Download image
       const response = await axios.get(image.url, {
         responseType: 'arraybuffer',
       });
       const imageBuffer = Buffer.from(response.data, 'binary');
       const imageType = this.getImageType(image.mimeType || image.url);
-      
-      // Insert image (5 inches width at 96 DPI = 480 pixels)
+
       paragraphs.push(
         new Paragraph({
           alignment: AlignmentType.CENTER,
@@ -272,7 +285,6 @@ export class DocxService {
         }),
       );
 
-      // Add caption
       if (image.caption) {
         paragraphs.push(
           new Paragraph({
@@ -281,7 +293,7 @@ export class DocxService {
               new TextRun({
                 text: image.caption,
                 italics: true,
-                size: 18, // 9pt
+                size: 18,
               }),
             ],
             spacing: { after: 400 },
@@ -305,7 +317,6 @@ export class DocxService {
       const imageBuffer = Buffer.from(response.data, 'binary');
       const imageType = this.getImageType(mapImage.mimeType || mapImage.url);
 
-      // Full page map (6 inches width = 576 pixels at 96 DPI)
       paragraphs.push(
         new Paragraph({
           alignment: AlignmentType.CENTER,
@@ -350,7 +361,6 @@ export class DocxService {
     if (lower.includes('gif')) return 'gif';
     if (lower.includes('bmp')) return 'bmp';
 
-    // Default to jpg (most common, works for jpeg too)
     return 'jpg';
   }
 

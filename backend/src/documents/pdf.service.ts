@@ -40,12 +40,27 @@ export class PdfService {
             Title: title,
             Author: author,
           },
+          autoFirstPage: false, // We'll manage pages manually for numbering
         });
 
         const writeStream = fs.createWriteStream(filepath);
         doc.pipe(writeStream);
 
-        // Title Page
+        let pageNumber = 0;
+
+        // Helper function to add a new page with page number
+        const addPageWithNumber = (skipNumber = false) => {
+          doc.addPage();
+          pageNumber++;
+
+          if (!skipNumber && pageNumber > 1) {
+            // Skip numbering on title page
+            this.addPageNumber(doc, pageNumber);
+          }
+        };
+
+        // Title Page (no page number)
+        addPageWithNumber(true);
         doc
           .fontSize(28)
           .font('Helvetica-Bold')
@@ -61,15 +76,14 @@ export class PdfService {
         }
 
         doc.fontSize(14).text(`By ${author}`, { align: 'center' });
-        doc.addPage();
 
         // Copyright Page
         const copyrightChapter = chapters.find((c) =>
           c.title.toLowerCase().includes('copyright'),
         );
         if (copyrightChapter) {
+          addPageWithNumber();
           doc.fontSize(10).font('Helvetica').text(copyrightChapter.content);
-          doc.addPage();
         }
 
         // About Book
@@ -77,13 +91,13 @@ export class PdfService {
           c.title.toLowerCase().includes('about'),
         );
         if (aboutChapter) {
+          addPageWithNumber();
           doc.fontSize(16).font('Helvetica-Bold').text('About This Book');
           doc.moveDown();
           doc
             .fontSize(11)
             .font('Helvetica')
             .text(aboutChapter.content, { align: 'justify' });
-          doc.addPage();
         }
 
         // Table of Contents
@@ -91,10 +105,10 @@ export class PdfService {
           c.title.toLowerCase().includes('table'),
         );
         if (tocChapter) {
+          addPageWithNumber();
           doc.fontSize(20).font('Helvetica-Bold').text('Table of Contents');
           doc.moveDown();
           doc.fontSize(11).font('Helvetica').text(tocChapter.content);
-          doc.addPage();
         }
 
         // Main Chapters with Images
@@ -109,7 +123,12 @@ export class PdfService {
 
         for (let i = 0; i < mainChapters.length; i++) {
           const chapter = mainChapters[i];
-          const chapterNumber = chapter.order - 3; // Adjust for front matter
+          const chapterNumber = chapter.order - 3;
+
+          // Start each chapter on a new page
+          if (i === 0) {
+            addPageWithNumber();
+          }
 
           // Chapter Title
           doc.fontSize(22).font('Helvetica-Bold').text(chapter.title);
@@ -128,7 +147,6 @@ export class PdfService {
               chapterImages,
             );
           } else {
-            // No images, just add content
             const content = this.formatContentForPDF(chapter.content);
             doc.fontSize(11).font('Helvetica').text(content, {
               align: 'justify',
@@ -138,14 +156,14 @@ export class PdfService {
 
           // Add page break if not last chapter
           if (i < mainChapters.length - 1) {
-            doc.addPage();
+            addPageWithNumber();
           }
         }
 
         // Add Map on Last Page (if exists)
         const mapImage = images.find((img) => img.isMap);
         if (mapImage) {
-          doc.addPage();
+          addPageWithNumber();
           await this.insertFullPageImage(doc, mapImage);
         }
 
@@ -171,12 +189,27 @@ export class PdfService {
     });
   }
 
+  private addPageNumber(doc: PDFKit.PDFDocument, pageNumber: number): void {
+    // Add page number at bottom center
+    doc
+      .fontSize(9)
+      .font('Helvetica')
+      .text(
+        pageNumber.toString(),
+        0,
+        doc.page.height - 30, // 30 points from bottom
+        {
+          align: 'center',
+          width: doc.page.width,
+        },
+      );
+  }
+
   private async insertImagesInContent(
     doc: PDFKit.PDFDocument,
     content: string,
     chapterImages: any[],
   ): Promise<void> {
-    // Split content into sections based on number of images
     const paragraphs = content.split('\n\n').filter((p) => p.trim());
     const sectionsPerImage = Math.floor(
       paragraphs.length / (chapterImages.length + 1),
@@ -187,7 +220,6 @@ export class PdfService {
     for (let i = 0; i < chapterImages.length; i++) {
       const image = chapterImages[i];
 
-      // Add text before image
       const textSection = paragraphs
         .slice(currentParagraphIndex, currentParagraphIndex + sectionsPerImage)
         .join('\n\n');
@@ -200,7 +232,6 @@ export class PdfService {
         doc.moveDown(1);
       }
 
-      // Insert image
       try {
         await this.insertImage(doc, image);
         doc.moveDown(1);
@@ -211,7 +242,6 @@ export class PdfService {
       currentParagraphIndex += sectionsPerImage;
     }
 
-    // Add remaining text after last image
     const remainingText = paragraphs.slice(currentParagraphIndex).join('\n\n');
 
     if (remainingText) {
@@ -227,14 +257,11 @@ export class PdfService {
     image: any,
   ): Promise<void> {
     try {
-      // Download image from Cloudinary URL
       const response = await axios.get(image.url, {
         responseType: 'arraybuffer',
       });
       const imageBuffer = Buffer.from(response.data, 'binary');
 
-      // Calculate dimensions to fit in content area
-      // Content width: 432 - 72 (margins) = 360 points (5 inches)
       const maxWidth = 360;
       const maxHeight = 250;
 
@@ -243,13 +270,12 @@ export class PdfService {
         align: 'center',
       });
 
-      // Add caption if exists
       if (image.caption) {
         doc.moveDown(0.5);
         doc.fontSize(9).font('Helvetica-Oblique').text(image.caption, {
           align: 'center',
         });
-        doc.font('Helvetica'); // Reset font
+        doc.font('Helvetica');
       }
     } catch (error) {
       this.logger.error(`Error inserting image:`, error);
@@ -262,21 +288,17 @@ export class PdfService {
     mapImage: any,
   ): Promise<void> {
     try {
-      // Download map image
       const response = await axios.get(mapImage.url, {
         responseType: 'arraybuffer',
       });
       const imageBuffer = Buffer.from(response.data, 'binary');
 
-      // Full page: 432x648 points (6x9 inches)
-      // With small margins for safety
       doc.image(imageBuffer, 18, 18, {
-        fit: [396, 612], // Slightly smaller than full page
+        fit: [396, 612],
         align: 'center',
         valign: 'center',
       });
 
-      // Add caption at bottom if exists
       if (mapImage.caption) {
         doc.fontSize(10).font('Helvetica').text(mapImage.caption, 36, 600, {
           align: 'center',
