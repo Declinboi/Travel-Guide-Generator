@@ -1,4 +1,4 @@
-// src/pages/MyBooks.tsx (Fixed with real-time status updates)
+// src/pages/MyBooks.tsx (Fixed with proper status handling)
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useSelector } from "react-redux";
@@ -19,25 +19,30 @@ const ProjectCard = ({ project, onDelete, isDeleting, deleteId }: any) => {
     project.status === "GENERATING_DOCUMENTS" ||
     project.status === "IN_PROGRESS";
 
-  console.log(
-    "Project:",
-    project.title,
-    "Status:",
-    project.status,
-    "Should Poll:",
-    shouldPoll
-  );
+  console.log("==========================================");
+  console.log("Project:", project.title);
+  console.log("Project Status:", project.status);
+  console.log("Should Poll:", shouldPoll);
 
-  const { data: liveStatus } = useGetBookStatusQuery(project.id, {
+  const { data: statusResponse, isError, error } = useGetBookStatusQuery(project.id, {
     skip: !shouldPoll,
     pollingInterval: shouldPoll ? 5000 : 0,
   });
 
-  console.log("Live Status for", project.title, ":", liveStatus);
+  console.log("Raw Status Response:", statusResponse);
+  console.log("Status Response Error:", isError, error);
+
+  // Extract the actual status data - it might be nested
+  const liveStatus = statusResponse?.data || statusResponse;
+  
+  console.log("Extracted Live Status:", liveStatus);
+  console.log("Live Status Type:", typeof liveStatus);
+  console.log("Progress Value:", liveStatus?.progress);
+  console.log("==========================================");
 
   // Use live status if available, otherwise use project status
   const currentStatus = liveStatus?.status || project.status;
-  const progress = liveStatus?.progress || 0;
+  const progress = liveStatus?.progress ?? 0;
 
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition relative">
@@ -133,6 +138,13 @@ const ProjectCard = ({ project, onDelete, isDeleting, deleteId }: any) => {
                 Est. {liveStatus.estimatedCompletion}
               </p>
             )}
+            {/* Debug info - remove this after fixing */}
+            <div className="mt-2 text-xs text-gray-400 font-mono">
+              <div>Status: {liveStatus.status}</div>
+              <div>Progress: {liveStatus.progress}</div>
+              <div>Chapters: {liveStatus.stats?.chapters}</div>
+              <div>Translations: {liveStatus.stats?.translations}</div>
+            </div>
           </div>
         )}
 
@@ -277,7 +289,7 @@ const MyBooks = () => {
             {hasInProgressProjects && (
               <span className="ml-3 inline-flex items-center text-sm text-blue-600">
                 <span className="animate-pulse mr-1">●</span>
-                Live updates
+                Live updates enabled
               </span>
             )}
           </p>

@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { ContentService } from '../content/content.service';
 import { TranslationService } from '../translation/translation.service';
 import { CreateBookDto } from './create-book.dto';
-import { Project } from 'src/DB/entities/project.entity';
+import { Project, ProjectStatus } from 'src/DB/entities/project.entity';
 import { Job, JobStatus } from 'src/DB/entities/job.entity';
 import { Language } from 'src/DB/entities/translation.entity';
 import { DocumentType } from 'src/DB/entities/document.entity';
@@ -67,15 +67,23 @@ export class BookGeneratorService {
     createBookDto: CreateBookDto,
     files: { images?: Express.Multer.File[]; mapImage?: Express.Multer.File[] },
   ) {
+    let project: Project | null = null;
+
     try {
-      // ✅ ADD THIS: Update status to GENERATING_CONTENT
-      const project = await this.projectRepository.findOne({
+      // Get project reference
+      project = await this.projectRepository.findOne({
         where: { id: projectId },
       });
-      if (project) {
-        project.status = 'GENERATING_CONTENT' as any;
-        await this.projectRepository.save(project);
+
+      if (!project) {
+        this.logger.error(`Project ${projectId} not found`);
+        return;
       }
+
+      // ✅ UPDATE STATUS: GENERATING_CONTENT
+      project.status = ProjectStatus.GENERATING_CONTENT;
+      await this.projectRepository.save(project);
+      this.logger.log(`[${projectId}] Status updated to: GENERATING_CONTENT`);
 
       // STEP 1: Generate Content (0-40%)
       this.logger.log(`[${projectId}] Step 1: Generating content...`);
@@ -109,11 +117,10 @@ export class BookGeneratorService {
         });
       }
 
-      // ✅ ADD THIS: Update status to TRANSLATING
-      if (project) {
-        project.status = 'TRANSLATING' as any;
-        await this.projectRepository.save(project);
-      }
+      // ✅ UPDATE STATUS: TRANSLATING
+      project.status = ProjectStatus.TRANSLATING;
+      await this.projectRepository.save(project);
+      this.logger.log(`[${projectId}] Status updated to: TRANSLATING`);
 
       // STEP 3: Translate to All Languages SEQUENTIALLY (50-70%)
       this.logger.log(
@@ -128,14 +135,12 @@ export class BookGeneratorService {
       ];
 
       await this.translateSequentially(projectId, targetLanguages);
-
       this.logger.log(`[${projectId}] All translations completed`);
 
-      // ✅ ADD THIS: Update status to GENERATING_DOCUMENTS
-      if (project) {
-        project.status = 'GENERATING_DOCUMENTS' as any;
-        await this.projectRepository.save(project);
-      }
+      // ✅ UPDATE STATUS: GENERATING_DOCUMENTS
+      project.status = ProjectStatus.GENERATING_DOCUMENTS;
+      await this.projectRepository.save(project);
+      this.logger.log(`[${projectId}] Status updated to: GENERATING_DOCUMENTS`);
 
       // STEP 4: Generate All Documents (70-100%)
       this.logger.log(`[${projectId}] Step 4: Generating 10 documents...`);
@@ -160,23 +165,20 @@ export class BookGeneratorService {
         await this.waitForJobCompletion(job.jobId);
       }
 
-      // ✅ ADD THIS: Update status to COMPLETED
-      if (project) {
-        project.status = 'COMPLETED' as any;
-        await this.projectRepository.save(project);
-      }
+      // ✅ UPDATE STATUS: COMPLETED
+      project.status = ProjectStatus.COMPLETED;
+      await this.projectRepository.save(project);
+      this.logger.log(`[${projectId}] Status updated to: COMPLETED`);
 
       this.logger.log(`[${projectId}] ✅ Complete book generation finished!`);
     } catch (error) {
       this.logger.error(`[${projectId}] Book generation failed:`, error);
 
       // Update project status to failed
-      const project = await this.projectRepository.findOne({
-        where: { id: projectId },
-      });
       if (project) {
-        project.status = 'FAILED' as any;
+        project.status = ProjectStatus.FAILED;
         await this.projectRepository.save(project);
+        this.logger.log(`[${projectId}] Status updated to: FAILED`);
       }
     }
   }

@@ -250,7 +250,7 @@ TONE:
 - Honest and authentic
 - Encouraging and exciting about the destination
 
-LENGTH: Write approximately 700-800 words covering all sections and subsections from the outline.
+LENGTH: Write approximately 600-700 words covering all sections and subsections from the outline.
 
 Write the complete Introduction chapter now:`;
 
@@ -293,7 +293,7 @@ TONE:
 - Encouraging and exciting about the destination
 - Patient and understanding of different travel styles
 
-LENGTH: Write approximately 1,000-1,300 words covering all sections and subsections from the outline.
+LENGTH: Write approximately 1,000-1,100 words covering all sections and subsections from the outline.
 
 Write the complete chapter now:`;
 
@@ -330,7 +330,7 @@ STRUCTURE:
 4. Final Encouragement: Return to prose, inspiring and warm
 5. Emergency Contacts: Clear list with phone numbers
 
-LENGTH: Write approximately 800-1,000 words.
+LENGTH: Write approximately 600-650 words.
 
 Write the complete Conclusion chapter now:`;
 
