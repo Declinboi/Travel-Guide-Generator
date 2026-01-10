@@ -9,15 +9,21 @@ export const booksApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body: formData,
       }),
+      invalidatesTags: [{ type: "Project", id: "LIST" }],
     }),
 
     getBookStatus: builder.query({
       query: (projectId: string) => `/books/status/${projectId}`,
-      //   pollingInterval: 5000,
+      providesTags: (_result, _error, projectId) => [
+        { type: "Project", id: projectId },
+      ],
     }),
 
     getDownloadLinks: builder.query({
       query: (projectId: string) => `/books/download/${projectId}`,
+      providesTags: (_result, _error, projectId) => [
+        { type: "Project", id: projectId },
+      ],
     }),
   }),
 });

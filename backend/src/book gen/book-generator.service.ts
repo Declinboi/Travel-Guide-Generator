@@ -19,8 +19,6 @@ export class BookGeneratorService {
   constructor(
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
-    // @InjectRepository(Job)
-    // private readonly jobRepository: Repository<Job>,
     private readonly projectService: ProjectService,
     private readonly contentService: ContentService,
     private readonly translationService: TranslationService,
@@ -56,7 +54,7 @@ export class BookGeneratorService {
       steps: [
         '1. Generating book content (10 chapters)',
         '2. Processing and positioning images',
-        '3. Translating to 4 languages (German, French, Spanish, Italian)',
+        '3. Translating to 4 languages sequentially (German, French, Spanish, Italian)',
         '4. Creating 10 documents (2 formats × 5 languages)',
       ],
       statusEndpoint: `/api/books/status/${project.id}`,
@@ -70,6 +68,15 @@ export class BookGeneratorService {
     files: { images?: Express.Multer.File[]; mapImage?: Express.Multer.File[] },
   ) {
     try {
+      // ✅ ADD THIS: Update status to GENERATING_CONTENT
+      const project = await this.projectRepository.findOne({
+        where: { id: projectId },
+      });
+      if (project) {
+        project.status = 'GENERATING_CONTENT' as any;
+        await this.projectRepository.save(project);
+      }
+
       // STEP 1: Generate Content (0-40%)
       this.logger.log(`[${projectId}] Step 1: Generating content...`);
 
@@ -83,7 +90,6 @@ export class BookGeneratorService {
         },
       );
 
-      // Wait for content generation to complete
       await this.waitForJobCompletion(contentResult.jobId);
       this.logger.log(`[${projectId}] Content generation completed`);
 
@@ -103,25 +109,33 @@ export class BookGeneratorService {
         });
       }
 
-      // STEP 3: Translate to All Languages (50-70%)
-      this.logger.log(`[${projectId}] Step 3: Translating to 4 languages...`);
-
-      const translationResult =
-        await this.translationService.translateToAllLanguages(projectId, {
-          targetLanguages: [
-            Language.GERMAN,
-            Language.FRENCH,
-            Language.SPANISH,
-            Language.ITALIAN,
-          ],
-          maintainStyle: true,
-        });
-
-      // Wait for all translations
-      for (const job of translationResult.jobs) {
-        await this.waitForJobCompletion(job.jobId);
+      // ✅ ADD THIS: Update status to TRANSLATING
+      if (project) {
+        project.status = 'TRANSLATING' as any;
+        await this.projectRepository.save(project);
       }
+
+      // STEP 3: Translate to All Languages SEQUENTIALLY (50-70%)
+      this.logger.log(
+        `[${projectId}] Step 3: Translating to 4 languages sequentially...`,
+      );
+
+      const targetLanguages = [
+        Language.GERMAN,
+        Language.FRENCH,
+        Language.SPANISH,
+        Language.ITALIAN,
+      ];
+
+      await this.translateSequentially(projectId, targetLanguages);
+
       this.logger.log(`[${projectId}] All translations completed`);
+
+      // ✅ ADD THIS: Update status to GENERATING_DOCUMENTS
+      if (project) {
+        project.status = 'GENERATING_DOCUMENTS' as any;
+        await this.projectRepository.save(project);
+      }
 
       // STEP 4: Generate All Documents (70-100%)
       this.logger.log(`[${projectId}] Step 4: Generating 10 documents...`);
@@ -146,6 +160,12 @@ export class BookGeneratorService {
         await this.waitForJobCompletion(job.jobId);
       }
 
+      // ✅ ADD THIS: Update status to COMPLETED
+      if (project) {
+        project.status = 'COMPLETED' as any;
+        await this.projectRepository.save(project);
+      }
+
       this.logger.log(`[${projectId}] ✅ Complete book generation finished!`);
     } catch (error) {
       this.logger.error(`[${projectId}] Book generation failed:`, error);
@@ -159,6 +179,69 @@ export class BookGeneratorService {
         await this.projectRepository.save(project);
       }
     }
+  }
+
+  /**
+   * Translate to multiple languages sequentially with delays to avoid rate limiting
+   */
+  private async translateSequentially(
+    projectId: string,
+    targetLanguages: Language[],
+  ): Promise<void> {
+    const delayBetweenLanguages = 5000; // 5 seconds between languages
+
+    for (let i = 0; i < targetLanguages.length; i++) {
+      const language = targetLanguages[i];
+
+      try {
+        this.logger.log(
+          `[${projectId}] Starting translation ${i + 1}/${targetLanguages.length} to ${language}...`,
+        );
+
+        const result = await this.translationService.translateProject(
+          projectId,
+          {
+            targetLanguage: language,
+            maintainStyle: true,
+          },
+        );
+
+        // Wait for this translation to complete before starting next one
+        await this.waitForJobCompletion(result.jobId);
+
+        this.logger.log(
+          `[${projectId}] ✓ Completed translation to ${language} (${i + 1}/${targetLanguages.length})`,
+        );
+
+        // Add delay before next language (except after last one)
+        if (i < targetLanguages.length - 1) {
+          this.logger.log(
+            `[${projectId}] Waiting ${delayBetweenLanguages / 1000}s before next translation...`,
+          );
+          await this.delay(delayBetweenLanguages);
+        }
+      } catch (error) {
+        // If translation already exists, skip it
+        if (error.message && error.message.includes('already exists')) {
+          this.logger.log(
+            `[${projectId}] Skipping ${language} - translation already exists`,
+          );
+        } else {
+          this.logger.error(
+            `[${projectId}] Failed to translate to ${language}:`,
+            error,
+          );
+          throw error;
+        }
+      }
+    }
+  }
+
+  /**
+   * Helper method to create delays
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private async processImages(
@@ -206,7 +289,7 @@ export class BookGeneratorService {
       );
     }
   }
-  
+
   private async waitForJobCompletion(jobId: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const checkInterval = setInterval(async () => {

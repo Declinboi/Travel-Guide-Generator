@@ -250,7 +250,7 @@ TONE:
 - Honest and authentic
 - Encouraging and exciting about the destination
 
-LENGTH: Write approximately 1,500-2,000 words covering all sections and subsections from the outline.
+LENGTH: Write approximately 700-800 words covering all sections and subsections from the outline.
 
 Write the complete Introduction chapter now:`;
 
@@ -293,7 +293,7 @@ TONE:
 - Encouraging and exciting about the destination
 - Patient and understanding of different travel styles
 
-LENGTH: Write approximately 2,500-3,500 words covering all sections and subsections from the outline.
+LENGTH: Write approximately 1,000-1,300 words covering all sections and subsections from the outline.
 
 Write the complete chapter now:`;
 
@@ -330,7 +330,7 @@ STRUCTURE:
 4. Final Encouragement: Return to prose, inspiring and warm
 5. Emergency Contacts: Clear list with phone numbers
 
-LENGTH: Write approximately 1,200-1,500 words.
+LENGTH: Write approximately 800-1,000 words.
 
 Write the complete Conclusion chapter now:`;
 
@@ -361,22 +361,22 @@ Write the complete Conclusion chapter now:`;
     title: string,
     subtitle: string,
     author: string,
-    year: number,
+    
   ): Promise<string> {
     return `${title}
 ${subtitle}
-${year}
+
 
 (Including a map at the Last Page)
 
-A practical roadmap with step-by-step plans for every kind of traveler
+
 
 By
 ${author}`;
   }
 
   async generateCopyright(author: string, year: number): Promise<string> {
-    return `Copyright © ${year} ${author}. All rights reserved.
+    return `Copyright © 2026 ${author}. All rights reserved.
 
 No part of this book may be reproduced, stored in a research system, or transmitted in any form or by any means, electronic, mechanical, photocopying, recording, or otherwise, without the prior written permission of the publisher, except for the use of brief quotations in a review or academic work.`;
   }

@@ -111,14 +111,13 @@ export class ContentService {
         generateDto.title,
         generateDto.subtitle || '',
         generateDto.author,
-        year,
       );
 
       await this.saveChapter(projectId, 'Title Page', 0, titlePage);
 
       const copyright = await this.geminiService.generateCopyright(
         generateDto.author,
-        year,
+        2026,
       );
 
       await this.saveChapter(projectId, 'Copyright', 1, copyright);

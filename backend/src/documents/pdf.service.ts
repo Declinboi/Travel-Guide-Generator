@@ -74,6 +74,10 @@ export class PdfService {
             .text(subtitle, { align: 'center' });
           doc.moveDown(2);
         }
+        doc
+          .fontSize(12)
+          .text(`(Including a map at the Last Page)`, { align: 'center' });
+        doc.moveDown(2);
 
         doc.fontSize(14).text(`By ${author}`, { align: 'center' });
 

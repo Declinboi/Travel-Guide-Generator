@@ -66,9 +66,17 @@ export class DocxService {
 
       sections.push(
         new Paragraph({
+          text: '(Including a map at the Last Page)',
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 600 },
+        }),
+      );
+
+      sections.push(
+        new Paragraph({
           text: `By ${author}`,
           alignment: AlignmentType.CENTER,
-          spacing: { after: 1200 },
+          spacing: { after: 600 },
         }),
       );
 
