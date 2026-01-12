@@ -118,7 +118,7 @@ export class DocxService {
             children: [
               new TextRun({
                 text: `Chapter ${chapterNumber}`,
-                size: 40, 
+                size: 40,
               }),
             ],
           }),
@@ -524,6 +524,12 @@ export class DocxService {
           const imageParagraphs = await this.createImageParagraph(image);
           paragraphs.push(...imageParagraphs);
           imageParagraphs.length = 0;
+
+          if (global.gc) {
+            global.gc();
+          }
+
+          await this.delay(100);
         } catch (error) {
           this.logger.error(`Failed to insert image ${image.filename}:`, error);
         }
@@ -610,13 +616,9 @@ export class DocxService {
     let imageBuffer: Buffer | null = null;
 
     try {
-      const response = await axios.get(image.url, {
-        responseType: 'arraybuffer',
-        timeout: 30000,
-        maxContentLength: 10 * 1024 * 1024,
-      });
+      // Download with retry logic
+      imageBuffer = await this.downloadImageWithRetry(image.url);
 
-      imageBuffer = Buffer.from(response.data, 'binary');
       const imageType = this.getImageType(image.mimeType || image.url);
 
       // Image dimensions: 3.98 inches width x 2.53 inches height
@@ -641,10 +643,13 @@ export class DocxService {
           spacing: { before: 300, after: 150 },
         }),
       );
+      imageBuffer = null;
     } catch (error) {
       this.logger.error('Error creating image paragraph:', error);
     } finally {
-      imageBuffer = null;
+      if (imageBuffer) {
+        imageBuffer = null;
+      }
 
       if (global.gc) {
         global.gc();
@@ -670,13 +675,9 @@ export class DocxService {
         }),
       );
 
-      const response = await axios.get(mapImage.url, {
-        responseType: 'arraybuffer',
-        timeout: 30000,
-        maxContentLength: 10 * 1024 * 1024,
-      });
+      // Download with retry logic
+      imageBuffer = await this.downloadImageWithRetry(mapImage.url);
 
-      imageBuffer = Buffer.from(response.data, 'binary');
       const imageType = this.getImageType(mapImage.mimeType || mapImage.url);
 
       // Map dimensions: 3.97 inches width x 5.85 inches height
@@ -795,5 +796,77 @@ export class DocxService {
 
     // Rejoin with double newlines
     return cleanedParagraphs.join('\n\n');
+  }
+
+  /**
+   * Download image with retry logic and better error handling
+   */
+  private async downloadImageWithRetry(
+    url: string,
+    maxRetries: number = 4,
+    timeoutMs: number = 60000, // Increased to 60 seconds
+  ): Promise<Buffer> {
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logger.log(
+          `[Attempt ${attempt}/${maxRetries}] Downloading image: ${url}`,
+        );
+
+        const response = await axios.get(url, {
+          responseType: 'arraybuffer',
+          timeout: timeoutMs,
+          maxContentLength: 10 * 1024 * 1024, // 10MB
+          maxRedirects: 5,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideGenerator/1.0)',
+          },
+          // Disable IPv6 to avoid ENETUNREACH errors
+          family: 4, // Force IPv4
+        });
+
+        this.logger.log(`✓ Image downloaded successfully: ${url}`);
+        return Buffer.from(response.data, 'binary');
+      } catch (error) {
+        lastError = error;
+
+        if (axios.isAxiosError(error)) {
+          const code = error.code || error.response?.status;
+          this.logger.warn(
+            `[Attempt ${attempt}/${maxRetries}] Failed to download image: ${code}`,
+          );
+
+          // Don't retry on 404 or other permanent errors
+          if (
+            error.response?.status === 404 ||
+            error.response?.status === 403
+          ) {
+            this.logger.error(`Image not found or forbidden: ${url}`);
+            throw new Error(`Image not accessible: ${url}`);
+          }
+        }
+
+        // Wait before retrying (exponential backoff)
+        if (attempt < maxRetries) {
+          const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+          this.logger.log(`Waiting ${waitTime}ms before retry...`);
+          await this.delay(waitTime);
+        }
+      }
+    }
+
+    // All retries failed
+    this.logger.error(
+      `Failed to download image after ${maxRetries} attempts: ${url}`,
+    );
+    throw lastError;
+  }
+
+  /**
+   * Helper delay method
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

@@ -392,6 +392,15 @@ export class PdfService {
 
           // Add generous spacing after image
           doc.moveDown(2.5);
+
+
+           if (global.gc) {
+          global.gc();
+        }
+        
+        // Small delay to allow GC to complete
+        await this.delay(100);
+        
         } catch (error) {
           this.logger.error(`Failed to insert image ${image.filename}:`, error);
         }
@@ -470,13 +479,7 @@ export class PdfService {
     let imageBuffer: Buffer | null = null;
 
     try {
-      const response = await axios.get(image.url, {
-        responseType: 'arraybuffer',
-        timeout: 30000,
-        maxContentLength: 10 * 1024 * 1024,
-      });
-
-      imageBuffer = Buffer.from(response.data, 'binary');
+      imageBuffer = await this.downloadImageWithRetry(image.url);
       const imageWidth = 286.56;
       const imageHeight = 182.16;
       const xPosition = (doc.page.width - imageWidth) / 2;
@@ -507,11 +510,17 @@ export class PdfService {
 
       // Move cursor past the image
       doc.y = imageY + imageHeight;
+
+       imageBuffer = null;
     } catch (error) {
       this.logger.error(`Error inserting image:`, error);
       throw error;
     } finally {
+      // Ensure buffer is cleared
+    if (imageBuffer) {
       imageBuffer = null;
+    }
+
       if (global.gc) {
         global.gc();
       }
@@ -530,13 +539,9 @@ export class PdfService {
       });
       doc.moveDown(2);
 
-      const response = await axios.get(mapImage.url, {
-        responseType: 'arraybuffer',
-        timeout: 30000,
-        maxContentLength: 10 * 1024 * 1024,
-      });
+      imageBuffer = await this.downloadImageWithRetry(mapImage.url);
 
-      imageBuffer = Buffer.from(response.data, 'binary');
+
       const mapWidth = 285.84;
       const mapHeight = 421.2;
       const xPosition = (doc.page.width - mapWidth) / 2;
@@ -634,5 +639,77 @@ export class PdfService {
 
     // Rejoin with double newlines
     return cleanedParagraphs.join('\n\n');
+  }
+
+  /**
+   * Download image with retry logic and better error handling
+   */
+  private async downloadImageWithRetry(
+    url: string,
+    maxRetries: number = 4,
+    timeoutMs: number = 60000, // Increased to 60 seconds
+  ): Promise<Buffer> {
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logger.log(
+          `[Attempt ${attempt}/${maxRetries}] Downloading image: ${url}`,
+        );
+
+        const response = await axios.get(url, {
+          responseType: 'arraybuffer',
+          timeout: timeoutMs,
+          maxContentLength: 10 * 1024 * 1024, // 10MB
+          maxRedirects: 5,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideGenerator/1.0)',
+          },
+          // Disable IPv6 to avoid ENETUNREACH errors
+          family: 4, // Force IPv4
+        });
+
+        this.logger.log(`✓ Image downloaded successfully: ${url}`);
+        return Buffer.from(response.data, 'binary');
+      } catch (error) {
+        lastError = error;
+
+        if (axios.isAxiosError(error)) {
+          const code = error.code || error.response?.status;
+          this.logger.warn(
+            `[Attempt ${attempt}/${maxRetries}] Failed to download image: ${code}`,
+          );
+
+          // Don't retry on 404 or other permanent errors
+          if (
+            error.response?.status === 404 ||
+            error.response?.status === 403
+          ) {
+            this.logger.error(`Image not found or forbidden: ${url}`);
+            throw new Error(`Image not accessible: ${url}`);
+          }
+        }
+
+        // Wait before retrying (exponential backoff)
+        if (attempt < maxRetries) {
+          const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+          this.logger.log(`Waiting ${waitTime}ms before retry...`);
+          await this.delay(waitTime);
+        }
+      }
+    }
+
+    // All retries failed
+    this.logger.error(
+      `Failed to download image after ${maxRetries} attempts: ${url}`,
+    );
+    throw lastError;
+  }
+
+  /**
+   * Helper delay method
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
