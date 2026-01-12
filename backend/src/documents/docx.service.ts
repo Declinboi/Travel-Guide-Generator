@@ -118,7 +118,7 @@ export class DocxService {
             children: [
               new TextRun({
                 text: `Chapter ${chapterNumber}`,
-                size: 32, // 16pt
+                size: 40, 
               }),
             ],
           }),

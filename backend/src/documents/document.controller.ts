@@ -25,7 +25,7 @@ export class DocumentController {
     @Param('projectId') projectId: string,
     @Body() generateDto: GenerateDocumentDto,
   ) {
-    return await this.documentService.generateDocument(projectId, generateDto);
+    return await this.documentService.generateDocumentSync(projectId, generateDto);
   }
 
   @Post('generate-all/:projectId')
@@ -39,7 +39,7 @@ export class DocumentController {
     @Param('projectId') projectId: string,
     @Body() bulkDto: BulkGenerateDocumentsDto,
   ) {
-    return await this.documentService.generateAllDocuments(projectId, bulkDto);
+    return await this.documentService.generateAllDocumentsSequential(projectId, bulkDto);
   }
 
   @Get('project/:projectId')

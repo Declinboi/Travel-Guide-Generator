@@ -507,20 +507,6 @@ export class PdfService {
 
       // Move cursor past the image
       doc.y = imageY + imageHeight;
-
-      // Optional: Add caption if available
-      if (image.caption) {
-        doc.moveDown(0.5);
-        doc
-          .fontSize(9)
-          .font('Helvetica')
-          .fillColor('#666666')
-          .text(image.caption, {
-            align: 'center',
-            width: doc.page.width - 100,
-          });
-        doc.fillColor('#000000'); // Reset color
-      }
     } catch (error) {
       this.logger.error(`Error inserting image:`, error);
       throw error;
