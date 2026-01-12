@@ -55,8 +55,8 @@ export class DocxService {
       const titlePageSections = this.createTitlePage(title, subtitle, author);
 
       // BLANK PAGES
-      const blankPage1 = [new Paragraph({ text: '', pageBreakBefore: true })];
-      const blankPage2 = [new Paragraph({ text: '', pageBreakBefore: true })];
+      // const blankPage1 = [new Paragraph({ text: '', pageBreakBefore: true })];
+      // const blankPage2 = [new Paragraph({ text: '', pageBreakBefore: true })];
 
       // COPYRIGHT PAGE
       const copyrightChapter = chapters.find((c) =>
@@ -85,8 +85,8 @@ export class DocxService {
       // Combine front matter
       sections.push(
         ...titlePageSections,
-        ...blankPage1,
-        ...blankPage2,
+        // ...blankPage1,
+        // ...blankPage2,
         ...copyrightSections,
         ...aboutSections,
         ...tocSections,
@@ -240,7 +240,7 @@ export class DocxService {
       new Paragraph({
         text: subtitle,
         alignment: AlignmentType.CENTER,
-        spacing: { after: 400 },
+        spacing: { after: 800 },
         children: [
           new TextRun({
             text: subtitle,
@@ -248,51 +248,7 @@ export class DocxService {
           }),
         ],
       }),
-      new Paragraph({
-        text: '2026',
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 200 },
-        children: [
-          new TextRun({
-            text: '2026',
-            size: 28,
-          }),
-        ],
-      }),
-      new Paragraph({
-        text: '(Including a map at the Last Page)',
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 800 },
-        children: [
-          new TextRun({
-            text: '(Including a map at the Last Page)',
-            italics: true,
-            size: 22,
-          }),
-        ],
-      }),
-      new Paragraph({
-        text: 'A practical roadmap with step-by-step plans for',
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 100 },
-        children: [
-          new TextRun({
-            text: 'A practical roadmap with step-by-step plans for',
-            size: 24,
-          }),
-        ],
-      }),
-      new Paragraph({
-        text: 'every kind of traveler',
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 800 },
-        children: [
-          new TextRun({
-            text: 'every kind of traveler',
-            size: 24,
-          }),
-        ],
-      }),
+
       new Paragraph({
         text: 'By',
         alignment: AlignmentType.CENTER,
@@ -572,22 +528,6 @@ export class DocxService {
           spacing: { before: 200, after: 100 },
         }),
       );
-
-      if (image.caption) {
-        paragraphs.push(
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [
-              new TextRun({
-                text: image.caption,
-                italics: true,
-                size: 18,
-              }),
-            ],
-            spacing: { after: 400 },
-          }),
-        );
-      }
     } catch (error) {
       this.logger.error('Error creating image paragraph:', error);
     } finally {
@@ -610,7 +550,7 @@ export class DocxService {
 
       paragraphs.push(
         new Paragraph({
-          text: 'Geographical Map of Trieste',
+          text: 'Geographical Map',
           heading: HeadingLevel.HEADING_1,
           alignment: AlignmentType.CENTER,
           spacing: { after: 400 },

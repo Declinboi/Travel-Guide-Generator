@@ -61,11 +61,7 @@ export class PdfService {
         doc.addPage();
         this.addTitlePage(doc, title, subtitle, author);
 
-        // 2. Blank page
-        doc.addPage();
-
-        // 3. Another blank page
-        doc.addPage();
+      
 
         // 4. Copyright Page
         const copyrightChapter = chapters.find((c) =>
@@ -221,36 +217,9 @@ export class PdfService {
         });
     }
 
-    // Year/Version info
-    doc.fontSize(14)
-      .font('Helvetica')
-      .text('2026', 50, 240, {
-        width: pageWidth - 100,
-        align: 'center',
-      });
-
-    // Note about map
-    doc.fontSize(11)
-      .font('Helvetica-Oblique')
-      .text('(Including a map at the Last Page)', 50, 280, {
-        width: pageWidth - 100,
-        align: 'center',
-      });
-
+    
     // Author at bottom third
-    doc.fontSize(12)
-      .font('Helvetica')
-      .text('A practical roadmap with step-by-step plans for', 50, 380, {
-        width: pageWidth - 100,
-        align: 'center',
-      });
-
-    doc.fontSize(12)
-      .font('Helvetica')
-      .text('every kind of traveler', 50, 400, {
-        width: pageWidth - 100,
-        align: 'center',
-      });
+    
 
     doc.fontSize(16)
       .font('Helvetica-Bold')
@@ -481,15 +450,7 @@ export class PdfService {
 
       doc.moveDown(0.5);
 
-      if (image.caption) {
-        doc.fontSize(9)
-          .font('Helvetica-Oblique')
-          .text(image.caption, {
-            align: 'center',
-            width: doc.page.width - 100,
-          });
-        doc.font('Helvetica');
-      }
+    
     } catch (error) {
       this.logger.error(`Error inserting image:`, error);
       throw error;
@@ -510,7 +471,7 @@ export class PdfService {
     try {
       doc.fontSize(16)
         .font('Helvetica-Bold')
-        .text('Geographical Map of Trieste', {
+        .text('Geographical Map', {
           align: 'center',
         });
 

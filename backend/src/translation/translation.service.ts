@@ -1,3 +1,4 @@
+// src/translation/translation.service.ts
 import {
   Injectable,
   Logger,
@@ -7,7 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { GeminiTranslationService } from './gemini-translation.service';
+import { GoogleTranslationService } from './google-translation.service';
 import {
   TranslateProjectDto,
   BulkTranslateDto,
@@ -33,11 +34,11 @@ export class TranslationService {
     private readonly translationRepository: Repository<Translation>,
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
-    @InjectRepository(Chapter)
-    private readonly chapterRepository: Repository<Chapter>,
+    // @InjectRepository(Chapter)
+    // private readonly chapterRepository: Repository<Chapter>,
     @InjectRepository(Job)
     private readonly jobRepository: Repository<Job>,
-    private readonly geminiTranslationService: GeminiTranslationService,
+    private readonly googleTranslationService: GoogleTranslationService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -160,13 +161,13 @@ export class TranslationService {
       // Sort chapters by order
       const chapters = project.chapters.sort((a, b) => a.order - b.order);
 
-      // Translate metadata (10% progress)
+      // Translate metadata (20% progress)
       this.logger.log(
         `Translating metadata to ${translateDto.targetLanguage}...`,
       );
 
       const translatedMetadata =
-        await this.geminiTranslationService.translateMetadata(
+        await this.googleTranslationService.translateMetadata(
           project.title,
           project.subtitle,
           translateDto.targetLanguage,
@@ -176,50 +177,29 @@ export class TranslationService {
       translation.subtitle = translatedMetadata.subtitle;
       await this.translationRepository.save(translation);
 
-      job.progress = 10;
+      job.progress = 20;
       await this.jobRepository.save(job);
 
-      // Translate chapters (10% - 95% progress)
-      this.logger.log(`Translating ${chapters.length} chapters...`);
+      // Translate chapters using batch translation (20% - 95% progress)
+      this.logger.log(`Translating ${chapters.length} chapters using Google Translate...`);
 
-      const progressPerChapter = 85 / chapters.length;
-      
       type TranslatedChapter = {
         title: string;
         content: string;
         order: number;
       };
 
-      const translatedChapters: TranslatedChapter[] = [];
-
-      for (let i = 0; i < chapters.length; i++) {
-        const chapter = chapters[i];
-        this.logger.log(
-          `Translating chapter ${i + 1}/${chapters.length}: ${chapter.title}`,
+      // Use batch translation for better performance
+      const translatedChapters: TranslatedChapter[] = 
+        await this.googleTranslationService.translateChapters(
+          chapters,
+          translateDto.targetLanguage,
         );
 
-        const translatedTitle =
-          await this.geminiTranslationService.translateText(
-            chapter.title,
-            translateDto.targetLanguage,
-            false,
-          );
-
-        const translatedContent =
-          await this.geminiTranslationService.translateText(
-            chapter.content,
-            translateDto.targetLanguage,
-            translateDto.maintainStyle,
-          );
-
-        translatedChapters.push({
-          title: translatedTitle,
-          content: translatedContent,
-          order: chapter.order,
-        });
-
-        // Update progress
-        job.progress = 10 + Math.round((i + 1) * progressPerChapter);
+      // Update progress incrementally to show activity
+      for (let i = 0; i < translatedChapters.length; i++) {
+        const progressPerChapter = 75 / chapters.length;
+        job.progress = 20 + Math.round((i + 1) * progressPerChapter);
         await this.jobRepository.save(job);
 
         this.eventEmitter.emit('translation.chapter.completed', {
@@ -255,7 +235,7 @@ export class TranslationService {
       });
 
       this.logger.log(
-        `Translation to ${translateDto.targetLanguage} completed`,
+        `Translation to ${translateDto.targetLanguage} completed successfully`,
       );
     } catch (error) {
       this.logger.error(
@@ -298,7 +278,6 @@ export class TranslationService {
       throw new BadRequestException('No valid target languages specified');
     }
 
-    // Type the jobs array properly
     type TranslationJob = {
       message: string;
       jobId: string;
@@ -397,5 +376,19 @@ export class TranslationService {
     };
 
     return progress;
+  }
+
+  // Optional: Retry failed translation
+  async retryTranslation(translationId: string) {
+    const translation = await this.findOne(translationId);
+    
+    if (translation.status !== TranslationStatus.FAILED) {
+      throw new BadRequestException('Can only retry failed translations');
+    }
+
+    return await this.translateProject(translation.projectId, {
+      targetLanguage: translation.language,
+      maintainStyle: true,
+    });
   }
 }
