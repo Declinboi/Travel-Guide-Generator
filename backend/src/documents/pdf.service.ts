@@ -1,49 +1,38 @@
-// src/modules/document/pdf.service.ts
+// src/modules/document/pdf.service.ts (Updated)
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import PDFDocument from 'pdfkit';
-import * as fs from 'fs';
-import * as path from 'path';
 import axios from 'axios';
 
 @Injectable()
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
-  private readonly storagePath: string;
 
-  constructor(private configService: ConfigService) {
-    this.storagePath =
-      this.configService.get('STORAGE_PATH') || './storage/documents';
-
-    if (!fs.existsSync(this.storagePath)) {
-      fs.mkdirSync(this.storagePath, { recursive: true });
-    }
-  }
-
-  async generatePDF(
+  /**
+   * Generate PDF and return as Buffer (for Cloudinary upload)
+   */
+  async generatePDFBuffer(
     title: string,
     subtitle: string,
     author: string,
     chapters: any[],
     images: any[] = [],
-  ): Promise<{ filename: string; filepath: string; size: number }> {
+  ): Promise<{ buffer: Buffer; filename: string }> {
     return new Promise(async (resolve, reject) => {
       let doc: PDFKit.PDFDocument | null = null;
-      let writeStream: fs.WriteStream | null = null;
+      const chunks: Buffer[] = [];
 
       try {
         this.logMemory('PDF Start');
 
         const filename = `${this.sanitizeFilename(title)}_${Date.now()}.pdf`;
-        const filepath = path.join(this.storagePath, filename);
 
         doc = new PDFDocument({
-          size: [432, 648], // 6x9 inches at 72 DPI
+          size: [432, 648],
           margins: {
-            top: 79.2, // (9 - 6.7) / 2 = 1.15 inches = 82.8pt, adjusted for header space
-            bottom: 79.2, // 1.15 inches = 82.8pt
-            left: 72, // (6 - 4) / 2 = 1 inch = 72pt
-            right: 72, // 1 inch = 72pt
+            top: 79.2,
+            bottom: 79.2,
+            left: 72,
+            right: 72,
           },
           info: {
             Title: title,
@@ -54,19 +43,35 @@ export class PdfService {
           compress: true,
         });
 
-        writeStream = fs.createWriteStream(filepath);
-        doc.pipe(writeStream);
+        // Collect buffer chunks
+        doc.on('data', (chunk) => chunks.push(chunk));
 
-        let actualPageNumber = 0; // For content pages only
-        let totalPages = 0;
+        doc.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          this.logger.log(
+            `PDF generated: ${filename} (${buffer.length} bytes)`,
+          );
+          this.logMemory('PDF Complete');
 
-        // FRONT MATTER (no page numbers)
+          doc = null;
+          chunks.length = 0;
 
-        // 1. Title Page
+          resolve({ buffer, filename });
+        });
+
+        doc.on('error', (err) => {
+          this.logger.error('PDF generation error:', err);
+          doc = null;
+          chunks.length = 0;
+          reject(err);
+        });
+
+        let actualPageNumber = 0;
+
+        // FRONT MATTER
         doc.addPage();
         this.addTitlePage(doc, title, subtitle, author);
 
-        // 4. Copyright Page
         const copyrightChapter = chapters.find((c) =>
           c.title.toLowerCase().includes('copyright'),
         );
@@ -75,7 +80,6 @@ export class PdfService {
           this.addCopyrightPage(doc, copyrightChapter.content);
         }
 
-        // 5. About Book
         const aboutChapter = chapters.find((c) =>
           c.title.toLowerCase().includes('about'),
         );
@@ -84,7 +88,6 @@ export class PdfService {
           this.addAboutPage(doc, aboutChapter.content);
         }
 
-        // 6. Table of Contents
         const tocChapter = chapters.find((c) =>
           c.title.toLowerCase().includes('table'),
         );
@@ -93,7 +96,7 @@ export class PdfService {
           this.addTableOfContents(doc, tocChapter.content);
         }
 
-        // MAIN CONTENT (with page numbers)
+        // MAIN CONTENT
         const mainChapters = chapters
           .filter(
             (c) =>
@@ -103,7 +106,6 @@ export class PdfService {
           )
           .sort((a, b) => a.order - b.order);
 
-        // Start page numbering from first main chapter
         actualPageNumber = 1;
 
         for (let i = 0; i < mainChapters.length; i++) {
@@ -113,10 +115,8 @@ export class PdfService {
           doc.addPage();
           actualPageNumber++;
 
-          // Add chapter title
           this.addChapterTitle(doc, chapter.title, chapterNumber);
 
-          // Get chapter images
           const chapterImages = images
             .filter((img) => img.chapterNumber === chapterNumber && !img.isMap)
             .sort((a, b) => (a.position || 0) - (b.position || 0));
@@ -131,13 +131,12 @@ export class PdfService {
             this.addFormattedContent(doc, chapter.content);
           }
 
-          // Force GC after each chapter
           if (global.gc && i % 2 === 0) {
             global.gc();
           }
         }
 
-        // Add Map on Last Page
+        // Add Map
         const mapImage = images.find((img) => img.isMap);
         if (mapImage) {
           doc.addPage();
@@ -145,9 +144,9 @@ export class PdfService {
           await this.addMapPage(doc, mapImage);
         }
 
-        // Add page numbers to all content pages
+        // Add page numbers
         const range = doc.bufferedPageRange();
-        const startPage = 7; // Pages after TOC
+        const startPage = 7;
 
         for (let i = startPage; i < range.count; i++) {
           doc.switchToPage(i);
@@ -156,28 +155,6 @@ export class PdfService {
         }
 
         doc.end();
-
-        writeStream.on('finish', () => {
-          const stats = fs.statSync(filepath);
-          this.logger.log(`PDF generated: ${filename} (${stats.size} bytes)`);
-          this.logMemory('PDF Complete');
-
-          doc = null;
-          writeStream = null;
-
-          resolve({
-            filename,
-            filepath,
-            size: stats.size,
-          });
-        });
-
-        writeStream.on('error', (err) => {
-          this.logger.error('Write stream error:', err);
-          doc = null;
-          writeStream = null;
-          reject(err);
-        });
       } catch (error) {
         this.logger.error('Error generating PDF:', error);
 
@@ -185,17 +162,20 @@ export class PdfService {
           try {
             doc.end();
           } catch (e) {
-            // Ignore cleanup errors
+            // Ignore
           }
         }
 
         doc = null;
-        writeStream = null;
+        chunks.length = 0;
 
         reject(error);
       }
     });
   }
+
+  // Keep all your existing helper methods (addTitlePage, addCopyrightPage, etc.)
+  // They remain unchanged...
 
   private addTitlePage(
     doc: PDFKit.PDFDocument,
@@ -204,9 +184,6 @@ export class PdfService {
     author: string,
   ): void {
     const pageWidth = doc.page.width;
-    const pageHeight = doc.page.height;
-
-    // Title - centered and large
     doc
       .fontSize(32)
       .font('Helvetica-Bold')
@@ -215,7 +192,6 @@ export class PdfService {
         align: 'center',
       });
 
-    // Subtitle
     if (subtitle) {
       doc
         .fontSize(18)
@@ -225,8 +201,6 @@ export class PdfService {
           align: 'center',
         });
     }
-
-    // Author at bottom third
 
     doc
       .fontSize(16)
@@ -245,23 +219,13 @@ export class PdfService {
       });
   }
 
-  private addCopyrightPage(doc: PDFKit.PDFDocument, content: string): void {
-    doc
-      .fontSize(9)
-      .font('Helvetica')
-      .text(content, 50, 100, {
-        width: doc.page.width - 100,
-        align: 'left',
-        lineGap: 4,
-      });
-  }
-
   private addAboutPage(doc: PDFKit.PDFDocument, content: string): void {
     doc.fontSize(16).font('Helvetica-Bold').text('About Book', 50, 50);
-
     doc.moveDown(1.5);
 
-    const paragraphs = content.split('\n\n').filter((p) => p.trim());
+    // Clean and split content
+    const cleanedContent = this.cleanContent(content);
+    const paragraphs = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     paragraphs.forEach((para, index) => {
       doc
@@ -281,40 +245,33 @@ export class PdfService {
 
   private addTableOfContents(doc: PDFKit.PDFDocument, content: string): void {
     doc.fontSize(16).font('Helvetica-Bold').text('Table of Contents', 50, 50);
-
     doc.moveDown(1.5);
 
-    const lines = content.split('\n').filter((l) => l.trim());
+    // Clean content first
+    const cleanedContent = this.cleanContent(content);
+    const lines = cleanedContent.split('\n').filter((l) => l.trim());
 
     lines.forEach((line) => {
       const trimmed = line.trim();
-
       if (!trimmed) {
         doc.moveDown(0.3);
         return;
       }
 
-      // Chapter headers (no indentation)
       if (trimmed.match(/^Chapter \d+$/)) {
         doc.moveDown(0.5);
         doc.fontSize(11).font('Helvetica-Bold').text(trimmed, {
           continued: false,
         });
-      }
-      // Chapter titles (no indentation)
-      else if (!trimmed.startsWith(' ')) {
+      } else if (!trimmed.startsWith(' ')) {
         doc.fontSize(11).font('Helvetica').text(trimmed, {
           continued: false,
         });
-      }
-      // Sections (slight indent)
-      else if (trimmed.match(/^[A-Z]/)) {
+      } else if (trimmed.match(/^[A-Z]/)) {
         doc.fontSize(10).font('Helvetica').text(trimmed.trim(), 65, doc.y, {
           continued: false,
         });
-      }
-      // Subsections (more indent)
-      else {
+      } else {
         doc.fontSize(9).font('Helvetica').text(trimmed.trim(), 80, doc.y, {
           continued: false,
         });
@@ -327,37 +284,41 @@ export class PdfService {
     title: string,
     chapterNumber: number,
   ): void {
-    // Chapter number
-    doc.fontSize(14).font('Helvetica').text(`Chapter ${chapterNumber}`, {
-      align: 'left',
+    // Clean the title
+    const cleanTitle = this.cleanText(title);
+
+    doc.fontSize(16).font('Helvetica').text(`Chapter ${chapterNumber}`, {
+      align: 'center',
     });
+    doc.moveDown(1.5);
 
-    doc.moveDown(0.5);
-
-    // Chapter title
-    doc.fontSize(18).font('Helvetica-Bold').text(title, {
-      align: 'left',
+    doc.fontSize(20).font('Helvetica-Bold').text(cleanTitle, {
+      align: 'center',
     });
-
-    doc.moveDown(2);
+    doc.moveDown(3);
   }
 
   private addFormattedContent(doc: PDFKit.PDFDocument, content: string): void {
-    const sections = content.split('\n\n').filter((p) => p.trim());
+    // Clean the content
+    const cleanedContent = this.cleanContent(content);
+    const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     sections.forEach((section, index) => {
       const trimmed = section.trim();
 
-      // Section headers (typically bold in original)
-      if (trimmed.length < 100 && !trimmed.includes('.')) {
-        doc.fontSize(13).font('Helvetica-Bold').text(trimmed, {
+      // Check if this is a section header
+      const isHeader =
+        trimmed.length < 100 &&
+        !trimmed.includes('.') &&
+        trimmed.split(' ').length <= 10;
+
+      if (isHeader) {
+        doc.fontSize(14).font('Helvetica-Bold').text(trimmed, {
           align: 'left',
           lineGap: 5,
         });
-        doc.moveDown(0.8);
-      }
-      // Regular paragraphs
-      else {
+        doc.moveDown(1.2);
+      } else {
         doc.fontSize(11).font('Helvetica').text(trimmed, {
           align: 'left',
           lineGap: 5,
@@ -370,47 +331,138 @@ export class PdfService {
     });
   }
 
+  private addCopyrightPage(doc: PDFKit.PDFDocument, content: string): void {
+    // Clean the content
+    const cleanedContent = this.cleanContent(content);
+
+    doc
+      .fontSize(9)
+      .font('Helvetica')
+      .text(cleanedContent, 50, 100, {
+        width: doc.page.width - 100,
+        align: 'left',
+        lineGap: 4,
+      });
+  }
+
   private async addContentWithImages(
     doc: PDFKit.PDFDocument,
     content: string,
     chapterImages: any[],
   ): Promise<void> {
     const paragraphs = content.split('\n\n').filter((p) => p.trim());
-    const sectionsPerImage = Math.floor(
-      paragraphs.length / (chapterImages.length + 1),
+
+    // Calculate optimal image positions
+    const sections = this.createContentSections(
+      paragraphs,
+      chapterImages.length,
     );
 
-    let currentIndex = 0;
-
-    for (let i = 0; i < chapterImages.length; i++) {
-      const image = chapterImages[i];
-
-      const textSection = paragraphs
-        .slice(currentIndex, currentIndex + sectionsPerImage)
-        .join('\n\n');
-
-      if (textSection) {
-        this.addFormattedContent(doc, textSection);
-        doc.moveDown(1);
+    for (const section of sections) {
+      // Add text content
+      if (section.paragraphs.length > 0) {
+        this.addFormattedContent(doc, section.paragraphs.join('\n\n'));
       }
 
-      try {
-        await this.insertImage(doc, image);
-        doc.moveDown(1.5);
-      } catch (error) {
-        this.logger.error(`Failed to insert image ${image.filename}:`, error);
+      // Add image if this section has one
+      if (
+        section.imageIndex !== undefined &&
+        chapterImages[section.imageIndex]
+      ) {
+        const image = chapterImages[section.imageIndex];
+
+        try {
+          // Add generous spacing before image
+          doc.moveDown(2.5);
+
+          // Check if we need a new page
+          const imageHeight = 182.16;
+          const totalSpaceNeeded = imageHeight + 80; // Image + margins
+
+          if (
+            doc.y + totalSpaceNeeded >
+            doc.page.height - doc.page.margins.bottom
+          ) {
+            doc.addPage();
+            doc.moveDown(1);
+          }
+
+          // Insert the image
+          await this.insertImage(doc, image);
+
+          // Add generous spacing after image
+          doc.moveDown(2.5);
+        } catch (error) {
+          this.logger.error(`Failed to insert image ${image.filename}:`, error);
+        }
       }
-
-      currentIndex += sectionsPerImage;
-    }
-
-    const remainingText = paragraphs.slice(currentIndex).join('\n\n');
-
-    if (remainingText) {
-      this.addFormattedContent(doc, remainingText);
     }
   }
 
+  /**
+   * Helper method to intelligently split content into sections with images
+   */
+  private createContentSections(
+    paragraphs: string[],
+    imageCount: number,
+  ): Array<{ paragraphs: string[]; imageIndex?: number }> {
+    const sections: Array<{ paragraphs: string[]; imageIndex?: number }> = [];
+
+    if (imageCount === 0) {
+      sections.push({ paragraphs });
+      return sections;
+    }
+
+    const minParagraphsBeforeImage = 2;
+    const minParagraphsAfterImage = 2;
+
+    // Calculate usable space
+    const usableSpace = paragraphs.length - minParagraphsAfterImage;
+
+    if (usableSpace < minParagraphsBeforeImage) {
+      // Not enough space for proper placement
+      sections.push({ paragraphs });
+      return sections;
+    }
+
+    // Distribute images evenly
+    const spacing = Math.floor(usableSpace / (imageCount + 1));
+    const placements: number[] = [];
+
+    for (let i = 0; i < imageCount; i++) {
+      const position = Math.min(
+        minParagraphsBeforeImage + spacing * (i + 1),
+        paragraphs.length - minParagraphsAfterImage - (imageCount - i - 1),
+      );
+      placements.push(position);
+    }
+
+    let lastIndex = 0;
+
+    placements.forEach((position, idx) => {
+      const sectionParagraphs = paragraphs.slice(lastIndex, position);
+
+      sections.push({
+        paragraphs: sectionParagraphs,
+        imageIndex: idx,
+      });
+
+      lastIndex = position;
+    });
+
+    // Add remaining paragraphs
+    if (lastIndex < paragraphs.length) {
+      sections.push({
+        paragraphs: paragraphs.slice(lastIndex),
+      });
+    }
+
+    return sections;
+  }
+
+  /**
+   * Improved image insertion with border and better positioning
+   */
   private async insertImage(
     doc: PDFKit.PDFDocument,
     image: any,
@@ -425,21 +477,50 @@ export class PdfService {
       });
 
       imageBuffer = Buffer.from(response.data, 'binary');
-
-      // Image dimensions: 3.98 inches width x 2.53 inches height
-      // At 72 DPI: width = 286.56pt, height = 182.16pt
       const imageWidth = 286.56;
       const imageHeight = 182.16;
-
       const xPosition = (doc.page.width - imageWidth) / 2;
 
-      doc.image(imageBuffer, xPosition, doc.y, {
+      // Save current position
+      const imageY = doc.y;
+
+      // Draw subtle border
+      const borderPadding = 4;
+      doc.save();
+      doc
+        .rect(
+          xPosition - borderPadding,
+          imageY - borderPadding,
+          imageWidth + borderPadding * 2,
+          imageHeight + borderPadding * 2,
+        )
+        .lineWidth(0.5)
+        .strokeColor('#DDDDDD')
+        .stroke();
+      doc.restore();
+
+      // Insert image
+      doc.image(imageBuffer, xPosition, imageY, {
         width: imageWidth,
         height: imageHeight,
-        align: 'center',
       });
 
-      doc.moveDown(0.5);
+      // Move cursor past the image
+      doc.y = imageY + imageHeight;
+
+      // Optional: Add caption if available
+      if (image.caption) {
+        doc.moveDown(0.5);
+        doc
+          .fontSize(9)
+          .font('Helvetica')
+          .fillColor('#666666')
+          .text(image.caption, {
+            align: 'center',
+            width: doc.page.width - 100,
+          });
+        doc.fillColor('#000000'); // Reset color
+      }
     } catch (error) {
       this.logger.error(`Error inserting image:`, error);
       throw error;
@@ -461,7 +542,6 @@ export class PdfService {
       doc.fontSize(16).font('Helvetica-Bold').text('Geographical Map', {
         align: 'center',
       });
-
       doc.moveDown(2);
 
       const response = await axios.get(mapImage.url, {
@@ -471,9 +551,6 @@ export class PdfService {
       });
 
       imageBuffer = Buffer.from(response.data, 'binary');
-
-      // Map dimensions: 3.97 inches width x 5.85 inches height
-      // At 72 DPI: width = 285.84pt, height = 421.2pt
       const mapWidth = 285.84;
       const mapHeight = 421.2;
       const xPosition = (doc.page.width - mapWidth) / 2;
@@ -518,10 +595,58 @@ export class PdfService {
     );
   }
 
-  async deletePDF(filepath: string): Promise<void> {
-    if (fs.existsSync(filepath)) {
-      fs.unlinkSync(filepath);
-      this.logger.log(`PDF deleted: ${filepath}`);
-    }
+  // ============================================
+  // SHARED HELPER METHOD (Add to both services)
+  // ============================================
+
+  /**
+   * Clean markdown and special characters from text
+   */
+  private cleanText(text: string): string {
+    if (!text) return '';
+
+    return (
+      text
+        // Remove markdown bold (**text** or __text__)
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/__(.+?)__/g, '$1')
+
+        // Remove markdown italic (*text* or _text_)
+        .replace(/\*(.+?)\*/g, '$1')
+        .replace(/_(.+?)_/g, '$1')
+
+        // Remove markdown headers (##, ###, etc.)
+        .replace(/^#+\s+/gm, '')
+
+        // Remove markdown strikethrough (~~text~~)
+        .replace(/~~(.+?)~~/g, '$1')
+
+        // Remove markdown code (`text`)
+        .replace(/`(.+?)`/g, '$1')
+
+        // Remove extra spaces created by removal
+        .replace(/\s+/g, ' ')
+
+        // Trim whitespace
+        .trim()
+    );
+  }
+
+  /**
+   * Clean content with paragraph preservation
+   */
+  private cleanContent(content: string): string {
+    if (!content) return '';
+
+    // Split into paragraphs
+    const paragraphs = content.split('\n\n');
+
+    // Clean each paragraph
+    const cleanedParagraphs = paragraphs
+      .map((para) => this.cleanText(para))
+      .filter((para) => para.length > 0);
+
+    // Rejoin with double newlines
+    return cleanedParagraphs.join('\n\n');
   }
 }

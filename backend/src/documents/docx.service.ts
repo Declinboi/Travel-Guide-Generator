@@ -35,13 +35,13 @@ export class DocxService {
     }
   }
 
-  async generateDOCX(
+  async generateDOCXBuffer(
     title: string,
     subtitle: string,
     author: string,
     chapters: any[],
     images: any[] = [],
-  ): Promise<{ filename: string; filepath: string; size: number }> {
+  ): Promise<{ buffer: Buffer; filename: string }> {
     let doc: Document | null = null;
     let sections: Paragraph[] = [];
 
@@ -49,14 +49,9 @@ export class DocxService {
       this.logMemory('DOCX Start');
 
       const filename = `${this.sanitizeFilename(title)}_${Date.now()}.docx`;
-      const filepath = path.join(this.storagePath, filename);
 
       // TITLE PAGE
       const titlePageSections = this.createTitlePage(title, subtitle, author);
-
-      // BLANK PAGES
-      // const blankPage1 = [new Paragraph({ text: '', pageBreakBefore: true })];
-      // const blankPage2 = [new Paragraph({ text: '', pageBreakBefore: true })];
 
       // COPYRIGHT PAGE
       const copyrightChapter = chapters.find((c) =>
@@ -85,8 +80,6 @@ export class DocxService {
       // Combine front matter
       sections.push(
         ...titlePageSections,
-        // ...blankPage1,
-        // ...blankPage2,
         ...copyrightSections,
         ...aboutSections,
         ...tocSections,
@@ -106,20 +99,44 @@ export class DocxService {
         const chapter = mainChapters[i];
         const chapterNumber = chapter.order - 3;
 
-        // Chapter title
+        // Clean the chapter title
+        const cleanTitle = this.cleanText(chapter.title);
+
         sections.push(
           new Paragraph({
-            text: `Chapter ${chapterNumber}`,
-            spacing: { before: 240, after: 120 },
+            text: '',
             pageBreakBefore: true,
           }),
         );
 
+        // Chapter number - centered, smaller
         sections.push(
           new Paragraph({
-            text: chapter.title,
-            heading: HeadingLevel.HEADING_1,
-            spacing: { after: 400 },
+            text: `Chapter ${chapterNumber}`,
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 240, after: 240 },
+            children: [
+              new TextRun({
+                text: `Chapter ${chapterNumber}`,
+                size: 32, // 16pt
+              }),
+            ],
+          }),
+        );
+
+        // Chapter title - centered, larger, bold (CLEANED)
+        sections.push(
+          new Paragraph({
+            text: cleanTitle,
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 600 },
+            children: [
+              new TextRun({
+                text: cleanTitle,
+                bold: true,
+                size: 40, // 20pt
+              }),
+            ],
           }),
         );
 
@@ -151,21 +168,21 @@ export class DocxService {
         mapSections.length = 0;
       }
 
-      // Create document with page numbers
+      // Create document
       doc = new Document({
         sections: [
           {
             properties: {
               page: {
                 size: {
-                  width: 8640, // 6 inches in twips (1440 twips per inch)
-                  height: 12960, // 9 inches in twips
+                  width: 8640,
+                  height: 12960,
                 },
                 margin: {
-                  top: 1656, // 1.15 inches = 1656 twips
-                  bottom: 1656, // 1.15 inches = 1656 twips
-                  left: 1440, // 1 inch = 1440 twips
-                  right: 1440, // 1 inch = 1440 twips
+                  top: 1656,
+                  bottom: 1656,
+                  left: 1440,
+                  right: 1440,
                 },
                 pageNumbers: {
                   start: 1,
@@ -193,18 +210,15 @@ export class DocxService {
         ],
       });
 
+      // Generate buffer instead of writing to file
       const buffer = await Packer.toBuffer(doc);
-      fs.writeFileSync(filepath, buffer);
 
-      const stats = fs.statSync(filepath);
-      this.logger.log(`DOCX generated: ${filename} (${stats.size} bytes)`);
-
+      this.logger.log(`DOCX generated: ${filename} (${buffer.length} bytes)`);
       this.logMemory('DOCX Complete');
 
       return {
+        buffer,
         filename,
-        filepath,
-        size: stats.size,
       };
     } catch (error) {
       this.logger.error('Error generating DOCX:', error);
@@ -276,12 +290,15 @@ export class DocxService {
   }
 
   private createCopyrightPage(content: string): Paragraph[] {
+    // Clean the content
+    const cleanedContent = this.cleanContent(content);
+
     return [
       new Paragraph({ text: '', pageBreakBefore: true }),
       new Paragraph({
         children: [
           new TextRun({
-            text: content,
+            text: cleanedContent,
             size: 18,
           }),
         ],
@@ -303,7 +320,9 @@ export class DocxService {
       }),
     );
 
-    const sections = content.split('\n\n').filter((p) => p.trim());
+    // Clean and split content
+    const cleanedContent = this.cleanContent(content);
+    const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     sections.forEach((section) => {
       paragraphs.push(
@@ -336,7 +355,9 @@ export class DocxService {
       }),
     );
 
-    const lines = content.split('\n').filter((l) => l.trim());
+    // Clean content first
+    const cleanedContent = this.cleanContent(content);
+    const lines = cleanedContent.split('\n').filter((l) => l.trim());
 
     lines.forEach((line) => {
       const trimmed = line.trim();
@@ -415,34 +436,41 @@ export class DocxService {
 
   private createFormattedContent(content: string): Paragraph[] {
     const paragraphs: Paragraph[] = [];
-    const sections = content.split('\n\n').filter((p) => p.trim());
 
-    sections.forEach((section, index) => {
+    // Clean the content
+    const cleanedContent = this.cleanContent(content);
+    const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
+
+    sections.forEach((section) => {
       const trimmed = section.trim();
 
-      // Section headers
-      if (trimmed.length < 100 && !trimmed.includes('.')) {
+      // Check if this is a section header
+      const isHeader =
+        trimmed.length < 100 &&
+        !trimmed.includes('.') &&
+        trimmed.split(' ').length <= 10;
+
+      if (isHeader) {
         paragraphs.push(
           new Paragraph({
             children: [
               new TextRun({
                 text: trimmed,
                 bold: true,
-                size: 26,
+                size: 28, // 14pt
               }),
             ],
-            spacing: { before: 300, after: 200 },
+            spacing: { before: 300, after: 240 },
+            alignment: AlignmentType.LEFT,
           }),
         );
-      }
-      // Regular paragraphs
-      else {
+      } else {
         paragraphs.push(
           new Paragraph({
             children: [
               new TextRun({
                 text: trimmed,
-                size: 22,
+                size: 22, // 11pt
               }),
             ],
             spacing: { after: 200 },
@@ -461,38 +489,122 @@ export class DocxService {
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     const textParagraphs = content.split('\n\n').filter((p) => p.trim());
-    const sectionsPerImage = Math.floor(
-      textParagraphs.length / (chapterImages.length + 1),
+
+    // Calculate optimal image positions
+    const sections = this.createContentSections(
+      textParagraphs,
+      chapterImages.length,
     );
 
-    let currentIndex = 0;
-
-    for (let i = 0; i < chapterImages.length; i++) {
-      const image = chapterImages[i];
-
-      const textSection = textParagraphs.slice(
-        currentIndex,
-        currentIndex + sectionsPerImage,
-      );
-      paragraphs.push(...this.createFormattedContent(textSection.join('\n\n')));
-
-      try {
-        const imageParagraphs = await this.createImageParagraph(image);
-        paragraphs.push(...imageParagraphs);
-        imageParagraphs.length = 0;
-      } catch (error) {
-        this.logger.error(`Failed to insert image ${image.filename}:`, error);
+    for (const section of sections) {
+      // Add text content
+      if (section.paragraphs.length > 0) {
+        const textContent = this.createFormattedContent(
+          section.paragraphs.join('\n\n'),
+        );
+        paragraphs.push(...textContent);
       }
 
-      currentIndex += sectionsPerImage;
-    }
+      // Add image if this section has one
+      if (
+        section.imageIndex !== undefined &&
+        chapterImages[section.imageIndex]
+      ) {
+        const image = chapterImages[section.imageIndex];
 
-    const remainingText = textParagraphs.slice(currentIndex);
-    paragraphs.push(...this.createFormattedContent(remainingText.join('\n\n')));
+        // Add spacing before image
+        paragraphs.push(
+          new Paragraph({
+            text: '',
+            spacing: { before: 400, after: 200 },
+          }),
+        );
+
+        try {
+          const imageParagraphs = await this.createImageParagraph(image);
+          paragraphs.push(...imageParagraphs);
+          imageParagraphs.length = 0;
+        } catch (error) {
+          this.logger.error(`Failed to insert image ${image.filename}:`, error);
+        }
+
+        // Add spacing after image
+        paragraphs.push(
+          new Paragraph({
+            text: '',
+            spacing: { before: 200, after: 400 },
+          }),
+        );
+      }
+    }
 
     return paragraphs;
   }
 
+  /**
+   * Helper method to intelligently split content into sections with images
+   */
+  private createContentSections(
+    paragraphs: string[],
+    imageCount: number,
+  ): Array<{ paragraphs: string[]; imageIndex?: number }> {
+    const sections: Array<{ paragraphs: string[]; imageIndex?: number }> = [];
+
+    if (imageCount === 0) {
+      sections.push({ paragraphs });
+      return sections;
+    }
+
+    const minParagraphsBeforeImage = 2;
+    const minParagraphsAfterImage = 2;
+
+    // Calculate usable space
+    const usableSpace = paragraphs.length - minParagraphsAfterImage;
+
+    if (usableSpace < minParagraphsBeforeImage) {
+      // Not enough space for proper placement
+      sections.push({ paragraphs });
+      return sections;
+    }
+
+    // Distribute images evenly
+    const spacing = Math.floor(usableSpace / (imageCount + 1));
+    const placements: number[] = [];
+
+    for (let i = 0; i < imageCount; i++) {
+      const position = Math.min(
+        minParagraphsBeforeImage + spacing * (i + 1),
+        paragraphs.length - minParagraphsAfterImage - (imageCount - i - 1),
+      );
+      placements.push(position);
+    }
+
+    let lastIndex = 0;
+
+    placements.forEach((position, idx) => {
+      const sectionParagraphs = paragraphs.slice(lastIndex, position);
+
+      sections.push({
+        paragraphs: sectionParagraphs,
+        imageIndex: idx,
+      });
+
+      lastIndex = position;
+    });
+
+    // Add remaining paragraphs
+    if (lastIndex < paragraphs.length) {
+      sections.push({
+        paragraphs: paragraphs.slice(lastIndex),
+      });
+    }
+
+    return sections;
+  }
+
+  /**
+   * Improved image paragraph creation with better spacing and optional caption
+   */
   private async createImageParagraph(image: any): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     let imageBuffer: Buffer | null = null;
@@ -509,9 +621,10 @@ export class DocxService {
 
       // Image dimensions: 3.98 inches width x 2.53 inches height
       // In EMUs (English Metric Units): 1 inch = 914,400 EMUs
-      const widthInEMU = Math.round(3.98 * 914400); // 3,639,312 EMUs
-      const heightInEMU = Math.round(2.53 * 914400); // 2,313,432 EMUs
+      const widthInEMU = Math.round(3.98 * 914400);
+      const heightInEMU = Math.round(2.53 * 914400);
 
+      // Add the image
       paragraphs.push(
         new Paragraph({
           alignment: AlignmentType.CENTER,
@@ -525,7 +638,7 @@ export class DocxService {
               },
             }),
           ],
-          spacing: { before: 200, after: 100 },
+          spacing: { before: 300, after: 150 },
         }),
       );
     } catch (error) {
@@ -628,5 +741,59 @@ export class DocxService {
       fs.unlinkSync(filepath);
       this.logger.log(`DOCX deleted: ${filepath}`);
     }
+  }
+  // ============================================
+  // SHARED HELPER METHOD (Add to both services)
+  // ============================================
+
+  /**
+   * Clean markdown and special characters from text
+   */
+  private cleanText(text: string): string {
+    if (!text) return '';
+
+    return (
+      text
+        // Remove markdown bold (**text** or __text__)
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/__(.+?)__/g, '$1')
+
+        // Remove markdown italic (*text* or _text_)
+        .replace(/\*(.+?)\*/g, '$1')
+        .replace(/_(.+?)_/g, '$1')
+
+        // Remove markdown headers (##, ###, etc.)
+        .replace(/^#+\s+/gm, '')
+
+        // Remove markdown strikethrough (~~text~~)
+        .replace(/~~(.+?)~~/g, '$1')
+
+        // Remove markdown code (`text`)
+        .replace(/`(.+?)`/g, '$1')
+
+        // Remove extra spaces created by removal
+        .replace(/\s+/g, ' ')
+
+        // Trim whitespace
+        .trim()
+    );
+  }
+
+  /**
+   * Clean content with paragraph preservation
+   */
+  private cleanContent(content: string): string {
+    if (!content) return '';
+
+    // Split into paragraphs
+    const paragraphs = content.split('\n\n');
+
+    // Clean each paragraph
+    const cleanedParagraphs = paragraphs
+      .map((para) => this.cleanText(para))
+      .filter((para) => para.length > 0);
+
+    // Rejoin with double newlines
+    return cleanedParagraphs.join('\n\n');
   }
 }

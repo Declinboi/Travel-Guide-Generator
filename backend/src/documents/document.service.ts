@@ -1,3 +1,4 @@
+// src/modules/document/document.service.ts (Updated for Cloudinary)
 import {
   Injectable,
   Logger,
@@ -9,6 +10,7 @@ import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PdfService } from './pdf.service';
 import { DocxService } from './docx.service';
+import { CloudinaryDocumentService } from './cloudinary-document.service';
 import {
   GenerateDocumentDto,
   BulkGenerateDocumentsDto,
@@ -43,47 +45,9 @@ export class DocumentService {
     private readonly jobRepository: Repository<Job>,
     private readonly pdfService: PdfService,
     private readonly docxService: DocxService,
+    private readonly cloudinaryService: CloudinaryDocumentService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
-
-  async generateDocument(projectId: string, generateDto: GenerateDocumentDto) {
-    const project = await this.projectRepository.findOne({
-      where: { id: projectId },
-      relations: ['chapters'],
-    });
-
-    if (!project) {
-      throw new NotFoundException(`Project with ID ${projectId} not found`);
-    }
-
-    if (!project.chapters || project.chapters.length === 0) {
-      throw new BadRequestException(
-        'Project has no content. Generate content first.',
-      );
-    }
-
-    const job = this.jobRepository.create({
-      projectId,
-      type:
-        generateDto.type === DocumentType.PDF
-          ? JobType.PDF_GENERATION
-          : JobType.DOCX_GENERATION,
-      status: JobStatus.PENDING,
-      progress: 0,
-      data: generateDto,
-    });
-    await this.jobRepository.save(job);
-
-    this.generateDocumentBackground(projectId, generateDto, job.id);
-
-    return {
-      message: `${generateDto.type} generation started`,
-      jobId: job.id,
-      projectId,
-      type: generateDto.type,
-      language: generateDto.language,
-    };
-  }
 
   async generateDocumentSync(
     projectId: string,
@@ -93,10 +57,12 @@ export class DocumentService {
     jobId: string;
     documentId: string;
     filename: string;
+    url: string;
   }> {
     let project: Project | null = null;
     let chapters: any[] | null = null;
     let translation: Translation | null = null;
+    let buffer: Buffer | null = null;
 
     try {
       project = await this.projectRepository.findOne({
@@ -149,17 +115,17 @@ export class DocumentService {
         }
       }
 
-      job.progress = 30;
+      job.progress = 20;
       await this.jobRepository.save(job);
 
-      let result: { filename: string; filepath: string; size: number };
+      // Generate document buffer
+      let result: { buffer: Buffer; filename: string };
 
-      // Generate document
       if (generateDto.type === DocumentType.PDF) {
         this.logger.log(
           `Generating PDF for ${title} in ${generateDto.language}...`,
         );
-        result = await this.pdfService.generatePDF(
+        result = await this.pdfService.generatePDFBuffer(
           title,
           subtitle,
           project.author,
@@ -170,7 +136,7 @@ export class DocumentService {
         this.logger.log(
           `Generating DOCX for ${title} in ${generateDto.language}...`,
         );
-        result = await this.docxService.generateDOCX(
+        result = await this.docxService.generateDOCXBuffer(
           title,
           subtitle,
           project.author,
@@ -178,6 +144,18 @@ export class DocumentService {
           generateDto.includeImages ? project.images : [],
         );
       }
+
+      buffer = result.buffer;
+
+      job.progress = 50;
+      await this.jobRepository.save(job);
+
+      // Upload to Cloudinary
+      this.logger.log(`Uploading ${result.filename} to Cloudinary...`);
+      const cloudinaryResult = await this.cloudinaryService.uploadDocument(
+        buffer,
+        result.filename,
+      );
 
       job.progress = 80;
       await this.jobRepository.save(job);
@@ -188,9 +166,9 @@ export class DocumentService {
         type: generateDto.type,
         language: generateDto.language,
         filename: result.filename,
-        url: `/storage/${result.filename}`,
-        storageKey: result.filepath,
-        size: result.size,
+        url: cloudinaryResult.url, // Cloudinary URL
+        storageKey: cloudinaryResult.publicId, // Cloudinary public ID
+        size: cloudinaryResult.size,
         status: DocumentStatus.COMPLETED,
       });
       await this.documentRepository.save(document);
@@ -202,7 +180,8 @@ export class DocumentService {
       job.result = {
         documentId: document.id,
         filename: result.filename,
-        size: result.size,
+        url: cloudinaryResult.url,
+        size: cloudinaryResult.size,
       };
       await this.jobRepository.save(job);
 
@@ -211,15 +190,19 @@ export class DocumentService {
         documentId: document.id,
         type: generateDto.type,
         language: generateDto.language,
+        url: cloudinaryResult.url,
       });
 
-      this.logger.log(`Document generated: ${result.filename}`);
+      this.logger.log(
+        `Document generated and uploaded: ${result.filename} -> ${cloudinaryResult.url}`,
+      );
 
       return {
         message: 'Document generated successfully',
         jobId: job.id,
         documentId: document.id,
         filename: result.filename,
+        url: cloudinaryResult.url,
       };
     } catch (error) {
       this.logger.error(`Document generation failed:`, error);
@@ -229,195 +212,12 @@ export class DocumentService {
       project = null;
       chapters = null;
       translation = null;
+      buffer = null;
 
       if (global.gc) {
         global.gc();
       }
     }
-  }
-
-  private async generateDocumentBackground(
-    projectId: string,
-    generateDto: GenerateDocumentDto,
-    jobId: string,
-  ) {
-    let job: Job | null = null;
-    let project: Project | null = null;
-    let chapters: any[] | null = null;
-    let translation: Translation | null = null;
-
-    try {
-      job = await this.jobRepository.findOne({ where: { id: jobId } });
-
-      if (!job) {
-        this.logger.error(`Job with ID ${jobId} not found`);
-        return;
-      }
-
-      job.status = JobStatus.IN_PROGRESS;
-      job.startedAt = new Date();
-      await this.jobRepository.save(job);
-
-      project = await this.projectRepository.findOne({
-        where: { id: projectId },
-        relations: ['chapters', 'images'],
-      });
-
-      if (!project) {
-        this.logger.error(
-          `Project with ID ${projectId} not found during generation update`,
-        );
-        return;
-      }
-
-      // Get content based on language
-      chapters = [...project.chapters];
-      let title = project.title;
-      let subtitle = project.subtitle;
-
-      if (generateDto.language !== Language.ENGLISH) {
-        translation = await this.translationRepository.findOne({
-          where: { projectId, language: generateDto.language },
-        });
-
-        if (translation) {
-          title = translation.title;
-          subtitle = translation.subtitle;
-          const translatedChapters = translation.content as any[];
-          chapters = chapters.map((ch, index) => ({
-            ...ch,
-            content: translatedChapters[index]?.content || ch.content,
-            title: translatedChapters[index]?.title || ch.title,
-          }));
-        }
-      }
-
-      job.progress = 30;
-      await this.jobRepository.save(job);
-
-      let result: { filename: string; filepath: string; size: number };
-
-      // Generate document
-      if (generateDto.type === DocumentType.PDF) {
-        this.logger.log(
-          `Generating PDF for ${title} in ${generateDto.language}...`,
-        );
-        result = await this.pdfService.generatePDF(
-          title,
-          subtitle,
-          project.author,
-          chapters,
-          generateDto.includeImages ? project.images : [],
-        );
-      } else {
-        this.logger.log(
-          `Generating DOCX for ${title} in ${generateDto.language}...`,
-        );
-        result = await this.docxService.generateDOCX(
-          title,
-          subtitle,
-          project.author,
-          chapters,
-          generateDto.includeImages ? project.images : [],
-        );
-      }
-
-      job.progress = 80;
-      await this.jobRepository.save(job);
-
-      // Save document record
-      const document = this.documentRepository.create({
-        projectId,
-        type: generateDto.type,
-        language: generateDto.language,
-        filename: result.filename,
-        url: `/storage/${result.filename}`,
-        storageKey: result.filepath,
-        size: result.size,
-        status: DocumentStatus.COMPLETED,
-      });
-      await this.documentRepository.save(document);
-
-      // Complete job
-      job.status = JobStatus.COMPLETED;
-      job.progress = 100;
-      job.completedAt = new Date();
-      job.result = {
-        documentId: document.id,
-        filename: result.filename,
-        size: result.size,
-      };
-      await this.jobRepository.save(job);
-
-      this.eventEmitter.emit('document.generated', {
-        projectId,
-        documentId: document.id,
-        type: generateDto.type,
-        language: generateDto.language,
-      });
-
-      this.logger.log(`Document generated: ${result.filename}`);
-    } catch (error) {
-      this.logger.error(`Document generation failed:`, error);
-
-      if (job) {
-        job.status = JobStatus.FAILED;
-        job.error = error.message;
-        job.completedAt = new Date();
-        await this.jobRepository.save(job);
-      }
-    } finally {
-      // CRITICAL: Clear all references
-      job = null;
-      project = null;
-      chapters = null;
-      translation = null;
-
-      if (global.gc) {
-        global.gc();
-      }
-    }
-  }
-
-  async generateAllDocuments(
-    projectId: string,
-    bulkDto: BulkGenerateDocumentsDto,
-  ) {
-    const project = await this.projectRepository.findOne({
-      where: { id: projectId },
-    });
-
-    if (!project) {
-      throw new NotFoundException(`Project with ID ${projectId} not found`);
-    }
-
-    type JobResult = {
-      message: string;
-      jobId: string;
-      projectId: string;
-      type: DocumentType;
-      language: Language;
-    };
-
-    const jobs: JobResult[] = [];
-
-    // Generate documents sequentially
-    for (const type of bulkDto.types) {
-      for (const language of bulkDto.languages) {
-        const result = await this.generateDocument(projectId, {
-          type,
-          language,
-          includeImages: bulkDto.includeImages ?? true,
-        });
-        jobs.push(result);
-      }
-    }
-
-    return {
-      message: `Started generation of ${jobs.length} documents`,
-      jobs,
-      total: jobs.length,
-    };
   }
 
   async generateAllDocumentsSequential(
@@ -438,6 +238,7 @@ export class DocumentService {
       jobId: string;
       documentId: string;
       filename: string;
+      url: string;
     }> = [];
 
     const totalDocs = bulkDto.types.length * bulkDto.languages.length;
@@ -473,6 +274,7 @@ export class DocumentService {
             jobId: result.jobId,
             documentId: result.documentId,
             filename: result.filename,
+            url: result.url,
           });
 
           this.logger.log(
@@ -487,10 +289,10 @@ export class DocumentService {
 
           this.logMemoryUsage(`After ${type}-${language}`);
 
-          // Longer delay between documents to allow GC to complete
+          // Delay between documents
           if (completedCount < totalDocs) {
-            this.logger.log('Waiting 8 seconds for memory cleanup...');
-            await this.delay(8000);
+            this.logger.log('Waiting 5 seconds for memory cleanup...');
+            await this.delay(5000);
           }
         } catch (error) {
           this.logger.error(
@@ -546,12 +348,11 @@ export class DocumentService {
   async remove(id: string) {
     const document = await this.findOne(id);
 
-    if (document.type === DocumentType.PDF) {
-      await this.pdfService.deletePDF(document.storageKey);
-    } else {
-      await this.docxService.deleteDOCX(document.storageKey);
-    }
+    // Delete from Cloudinary using publicId stored in storageKey
+    await this.cloudinaryService.deleteDocument(document.storageKey);
 
     await this.documentRepository.remove(document);
+
+    this.logger.log(`Document deleted: ${document.filename}`);
   }
 }
