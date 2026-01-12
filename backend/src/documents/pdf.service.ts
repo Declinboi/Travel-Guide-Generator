@@ -38,14 +38,19 @@ export class PdfService {
         const filepath = path.join(this.storagePath, filename);
 
         doc = new PDFDocument({
-          size: [432, 648], // 6x9 inches
-          margins: { top: 50, bottom: 50, left: 50, right: 50 },
+          size: [432, 648], // 6x9 inches at 72 DPI
+          margins: {
+            top: 79.2, // (9 - 6.7) / 2 = 1.15 inches = 82.8pt, adjusted for header space
+            bottom: 79.2, // 1.15 inches = 82.8pt
+            left: 72, // (6 - 4) / 2 = 1 inch = 72pt
+            right: 72, // 1 inch = 72pt
+          },
           info: {
             Title: title,
             Author: author,
           },
           autoFirstPage: false,
-          bufferPages: true, // Enable buffering for page numbers
+          bufferPages: true,
           compress: true,
         });
 
@@ -56,12 +61,10 @@ export class PdfService {
         let totalPages = 0;
 
         // FRONT MATTER (no page numbers)
-        
+
         // 1. Title Page
         doc.addPage();
         this.addTitlePage(doc, title, subtitle, author);
-
-      
 
         // 4. Copyright Page
         const copyrightChapter = chapters.find((c) =>
@@ -119,7 +122,11 @@ export class PdfService {
             .sort((a, b) => (a.position || 0) - (b.position || 0));
 
           if (chapterImages.length > 0) {
-            await this.addContentWithImages(doc, chapter.content, chapterImages);
+            await this.addContentWithImages(
+              doc,
+              chapter.content,
+              chapterImages,
+            );
           } else {
             this.addFormattedContent(doc, chapter.content);
           }
@@ -141,7 +148,7 @@ export class PdfService {
         // Add page numbers to all content pages
         const range = doc.bufferedPageRange();
         const startPage = 7; // Pages after TOC
-        
+
         for (let i = startPage; i < range.count; i++) {
           doc.switchToPage(i);
           const pageNum = i - startPage + 1;
@@ -200,7 +207,8 @@ export class PdfService {
     const pageHeight = doc.page.height;
 
     // Title - centered and large
-    doc.fontSize(32)
+    doc
+      .fontSize(32)
       .font('Helvetica-Bold')
       .text(title.toUpperCase(), 50, 100, {
         width: pageWidth - 100,
@@ -209,7 +217,8 @@ export class PdfService {
 
     // Subtitle
     if (subtitle) {
-      doc.fontSize(18)
+      doc
+        .fontSize(18)
         .font('Helvetica')
         .text(subtitle, 50, 180, {
           width: pageWidth - 100,
@@ -217,18 +226,18 @@ export class PdfService {
         });
     }
 
-    
     // Author at bottom third
-    
 
-    doc.fontSize(16)
+    doc
+      .fontSize(16)
       .font('Helvetica-Bold')
       .text('By', 50, 480, {
         width: pageWidth - 100,
         align: 'center',
       });
 
-    doc.fontSize(16)
+    doc
+      .fontSize(16)
       .font('Helvetica-Bold')
       .text(author.toUpperCase(), 50, 510, {
         width: pageWidth - 100,
@@ -237,7 +246,8 @@ export class PdfService {
   }
 
   private addCopyrightPage(doc: PDFKit.PDFDocument, content: string): void {
-    doc.fontSize(9)
+    doc
+      .fontSize(9)
       .font('Helvetica')
       .text(content, 50, 100, {
         width: doc.page.width - 100,
@@ -247,23 +257,22 @@ export class PdfService {
   }
 
   private addAboutPage(doc: PDFKit.PDFDocument, content: string): void {
-    doc.fontSize(16)
-      .font('Helvetica-Bold')
-      .text('About Book', 50, 50);
+    doc.fontSize(16).font('Helvetica-Bold').text('About Book', 50, 50);
 
     doc.moveDown(1.5);
 
-    const paragraphs = content.split('\n\n').filter(p => p.trim());
-    
+    const paragraphs = content.split('\n\n').filter((p) => p.trim());
+
     paragraphs.forEach((para, index) => {
-      doc.fontSize(11)
+      doc
+        .fontSize(11)
         .font('Helvetica')
         .text(para.trim(), {
           width: doc.page.width - 100,
           align: 'left',
           lineGap: 5,
         });
-      
+
       if (index < paragraphs.length - 1) {
         doc.moveDown(1);
       }
@@ -271,17 +280,15 @@ export class PdfService {
   }
 
   private addTableOfContents(doc: PDFKit.PDFDocument, content: string): void {
-    doc.fontSize(16)
-      .font('Helvetica-Bold')
-      .text('Table of Contents', 50, 50);
+    doc.fontSize(16).font('Helvetica-Bold').text('Table of Contents', 50, 50);
 
     doc.moveDown(1.5);
 
-    const lines = content.split('\n').filter(l => l.trim());
-    
-    lines.forEach(line => {
+    const lines = content.split('\n').filter((l) => l.trim());
+
+    lines.forEach((line) => {
       const trimmed = line.trim();
-      
+
       if (!trimmed) {
         doc.moveDown(0.3);
         return;
@@ -290,35 +297,27 @@ export class PdfService {
       // Chapter headers (no indentation)
       if (trimmed.match(/^Chapter \d+$/)) {
         doc.moveDown(0.5);
-        doc.fontSize(11)
-          .font('Helvetica-Bold')
-          .text(trimmed, {
-            continued: false,
-          });
+        doc.fontSize(11).font('Helvetica-Bold').text(trimmed, {
+          continued: false,
+        });
       }
       // Chapter titles (no indentation)
       else if (!trimmed.startsWith(' ')) {
-        doc.fontSize(11)
-          .font('Helvetica')
-          .text(trimmed, {
-            continued: false,
-          });
+        doc.fontSize(11).font('Helvetica').text(trimmed, {
+          continued: false,
+        });
       }
       // Sections (slight indent)
       else if (trimmed.match(/^[A-Z]/)) {
-        doc.fontSize(10)
-          .font('Helvetica')
-          .text(trimmed.trim(), 65, doc.y, {
-            continued: false,
-          });
+        doc.fontSize(10).font('Helvetica').text(trimmed.trim(), 65, doc.y, {
+          continued: false,
+        });
       }
       // Subsections (more indent)
       else {
-        doc.fontSize(9)
-          .font('Helvetica')
-          .text(trimmed.trim(), 80, doc.y, {
-            continued: false,
-          });
+        doc.fontSize(9).font('Helvetica').text(trimmed.trim(), 80, doc.y, {
+          continued: false,
+        });
       }
     });
   }
@@ -329,49 +328,41 @@ export class PdfService {
     chapterNumber: number,
   ): void {
     // Chapter number
-    doc.fontSize(14)
-      .font('Helvetica')
-      .text(`Chapter ${chapterNumber}`, {
-        align: 'left',
-      });
+    doc.fontSize(14).font('Helvetica').text(`Chapter ${chapterNumber}`, {
+      align: 'left',
+    });
 
     doc.moveDown(0.5);
 
     // Chapter title
-    doc.fontSize(18)
-      .font('Helvetica-Bold')
-      .text(title, {
-        align: 'left',
-      });
+    doc.fontSize(18).font('Helvetica-Bold').text(title, {
+      align: 'left',
+    });
 
     doc.moveDown(2);
   }
 
   private addFormattedContent(doc: PDFKit.PDFDocument, content: string): void {
-    const sections = content.split('\n\n').filter(p => p.trim());
-    
+    const sections = content.split('\n\n').filter((p) => p.trim());
+
     sections.forEach((section, index) => {
       const trimmed = section.trim();
-      
+
       // Section headers (typically bold in original)
       if (trimmed.length < 100 && !trimmed.includes('.')) {
-        doc.fontSize(13)
-          .font('Helvetica-Bold')
-          .text(trimmed, {
-            align: 'left',
-            lineGap: 5,
-          });
+        doc.fontSize(13).font('Helvetica-Bold').text(trimmed, {
+          align: 'left',
+          lineGap: 5,
+        });
         doc.moveDown(0.8);
       }
       // Regular paragraphs
       else {
-        doc.fontSize(11)
-          .font('Helvetica')
-          .text(trimmed, {
-            align: 'left',
-            lineGap: 5,
-          });
-        
+        doc.fontSize(11).font('Helvetica').text(trimmed, {
+          align: 'left',
+          lineGap: 5,
+        });
+
         if (index < sections.length - 1) {
           doc.moveDown(1);
         }
@@ -449,8 +440,6 @@ export class PdfService {
       });
 
       doc.moveDown(0.5);
-
-    
     } catch (error) {
       this.logger.error(`Error inserting image:`, error);
       throw error;
@@ -469,11 +458,9 @@ export class PdfService {
     let imageBuffer: Buffer | null = null;
 
     try {
-      doc.fontSize(16)
-        .font('Helvetica-Bold')
-        .text('Geographical Map', {
-          align: 'center',
-        });
+      doc.fontSize(16).font('Helvetica-Bold').text('Geographical Map', {
+        align: 'center',
+      });
 
       doc.moveDown(2);
 
@@ -508,7 +495,8 @@ export class PdfService {
   }
 
   private addPageNumber(doc: PDFKit.PDFDocument, pageNumber: number): void {
-    doc.fontSize(10)
+    doc
+      .fontSize(10)
       .font('Helvetica')
       .text(pageNumber.toString(), 50, doc.page.height - 30, {
         align: 'center',

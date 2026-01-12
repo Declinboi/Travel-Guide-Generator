@@ -158,14 +158,14 @@ export class DocxService {
             properties: {
               page: {
                 size: {
-                  width: 8640, // 6 inches
-                  height: 12960, // 9 inches
+                  width: 8640, // 6 inches in twips (1440 twips per inch)
+                  height: 12960, // 9 inches in twips
                 },
                 margin: {
-                  top: 720,
-                  bottom: 720,
-                  left: 720,
-                  right: 720,
+                  top: 1656, // 1.15 inches = 1656 twips
+                  bottom: 1656, // 1.15 inches = 1656 twips
+                  left: 1440, // 1 inch = 1440 twips
+                  right: 1440, // 1 inch = 1440 twips
                 },
                 pageNumbers: {
                   start: 1,
