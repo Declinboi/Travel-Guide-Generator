@@ -1,7 +1,9 @@
 // src/pages/CreateBook.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
+import { type RootState } from "../redux/store";
 import { useGenerateBookMutation } from "../redux/api/booksApiSlice";
 
 interface ImagePreview {
@@ -11,6 +13,7 @@ interface ImagePreview {
 
 const CreateBook = () => {
   const navigate = useNavigate();
+  const { user } = useSelector((state: RootState) => state.auth); // 🔥 GET USER FROM REDUX
   const [generateBook, { isLoading }] = useGenerateBookMutation();
 
   const [formData, setFormData] = useState({
@@ -63,6 +66,13 @@ const CreateBook = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // 🔥 CHECK IF USER EXISTS
+    if (!user?.id) {
+      toast.error("You must be logged in to create a book");
+      navigate("/login");
+      return;
+    }
+
     if (!formData.title || !formData.author) {
       toast.error("Title and Author are required");
       return;
@@ -77,13 +87,14 @@ const CreateBook = () => {
     fd.append("title", formData.title);
     fd.append("subtitle", formData.subtitle);
     fd.append("author", formData.author);
+    fd.append("userId", user.id); // 🔥 ADD USER ID
 
     images.forEach((img) => fd.append("images", img.file));
     if (mapImage) fd.append("mapImage", mapImage.file);
 
     try {
       const res = await generateBook(fd).unwrap();
-      toast.success("Book generation started");
+      toast.success("Book generation started! This will take 10-15 minutes.");
 
       // Clean up preview URLs
       images.forEach((img) => URL.revokeObjectURL(img.preview));
@@ -91,9 +102,30 @@ const CreateBook = () => {
 
       navigate(`/status/${res.projectId}`);
     } catch (err: any) {
+      console.error("Book generation error:", err);
       toast.error(err?.data?.message || "Generation failed");
     }
   };
+
+  // 🔥 REDIRECT IF NOT LOGGED IN
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
+          <p className="text-red-600 text-xl mb-4">
+            ⚠️ Authentication Required
+          </p>
+          <p className="text-gray-600 mb-6">Please log in to create a book</p>
+          <button
+            onClick={() => navigate("/login")}
+            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">

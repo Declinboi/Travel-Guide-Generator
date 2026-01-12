@@ -9,6 +9,7 @@ import {
   Res,
   NotFoundException,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import {
@@ -61,15 +62,18 @@ export class BookController {
   @ApiResponse({ status: 201, description: 'Book generation started' })
   async generateBook(
     @Body() createBookDto: CreateBookDto,
+    @Request() req,
     @UploadedFiles()
     files: {
       images?: Express.Multer.File[];
       mapImage?: Express.Multer.File[];
     },
   ) {
+    const userId = req.user.sub;
     return await this.bookGeneratorService.generateCompleteBook(
       createBookDto,
       files,
+      userId,
     );
   }
 

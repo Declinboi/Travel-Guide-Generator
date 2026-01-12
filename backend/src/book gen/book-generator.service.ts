@@ -29,6 +29,7 @@ export class BookGeneratorService {
   async generateCompleteBook(
     createBookDto: CreateBookDto,
     files: { images?: Express.Multer.File[]; mapImage?: Express.Multer.File[] },
+    userId: string,
   ) {
     this.logger.log(
       `Starting complete book generation: ${createBookDto.title}`,
@@ -40,6 +41,7 @@ export class BookGeneratorService {
       subtitle: createBookDto.subtitle,
       author: createBookDto.author,
       numberOfChapters: 10,
+      userId: createBookDto.userId,
     });
 
     this.logger.log(`Project created: ${project.id}`);
@@ -55,7 +57,7 @@ export class BookGeneratorService {
         '1. Generating book content (10 chapters)',
         '2. Processing and positioning images',
         '3. Translating to 4 languages sequentially (German, French, Spanish, Italian)',
-        '4. Creating 10 documents (2 formats × 5 languages)',
+        '4. Creating 10 documents sequentially (2 formats × 5 languages)',
       ],
       statusEndpoint: `/api/books/status/${project.id}`,
       downloadEndpoint: `/api/books/download/${project.id}`,
@@ -137,33 +139,20 @@ export class BookGeneratorService {
       await this.translateSequentially(projectId, targetLanguages);
       this.logger.log(`[${projectId}] All translations completed`);
 
+      // Force garbage collection after translations
+      this.forceGarbageCollection();
+
       // ✅ UPDATE STATUS: GENERATING_DOCUMENTS
       project.status = ProjectStatus.GENERATING_DOCUMENTS;
       await this.projectRepository.save(project);
       this.logger.log(`[${projectId}] Status updated to: GENERATING_DOCUMENTS`);
 
-      // STEP 4: Generate All Documents (70-100%)
-      this.logger.log(`[${projectId}] Step 4: Generating 10 documents...`);
-
-      const documentResult = await this.documentService.generateAllDocuments(
-        projectId,
-        {
-          types: [DocumentType.PDF, DocumentType.DOCX],
-          languages: [
-            Language.ENGLISH,
-            Language.GERMAN,
-            Language.FRENCH,
-            Language.SPANISH,
-            Language.ITALIAN,
-          ],
-          includeImages: true,
-        },
+      // STEP 4: Generate Documents SEQUENTIALLY (70-100%)
+      this.logger.log(
+        `[${projectId}] Step 4: Generating 10 documents sequentially...`,
       );
 
-      // Wait for all documents
-      for (const job of documentResult.jobs) {
-        await this.waitForJobCompletion(job.jobId);
-      }
+      await this.generateDocumentsSequentially(projectId);
 
       // ✅ UPDATE STATUS: COMPLETED
       project.status = ProjectStatus.COMPLETED;
@@ -181,6 +170,46 @@ export class BookGeneratorService {
         this.logger.log(`[${projectId}] Status updated to: FAILED`);
       }
     }
+  }
+
+  /**
+   * Generate documents sequentially to avoid memory issues
+   * Uses the new generateAllDocumentsSequential method
+   */
+  private async generateDocumentsSequentially(
+    projectId: string,
+  ): Promise<void> {
+    const languages = [
+      Language.ENGLISH,
+      Language.GERMAN,
+      Language.FRENCH,
+      Language.SPANISH,
+      Language.ITALIAN,
+    ];
+
+    const types = [DocumentType.PDF, DocumentType.DOCX];
+
+    this.logger.log(
+      `[${projectId}] Starting sequential document generation...`,
+    );
+
+    // Log memory before generation
+    this.logMemoryUsage('Before document generation');
+
+    // Use the sequential generation method
+    await this.documentService.generateAllDocumentsSequential(projectId, {
+      types,
+      languages,
+      includeImages: true,
+    });
+
+    // Force garbage collection after all documents
+    this.forceGarbageCollection();
+
+    // Log memory after generation
+    this.logMemoryUsage('After document generation');
+
+    this.logger.log(`[${projectId}] All documents generated successfully`);
   }
 
   /**
@@ -215,6 +244,9 @@ export class BookGeneratorService {
           `[${projectId}] ✓ Completed translation to ${language} (${i + 1}/${targetLanguages.length})`,
         );
 
+        // Force garbage collection after each translation
+        this.forceGarbageCollection();
+
         // Add delay before next language (except after last one)
         if (i < targetLanguages.length - 1) {
           this.logger.log(
@@ -237,6 +269,26 @@ export class BookGeneratorService {
         }
       }
     }
+  }
+
+  /**
+   * Force garbage collection if available
+   */
+  private forceGarbageCollection(): void {
+    if (global.gc) {
+      global.gc();
+      this.logger.debug('Forced garbage collection');
+    }
+  }
+
+  /**
+   * Log current memory usage
+   */
+  private logMemoryUsage(label: string): void {
+    const used = process.memoryUsage();
+    this.logger.log(
+      `[Memory ${label}] Heap: ${Math.round(used.heapUsed / 1024 / 1024)} MB / ${Math.round(used.heapTotal / 1024 / 1024)} MB`,
+    );
   }
 
   /**
@@ -386,7 +438,7 @@ export class BookGeneratorService {
       type: doc.type,
       language: doc.language,
       size: this.formatFileSize(doc.size),
-      url: `${process.env.FRONTEND_URL || 'http://localhost:4000'}${doc.url}`,
+      url: `${process.env.BACKEND_URL}${doc.url}`,
       downloadUrl: `/api/books/download/${projectId}/${doc.id}`,
     }));
 

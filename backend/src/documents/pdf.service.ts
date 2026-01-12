@@ -28,94 +28,73 @@ export class PdfService {
     images: any[] = [],
   ): Promise<{ filename: string; filepath: string; size: number }> {
     return new Promise(async (resolve, reject) => {
+      let doc: PDFKit.PDFDocument | null = null;
+      let writeStream: fs.WriteStream | null = null;
+
       try {
+        this.logMemory('PDF Start');
+
         const filename = `${this.sanitizeFilename(title)}_${Date.now()}.pdf`;
         const filepath = path.join(this.storagePath, filename);
 
-        // 6x9 inches = 432x648 points (72 points per inch)
-        const doc = new PDFDocument({
-          size: [432, 648],
-          margins: { top: 36, bottom: 36, left: 36, right: 36 },
+        doc = new PDFDocument({
+          size: [432, 648], // 6x9 inches
+          margins: { top: 50, bottom: 50, left: 50, right: 50 },
           info: {
             Title: title,
             Author: author,
           },
-          autoFirstPage: false, // We'll manage pages manually for numbering
+          autoFirstPage: false,
+          bufferPages: true, // Enable buffering for page numbers
+          compress: true,
         });
 
-        const writeStream = fs.createWriteStream(filepath);
+        writeStream = fs.createWriteStream(filepath);
         doc.pipe(writeStream);
 
-        let pageNumber = 0;
+        let actualPageNumber = 0; // For content pages only
+        let totalPages = 0;
 
-        // Helper function to add a new page with page number
-        const addPageWithNumber = (skipNumber = false) => {
-          doc.addPage();
-          pageNumber++;
+        // FRONT MATTER (no page numbers)
+        
+        // 1. Title Page
+        doc.addPage();
+        this.addTitlePage(doc, title, subtitle, author);
 
-          if (!skipNumber && pageNumber > 1) {
-            // Skip numbering on title page
-            this.addPageNumber(doc, pageNumber);
-          }
-        };
+        // 2. Blank page
+        doc.addPage();
 
-        // Title Page (no page number)
-        addPageWithNumber(true);
-        doc
-          .fontSize(28)
-          .font('Helvetica-Bold')
-          .text(title, { align: 'center' });
-        doc.moveDown();
+        // 3. Another blank page
+        doc.addPage();
 
-        if (subtitle) {
-          doc
-            .fontSize(16)
-            .font('Helvetica')
-            .text(subtitle, { align: 'center' });
-          doc.moveDown(2);
-        }
-        doc
-          .fontSize(12)
-          .text(`(Including a map at the Last Page)`, { align: 'center' });
-        doc.moveDown(2);
-
-        doc.fontSize(14).text(`By ${author}`, { align: 'center' });
-
-        // Copyright Page
+        // 4. Copyright Page
         const copyrightChapter = chapters.find((c) =>
           c.title.toLowerCase().includes('copyright'),
         );
         if (copyrightChapter) {
-          addPageWithNumber();
-          doc.fontSize(10).font('Helvetica').text(copyrightChapter.content);
+          doc.addPage();
+          this.addCopyrightPage(doc, copyrightChapter.content);
         }
 
-        // About Book
+        // 5. About Book
         const aboutChapter = chapters.find((c) =>
           c.title.toLowerCase().includes('about'),
         );
         if (aboutChapter) {
-          addPageWithNumber();
-          doc.fontSize(16).font('Helvetica-Bold').text('About This Book');
-          doc.moveDown();
-          doc
-            .fontSize(11)
-            .font('Helvetica')
-            .text(aboutChapter.content, { align: 'justify' });
+          doc.addPage();
+          this.addAboutPage(doc, aboutChapter.content);
         }
 
-        // Table of Contents
+        // 6. Table of Contents
         const tocChapter = chapters.find((c) =>
           c.title.toLowerCase().includes('table'),
         );
         if (tocChapter) {
-          addPageWithNumber();
-          doc.fontSize(20).font('Helvetica-Bold').text('Table of Contents');
-          doc.moveDown();
-          doc.fontSize(11).font('Helvetica').text(tocChapter.content);
+          doc.addPage();
+          this.addTableOfContents(doc, tocChapter.content);
         }
 
-        // Main Chapters with Images
+        // MAIN CONTENT (with page numbers)
         const mainChapters = chapters
           .filter(
             (c) =>
@@ -125,58 +104,63 @@ export class PdfService {
           )
           .sort((a, b) => a.order - b.order);
 
+        // Start page numbering from first main chapter
+        actualPageNumber = 1;
+
         for (let i = 0; i < mainChapters.length; i++) {
           const chapter = mainChapters[i];
           const chapterNumber = chapter.order - 3;
 
-          // Start each chapter on a new page
-          if (i === 0) {
-            addPageWithNumber();
-          }
+          doc.addPage();
+          actualPageNumber++;
 
-          // Chapter Title
-          doc.fontSize(22).font('Helvetica-Bold').text(chapter.title);
-          doc.moveDown(1.5);
+          // Add chapter title
+          this.addChapterTitle(doc, chapter.title, chapterNumber);
 
-          // Get images for this chapter
+          // Get chapter images
           const chapterImages = images
             .filter((img) => img.chapterNumber === chapterNumber && !img.isMap)
             .sort((a, b) => (a.position || 0) - (b.position || 0));
 
-          // Insert images throughout chapter content
           if (chapterImages.length > 0) {
-            await this.insertImagesInContent(
-              doc,
-              chapter.content,
-              chapterImages,
-            );
+            await this.addContentWithImages(doc, chapter.content, chapterImages);
           } else {
-            const content = this.formatContentForPDF(chapter.content);
-            doc.fontSize(11).font('Helvetica').text(content, {
-              align: 'justify',
-              lineGap: 5,
-            });
+            this.addFormattedContent(doc, chapter.content);
           }
 
-          // Add page break if not last chapter
-          if (i < mainChapters.length - 1) {
-            addPageWithNumber();
+          // Force GC after each chapter
+          if (global.gc && i % 2 === 0) {
+            global.gc();
           }
         }
 
-        // Add Map on Last Page (if exists)
+        // Add Map on Last Page
         const mapImage = images.find((img) => img.isMap);
         if (mapImage) {
-          addPageWithNumber();
-          await this.insertFullPageImage(doc, mapImage);
+          doc.addPage();
+          actualPageNumber++;
+          await this.addMapPage(doc, mapImage);
         }
 
-        // Finalize PDF
+        // Add page numbers to all content pages
+        const range = doc.bufferedPageRange();
+        const startPage = 7; // Pages after TOC
+        
+        for (let i = startPage; i < range.count; i++) {
+          doc.switchToPage(i);
+          const pageNum = i - startPage + 1;
+          this.addPageNumber(doc, pageNum);
+        }
+
         doc.end();
 
         writeStream.on('finish', () => {
           const stats = fs.statSync(filepath);
           this.logger.log(`PDF generated: ${filename} (${stats.size} bytes)`);
+          this.logMemory('PDF Complete');
+
+          doc = null;
+          writeStream = null;
 
           resolve({
             filename,
@@ -185,31 +169,248 @@ export class PdfService {
           });
         });
 
-        writeStream.on('error', reject);
+        writeStream.on('error', (err) => {
+          this.logger.error('Write stream error:', err);
+          doc = null;
+          writeStream = null;
+          reject(err);
+        });
       } catch (error) {
         this.logger.error('Error generating PDF:', error);
+
+        if (doc) {
+          try {
+            doc.end();
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+
+        doc = null;
+        writeStream = null;
+
         reject(error);
       }
     });
   }
 
-  private addPageNumber(doc: PDFKit.PDFDocument, pageNumber: number): void {
-    // Add page number at bottom center
-    doc
-      .fontSize(9)
-      .font('Helvetica')
-      .text(
-        pageNumber.toString(),
-        0,
-        doc.page.height - 30, // 30 points from bottom
-        {
+  private addTitlePage(
+    doc: PDFKit.PDFDocument,
+    title: string,
+    subtitle: string,
+    author: string,
+  ): void {
+    const pageWidth = doc.page.width;
+    const pageHeight = doc.page.height;
+
+    // Title - centered and large
+    doc.fontSize(32)
+      .font('Helvetica-Bold')
+      .text(title.toUpperCase(), 50, 100, {
+        width: pageWidth - 100,
+        align: 'center',
+      });
+
+    // Subtitle
+    if (subtitle) {
+      doc.fontSize(18)
+        .font('Helvetica')
+        .text(subtitle, 50, 180, {
+          width: pageWidth - 100,
           align: 'center',
-          width: doc.page.width,
-        },
-      );
+        });
+    }
+
+    // Year/Version info
+    doc.fontSize(14)
+      .font('Helvetica')
+      .text('2026', 50, 240, {
+        width: pageWidth - 100,
+        align: 'center',
+      });
+
+    // Note about map
+    doc.fontSize(11)
+      .font('Helvetica-Oblique')
+      .text('(Including a map at the Last Page)', 50, 280, {
+        width: pageWidth - 100,
+        align: 'center',
+      });
+
+    // Author at bottom third
+    doc.fontSize(12)
+      .font('Helvetica')
+      .text('A practical roadmap with step-by-step plans for', 50, 380, {
+        width: pageWidth - 100,
+        align: 'center',
+      });
+
+    doc.fontSize(12)
+      .font('Helvetica')
+      .text('every kind of traveler', 50, 400, {
+        width: pageWidth - 100,
+        align: 'center',
+      });
+
+    doc.fontSize(16)
+      .font('Helvetica-Bold')
+      .text('By', 50, 480, {
+        width: pageWidth - 100,
+        align: 'center',
+      });
+
+    doc.fontSize(16)
+      .font('Helvetica-Bold')
+      .text(author.toUpperCase(), 50, 510, {
+        width: pageWidth - 100,
+        align: 'center',
+      });
   }
 
-  private async insertImagesInContent(
+  private addCopyrightPage(doc: PDFKit.PDFDocument, content: string): void {
+    doc.fontSize(9)
+      .font('Helvetica')
+      .text(content, 50, 100, {
+        width: doc.page.width - 100,
+        align: 'left',
+        lineGap: 4,
+      });
+  }
+
+  private addAboutPage(doc: PDFKit.PDFDocument, content: string): void {
+    doc.fontSize(16)
+      .font('Helvetica-Bold')
+      .text('About Book', 50, 50);
+
+    doc.moveDown(1.5);
+
+    const paragraphs = content.split('\n\n').filter(p => p.trim());
+    
+    paragraphs.forEach((para, index) => {
+      doc.fontSize(11)
+        .font('Helvetica')
+        .text(para.trim(), {
+          width: doc.page.width - 100,
+          align: 'left',
+          lineGap: 5,
+        });
+      
+      if (index < paragraphs.length - 1) {
+        doc.moveDown(1);
+      }
+    });
+  }
+
+  private addTableOfContents(doc: PDFKit.PDFDocument, content: string): void {
+    doc.fontSize(16)
+      .font('Helvetica-Bold')
+      .text('Table of Contents', 50, 50);
+
+    doc.moveDown(1.5);
+
+    const lines = content.split('\n').filter(l => l.trim());
+    
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      
+      if (!trimmed) {
+        doc.moveDown(0.3);
+        return;
+      }
+
+      // Chapter headers (no indentation)
+      if (trimmed.match(/^Chapter \d+$/)) {
+        doc.moveDown(0.5);
+        doc.fontSize(11)
+          .font('Helvetica-Bold')
+          .text(trimmed, {
+            continued: false,
+          });
+      }
+      // Chapter titles (no indentation)
+      else if (!trimmed.startsWith(' ')) {
+        doc.fontSize(11)
+          .font('Helvetica')
+          .text(trimmed, {
+            continued: false,
+          });
+      }
+      // Sections (slight indent)
+      else if (trimmed.match(/^[A-Z]/)) {
+        doc.fontSize(10)
+          .font('Helvetica')
+          .text(trimmed.trim(), 65, doc.y, {
+            continued: false,
+          });
+      }
+      // Subsections (more indent)
+      else {
+        doc.fontSize(9)
+          .font('Helvetica')
+          .text(trimmed.trim(), 80, doc.y, {
+            continued: false,
+          });
+      }
+    });
+  }
+
+  private addChapterTitle(
+    doc: PDFKit.PDFDocument,
+    title: string,
+    chapterNumber: number,
+  ): void {
+    // Chapter number
+    doc.fontSize(14)
+      .font('Helvetica')
+      .text(`Chapter ${chapterNumber}`, {
+        align: 'left',
+      });
+
+    doc.moveDown(0.5);
+
+    // Chapter title
+    doc.fontSize(18)
+      .font('Helvetica-Bold')
+      .text(title, {
+        align: 'left',
+      });
+
+    doc.moveDown(2);
+  }
+
+  private addFormattedContent(doc: PDFKit.PDFDocument, content: string): void {
+    const sections = content.split('\n\n').filter(p => p.trim());
+    
+    sections.forEach((section, index) => {
+      const trimmed = section.trim();
+      
+      // Section headers (typically bold in original)
+      if (trimmed.length < 100 && !trimmed.includes('.')) {
+        doc.fontSize(13)
+          .font('Helvetica-Bold')
+          .text(trimmed, {
+            align: 'left',
+            lineGap: 5,
+          });
+        doc.moveDown(0.8);
+      }
+      // Regular paragraphs
+      else {
+        doc.fontSize(11)
+          .font('Helvetica')
+          .text(trimmed, {
+            align: 'left',
+            lineGap: 5,
+          });
+        
+        if (index < sections.length - 1) {
+          doc.moveDown(1);
+        }
+      }
+    });
+  }
+
+  private async addContentWithImages(
     doc: PDFKit.PDFDocument,
     content: string,
     chapterImages: any[],
@@ -219,40 +420,34 @@ export class PdfService {
       paragraphs.length / (chapterImages.length + 1),
     );
 
-    let currentParagraphIndex = 0;
+    let currentIndex = 0;
 
     for (let i = 0; i < chapterImages.length; i++) {
       const image = chapterImages[i];
 
       const textSection = paragraphs
-        .slice(currentParagraphIndex, currentParagraphIndex + sectionsPerImage)
+        .slice(currentIndex, currentIndex + sectionsPerImage)
         .join('\n\n');
 
       if (textSection) {
-        doc.fontSize(11).font('Helvetica').text(textSection, {
-          align: 'justify',
-          lineGap: 5,
-        });
+        this.addFormattedContent(doc, textSection);
         doc.moveDown(1);
       }
 
       try {
         await this.insertImage(doc, image);
-        doc.moveDown(1);
+        doc.moveDown(1.5);
       } catch (error) {
         this.logger.error(`Failed to insert image ${image.filename}:`, error);
       }
 
-      currentParagraphIndex += sectionsPerImage;
+      currentIndex += sectionsPerImage;
     }
 
-    const remainingText = paragraphs.slice(currentParagraphIndex).join('\n\n');
+    const remainingText = paragraphs.slice(currentIndex).join('\n\n');
 
     if (remainingText) {
-      doc.fontSize(11).font('Helvetica').text(remainingText, {
-        align: 'justify',
-        lineGap: 5,
-      });
+      this.addFormattedContent(doc, remainingText);
     }
   }
 
@@ -260,65 +455,104 @@ export class PdfService {
     doc: PDFKit.PDFDocument,
     image: any,
   ): Promise<void> {
+    let imageBuffer: Buffer | null = null;
+
     try {
       const response = await axios.get(image.url, {
         responseType: 'arraybuffer',
+        timeout: 30000,
+        maxContentLength: 10 * 1024 * 1024,
       });
-      const imageBuffer = Buffer.from(response.data, 'binary');
 
-      const maxWidth = 360;
-      const maxHeight = 250;
+      imageBuffer = Buffer.from(response.data, 'binary');
 
-      doc.image(imageBuffer, {
-        fit: [maxWidth, maxHeight],
+      // Image dimensions: 3.98 inches width x 2.53 inches height
+      // At 72 DPI: width = 286.56pt, height = 182.16pt
+      const imageWidth = 286.56;
+      const imageHeight = 182.16;
+
+      const xPosition = (doc.page.width - imageWidth) / 2;
+
+      doc.image(imageBuffer, xPosition, doc.y, {
+        width: imageWidth,
+        height: imageHeight,
         align: 'center',
       });
 
+      doc.moveDown(0.5);
+
       if (image.caption) {
-        doc.moveDown(0.5);
-        doc.fontSize(9).font('Helvetica-Oblique').text(image.caption, {
-          align: 'center',
-        });
+        doc.fontSize(9)
+          .font('Helvetica-Oblique')
+          .text(image.caption, {
+            align: 'center',
+            width: doc.page.width - 100,
+          });
         doc.font('Helvetica');
       }
     } catch (error) {
       this.logger.error(`Error inserting image:`, error);
       throw error;
+    } finally {
+      imageBuffer = null;
+      if (global.gc) {
+        global.gc();
+      }
     }
   }
 
-  private async insertFullPageImage(
+  private async addMapPage(
     doc: PDFKit.PDFDocument,
     mapImage: any,
   ): Promise<void> {
+    let imageBuffer: Buffer | null = null;
+
     try {
-      const response = await axios.get(mapImage.url, {
-        responseType: 'arraybuffer',
-      });
-      const imageBuffer = Buffer.from(response.data, 'binary');
-
-      doc.image(imageBuffer, 18, 18, {
-        fit: [396, 612],
-        align: 'center',
-        valign: 'center',
-      });
-
-      if (mapImage.caption) {
-        doc.fontSize(10).font('Helvetica').text(mapImage.caption, 36, 600, {
+      doc.fontSize(16)
+        .font('Helvetica-Bold')
+        .text('Geographical Map of Trieste', {
           align: 'center',
         });
-      }
+
+      doc.moveDown(2);
+
+      const response = await axios.get(mapImage.url, {
+        responseType: 'arraybuffer',
+        timeout: 30000,
+        maxContentLength: 10 * 1024 * 1024,
+      });
+
+      imageBuffer = Buffer.from(response.data, 'binary');
+
+      // Map dimensions: 3.97 inches width x 5.85 inches height
+      // At 72 DPI: width = 285.84pt, height = 421.2pt
+      const mapWidth = 285.84;
+      const mapHeight = 421.2;
+      const xPosition = (doc.page.width - mapWidth) / 2;
+
+      doc.image(imageBuffer, xPosition, doc.y, {
+        width: mapWidth,
+        height: mapHeight,
+        align: 'center',
+      });
     } catch (error) {
       this.logger.error(`Error inserting map image:`, error);
       throw error;
+    } finally {
+      imageBuffer = null;
+      if (global.gc) {
+        global.gc();
+      }
     }
   }
 
-  private formatContentForPDF(content: string): string {
-    return content
-      .replace(/\n\n\n+/g, '\n\n')
-      .replace(/\t/g, '    ')
-      .trim();
+  private addPageNumber(doc: PDFKit.PDFDocument, pageNumber: number): void {
+    doc.fontSize(10)
+      .font('Helvetica')
+      .text(pageNumber.toString(), 50, doc.page.height - 30, {
+        align: 'center',
+        width: doc.page.width - 100,
+      });
   }
 
   private sanitizeFilename(filename: string): string {
@@ -326,6 +560,13 @@ export class PdfService {
       .replace(/[^a-z0-9]/gi, '_')
       .replace(/_+/g, '_')
       .toLowerCase();
+  }
+
+  private logMemory(label: string): void {
+    const used = process.memoryUsage();
+    this.logger.log(
+      `[${label}] Heap: ${Math.round(used.heapUsed / 1024 / 1024)} MB | RSS: ${Math.round(used.rss / 1024 / 1024)} MB`,
+    );
   }
 
   async deletePDF(filepath: string): Promise<void> {

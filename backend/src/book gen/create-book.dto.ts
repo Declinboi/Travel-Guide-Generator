@@ -1,7 +1,10 @@
-import { IsString, IsOptional, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsUUID } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateBookDto {
+  @IsUUID()
+  userId: string;
+
   @ApiProperty({ example: 'Asturias Travel Guide 2026' })
   @IsString()
   title: string;

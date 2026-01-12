@@ -2,91 +2,130 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import {
   BookOutlineDto,
   ChapterOutline,
 } from './dto/generate-travel-guide.dto';
 
+interface APIProvider {
+  type: 'gemini' | 'openai';
+  client: GoogleGenerativeAI | OpenAI;
+  model: string;
+}
+
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
-  private apiKeys: string[];
-  private currentKeyIndex: number = 0;
-  private genAIInstances: GoogleGenerativeAI[];
-  private readonly MODEL_NAME = 'gemini-2.5-flash-lite';
+  private apiProviders: APIProvider[] = [];
+  private currentProviderIndex: number = 0;
   private readonly MAX_RETRIES = 5;
   private readonly INITIAL_RETRY_DELAY = 6000;
 
   constructor(private configService: ConfigService) {
-    // Load multiple API keys from environment
-    const primaryKey = this.configService.get<string>('GEMINI_API_KEY');
-    const secondaryKeys = this.configService.get<string>('GEMINI_API_KEYS'); // Comma-separated list
+    this.initializeProviders();
 
-    if (!primaryKey && !secondaryKeys) {
-      throw new Error('At least one GEMINI_API_KEY must be configured');
+    if (this.apiProviders.length === 0) {
+      throw new Error(
+        'At least one API key (GEMINI or OPENAI) must be configured',
+      );
     }
 
-    // Build array of API keys
-    this.apiKeys = [];
-    if (primaryKey) {
-      this.apiKeys.push(primaryKey);
-    }
-    if (secondaryKeys) {
-      const keys = secondaryKeys
+    this.logger.log(
+      `Service initialized with ${this.apiProviders.length} API provider(s)`,
+    );
+    this.apiProviders.forEach((provider, idx) => {
+      this.logger.log(
+        `Provider ${idx + 1}: ${provider.type} (${provider.model})`,
+      );
+    });
+  }
+
+  private initializeProviders(): void {
+    // Load Gemini API keys (multiple)
+    const geminiPrimary = this.configService.get<string>('GEMINI_API_KEY');
+    const geminiSecondary = this.configService.get<string>('GEMINI_API_KEYS');
+
+    const geminiKeys: string[] = [];
+    if (geminiPrimary) geminiKeys.push(geminiPrimary);
+    if (geminiSecondary) {
+      const keys = geminiSecondary
         .split(',')
         .map((k) => k.trim())
         .filter((k) => k);
-      this.apiKeys.push(...keys);
+      geminiKeys.push(...keys);
     }
 
-    // Remove duplicates
-    this.apiKeys = [...new Set(this.apiKeys)];
+    // Add Gemini providers
+    const uniqueGeminiKeys = [...new Set(geminiKeys)];
+    uniqueGeminiKeys.forEach((key) => {
+      this.apiProviders.push({
+        type: 'gemini',
+        client: new GoogleGenerativeAI(key),
+        model: 'gemini-2.5-flash-lite',
+      });
+    });
 
-    // Create GoogleGenerativeAI instance for each key
-    this.genAIInstances = this.apiKeys.map(
-      (key) => new GoogleGenerativeAI(key),
-    );
+    // Load OpenAI API key (single)
+    const openaiKey = this.configService.get<string>('OPENAI_API_KEY');
 
-    this.logger.log(
-      `Gemini service initialized with ${this.apiKeys.length} API key(s)`,
-    );
-    this.logger.log(`Using model: ${this.MODEL_NAME}`);
+    if (openaiKey) {
+      this.apiProviders.push({
+        type: 'openai',
+        client: new OpenAI({ apiKey: openaiKey }),
+        model: 'gpt-4.1-nano',
+      });
+    }
   }
 
-  /**
-   * Get the next API key in round-robin fashion
-   */
-  private getNextModel(): any {
-    const genAI = this.genAIInstances[this.currentKeyIndex];
-    const model = genAI.getGenerativeModel({ model: this.MODEL_NAME });
-
-    // Rotate to next key for next request
-    this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
+  private getNextProvider(): APIProvider {
+    const provider = this.apiProviders[this.currentProviderIndex];
+    this.currentProviderIndex =
+      (this.currentProviderIndex + 1) % this.apiProviders.length;
 
     this.logger.debug(
-      `Using API key ${this.currentKeyIndex + 1}/${this.apiKeys.length}`,
+      `Using ${provider.type} provider (${this.currentProviderIndex}/${this.apiProviders.length})`,
     );
 
-    return model;
+    return provider;
   }
 
-  /**
-   * Try all available API keys before giving up
-   */
-  private async generateWithKeyRotation(prompt: string): Promise<string> {
-    const keysToTry = this.apiKeys.length;
+  private async generateWithProvider(
+    provider: APIProvider,
+    prompt: string,
+  ): Promise<string> {
+    if (provider.type === 'gemini') {
+      const model = (provider.client as GoogleGenerativeAI).getGenerativeModel({
+        model: provider.model,
+      });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+    } else {
+      // OpenAI
+      const completion = await (
+        provider.client as OpenAI
+      ).chat.completions.create({
+        model: provider.model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+      });
+      return completion.choices[0]?.message?.content || '';
+    }
+  }
+
+  private async generateWithProviderRotation(prompt: string): Promise<string> {
+    const providersToTry = this.apiProviders.length;
     let lastError: any;
 
-    for (let keyAttempt = 0; keyAttempt < keysToTry; keyAttempt++) {
-      const model = this.getNextModel();
+    for (let attempt = 0; attempt < providersToTry; attempt++) {
+      const provider = this.getNextProvider();
 
       try {
         this.logger.log(
-          `Attempting with API key ${keyAttempt + 1}/${keysToTry}...`,
+          `Attempting with ${provider.type} provider (${attempt + 1}/${providersToTry})...`,
         );
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        return response.text();
+        return await this.generateWithProvider(provider, prompt);
       } catch (error: any) {
         lastError = error;
         const isRateLimitError =
@@ -94,14 +133,13 @@ export class GeminiService {
           error?.message?.includes('rate limit') ||
           error?.message?.includes('quota');
 
-        if (isRateLimitError && keyAttempt < keysToTry - 1) {
+        if (isRateLimitError && attempt < providersToTry - 1) {
           this.logger.warn(
-            `API key ${keyAttempt + 1} rate limited, trying next key...`,
+            `${provider.type} provider rate limited, trying next provider...`,
           );
           continue;
         }
 
-        // If not a rate limit error, or last key, throw
         throw error;
       }
     }
@@ -122,8 +160,7 @@ export class GeminiService {
           `Generating content (attempt ${attempt}/${this.MAX_RETRIES})...`,
         );
 
-        // Try with key rotation first
-        const text = await this.generateWithKeyRotation(prompt);
+        const text = await this.generateWithProviderRotation(prompt);
 
         this.logger.log('Content generated successfully');
         return text;
@@ -136,17 +173,16 @@ export class GeminiService {
 
         if (is503Error || is429Error) {
           if (attempt < this.MAX_RETRIES) {
-            // Exponential backoff: 2s, 4s, 8s, 16s, 32s
             const delay = this.INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
             this.logger.warn(
-              `All keys overloaded/rate limited (attempt ${attempt}/${this.MAX_RETRIES}). Retrying in ${delay}ms...`,
+              `All providers overloaded/rate limited (attempt ${attempt}/${this.MAX_RETRIES}). Retrying in ${delay}ms...`,
             );
             await this.sleep(delay);
             continue;
           }
         }
 
-        this.logger.error('Error generating content with Gemini:', error);
+        this.logger.error('Error generating content:', error);
         throw error;
       }
     }
@@ -205,7 +241,6 @@ Generate the complete outline now as valid JSON:`;
 
     const response = await this.generateText(prompt);
 
-    // Clean and parse JSON response
     const cleanedResponse = response
       .replace(/```json/g, '')
       .replace(/```/g, '')
@@ -361,7 +396,6 @@ Write the complete Conclusion chapter now:`;
     title: string,
     subtitle: string,
     author: string,
-    
   ): Promise<string> {
     return `${title}
 ${subtitle}

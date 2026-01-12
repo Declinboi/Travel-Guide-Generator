@@ -8,6 +8,7 @@ interface Document {
   type: string;
   language: string;
   downloadUrl: string;
+  url: string; // Full URL from backend
   size: string;
 }
 
@@ -87,9 +88,12 @@ const Downloads = () => {
               {(docs as Document[]).map((doc: Document) => (
                 <a
                   key={doc.id}
-                  href={`http://localhost:4000${doc.downloadUrl}`}
+                  // ✅ USE THE FULL URL FROM BACKEND (includes BACKEND_URL)
+                  href={doc.url}
                   className="flex items-center justify-between p-3 bg-gray-50 rounded hover:bg-gray-100 transition"
                   download
+                  target="_blank"
+                  rel="noopener noreferrer"
                 >
                   <div className="flex items-center">
                     <span className="text-2xl mr-3">

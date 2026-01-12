@@ -2,79 +2,128 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import { Language } from 'src/DB/entities';
+
+interface APIProvider {
+  type: 'gemini' | 'openai';
+  client: GoogleGenerativeAI | OpenAI;
+  model: string;
+}
 
 @Injectable()
 export class GeminiTranslationService {
   private readonly logger = new Logger(GeminiTranslationService.name);
-  private apiKeys: string[];
-  private currentKeyIndex: number = 0;
-  private genAIInstances: GoogleGenerativeAI[];
-  private readonly MODEL_NAME = 'gemini-2.5-flash-lite';
+  private apiProviders: APIProvider[] = [];
+  private currentProviderIndex: number = 0;
   private readonly MAX_RETRIES = 5;
   private readonly INITIAL_RETRY_DELAY = 6000;
 
   constructor(private configService: ConfigService) {
-    // Load multiple API keys from environment
-    const primaryKey = this.configService.get<string>('GEMINI_API_KEY');
-    const secondaryKeys = this.configService.get<string>('GEMINI_API_KEYS');
+    this.initializeProviders();
 
-    if (!primaryKey && !secondaryKeys) {
-      throw new Error('At least one GEMINI_API_KEY must be configured');
+    if (this.apiProviders.length === 0) {
+      throw new Error(
+        'At least one API key (GEMINI or OPENAI) must be configured',
+      );
     }
 
-    // Build array of API keys
-    this.apiKeys = [];
-    if (primaryKey) {
-      this.apiKeys.push(primaryKey);
-    }
-    if (secondaryKeys) {
-      const keys = secondaryKeys.split(',').map(k => k.trim()).filter(k => k);
-      this.apiKeys.push(...keys);
-    }
-
-    // Remove duplicates
-    this.apiKeys = [...new Set(this.apiKeys)];
-
-    // Create GoogleGenerativeAI instance for each key
-    this.genAIInstances = this.apiKeys.map(key => new GoogleGenerativeAI(key));
-
-    this.logger.log(`Gemini Translation service initialized with ${this.apiKeys.length} API key(s)`);
+    this.logger.log(
+      `Translation service initialized with ${this.apiProviders.length} API provider(s)`,
+    );
   }
 
-  private getNextModel(): any {
-    const genAI = this.genAIInstances[this.currentKeyIndex];
-    const model = genAI.getGenerativeModel({ model: this.MODEL_NAME });
-    
-    this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
-    
-    return model;
+  private initializeProviders(): void {
+    // Load Gemini API keys (multiple)
+    const geminiPrimary = this.configService.get<string>('GEMINI_API_KEY');
+    const geminiSecondary = this.configService.get<string>('GEMINI_API_KEYS');
+
+    const geminiKeys: string[] = [];
+    if (geminiPrimary) geminiKeys.push(geminiPrimary);
+    if (geminiSecondary) {
+      const keys = geminiSecondary
+        .split(',')
+        .map((k) => k.trim())
+        .filter((k) => k);
+      geminiKeys.push(...keys);
+    }
+
+    // Add Gemini providers
+    const uniqueGeminiKeys = [...new Set(geminiKeys)];
+    uniqueGeminiKeys.forEach((key) => {
+      this.apiProviders.push({
+        type: 'gemini',
+        client: new GoogleGenerativeAI(key),
+        model: 'gemini-2.5-flash-lite',
+      });
+    });
+
+    // Load OpenAI API key (single)
+    const openaiKey = this.configService.get<string>('OPENAI_API_KEY');
+
+    if (openaiKey) {
+      this.apiProviders.push({
+        type: 'openai',
+        client: new OpenAI({ apiKey: openaiKey }),
+        model: 'gpt-4.1-nano',
+      });
+    }
   }
 
-  private async generateWithKeyRotation(prompt: string): Promise<string> {
-    const keysToTry = this.apiKeys.length;
+  private getNextProvider(): APIProvider {
+    const provider = this.apiProviders[this.currentProviderIndex];
+    this.currentProviderIndex =
+      (this.currentProviderIndex + 1) % this.apiProviders.length;
+    return provider;
+  }
+
+  private async generateWithProvider(
+    provider: APIProvider,
+    prompt: string,
+  ): Promise<string> {
+    if (provider.type === 'gemini') {
+      const model = (provider.client as GoogleGenerativeAI).getGenerativeModel({
+        model: provider.model,
+      });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+    } else {
+      // OpenAI
+      const completion = await (
+        provider.client as OpenAI
+      ).chat.completions.create({
+        model: provider.model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+      });
+      return completion.choices[0]?.message?.content || '';
+    }
+  }
+
+  private async generateWithProviderRotation(prompt: string): Promise<string> {
+    const providersToTry = this.apiProviders.length;
     let lastError: any;
 
-    for (let keyAttempt = 0; keyAttempt < keysToTry; keyAttempt++) {
-      const model = this.getNextModel();
-      
+    for (let attempt = 0; attempt < providersToTry; attempt++) {
+      const provider = this.getNextProvider();
+
       try {
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        return response.text();
+        return await this.generateWithProvider(provider, prompt);
       } catch (error: any) {
         lastError = error;
-        const isRateLimitError = error?.status === 429 || 
-                                 error?.message?.includes('rate limit') ||
-                                 error?.message?.includes('quota');
-        
-        if (isRateLimitError && keyAttempt < keysToTry - 1) {
+        const isRateLimitError =
+          error?.status === 429 ||
+          error?.message?.includes('rate limit') ||
+          error?.message?.includes('quota');
+
+        if (isRateLimitError && attempt < providersToTry - 1) {
           this.logger.warn(
-            `Translation API key ${keyAttempt + 1} rate limited, trying next key...`
+            `${provider.type} provider rate limited, trying next provider...`,
           );
           continue;
         }
-        
+
         throw error;
       }
     }
@@ -91,24 +140,26 @@ export class GeminiTranslationService {
 
     for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
       try {
-        const text = await this.generateWithKeyRotation(prompt);
+        const text = await this.generateWithProviderRotation(prompt);
         return text;
       } catch (error: any) {
         lastError = error;
-        const is503Error = error?.status === 503 || error?.message?.includes('overloaded');
-        const is429Error = error?.status === 429 || error?.message?.includes('rate limit');
-        
+        const is503Error =
+          error?.status === 503 || error?.message?.includes('overloaded');
+        const is429Error =
+          error?.status === 429 || error?.message?.includes('rate limit');
+
         if (is503Error || is429Error) {
           if (attempt < this.MAX_RETRIES) {
             const delay = this.INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
             this.logger.warn(
-              `All translation keys overloaded (attempt ${attempt}/${this.MAX_RETRIES}). Retrying in ${delay}ms...`
+              `All providers overloaded (attempt ${attempt}/${this.MAX_RETRIES}). Retrying in ${delay}ms...`,
             );
             await this.sleep(delay);
             continue;
           }
         }
-        
+
         throw error;
       }
     }

@@ -47,6 +47,10 @@ export const projectsApiSlice = apiSlice.injectEndpoints({
         const queryString = queryParams.toString();
         return `/projects?${queryString}`;
       },
+      // 🔥 CRITICAL FIX: Disable caching for projects list
+      keepUnusedDataFor: 0,
+      // Force refetch on every subscription
+      // refetchOnMountOrArgChange: true,
       providesTags: (result) =>
         result
           ? [
@@ -59,24 +63,28 @@ export const projectsApiSlice = apiSlice.injectEndpoints({
     // Get single project by ID
     getProject: builder.query<Project, string>({
       query: (id) => `/projects/${id}`,
+      keepUnusedDataFor: 30, // Cache individual projects for 30 seconds
       providesTags: (_result, _error, id) => [{ type: "Project", id }],
     }),
 
     // Get project stats
     getProjectStats: builder.query<ProjectStats, string>({
       query: (id) => `/projects/${id}/stats`,
+      keepUnusedDataFor: 10, // Cache stats for 10 seconds
       providesTags: (_result, _error, id) => [{ type: "Project", id }],
     }),
 
     // Get project translations
     getProjectTranslations: builder.query<any[], string>({
       query: (id) => `/projects/${id}/translations`,
+      keepUnusedDataFor: 30,
       providesTags: (_result, _error, id) => [{ type: "Project", id }],
     }),
 
     // Get project documents
     getProjectDocuments: builder.query<any[], string>({
       query: (id) => `/projects/${id}/documents`,
+      keepUnusedDataFor: 30,
       providesTags: (_result, _error, id) => [{ type: "Project", id }],
     }),
 
