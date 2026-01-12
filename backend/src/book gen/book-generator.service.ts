@@ -432,22 +432,26 @@ export class BookGeneratorService {
       };
     }
 
+    // Get project info for title
+    const project = await this.projectService.findOne(projectId);
+
     const downloadLinks = documents.map((doc) => ({
       id: doc.id,
       filename: doc.filename,
       type: doc.type,
       language: doc.language,
       size: this.formatFileSize(doc.size),
-      url: `${process.env.BACKEND_URL}${doc.url}`,
-      downloadUrl: `/api/books/download/${projectId}/${doc.id}`,
+      // CRITICAL: Return Cloudinary URL directly
+      url: doc.url, // This is already the full Cloudinary URL
+      cloudinaryPublicId: doc.storageKey, // Include for reference
+      createdAt: doc.createdAt,
     }));
 
     return {
       projectId,
-      title: documents[0]?.project?.title,
+      title: project.title,
       totalDocuments: documents.length,
       documents: downloadLinks,
-      zipDownloadUrl: `/api/books/download/${projectId}/all`,
     };
   }
 

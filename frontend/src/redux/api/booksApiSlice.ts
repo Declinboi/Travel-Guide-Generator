@@ -22,20 +22,22 @@ export interface BookStatus {
   estimatedCompletion: string;
 }
 
+export interface DocumentInfo {
+  id: string;
+  filename: string;
+  type: string;
+  language: string;
+  size: string;
+  url: string; // Cloudinary URL
+  cloudinaryPublicId?: string;
+  createdAt: string;
+}
+
 export interface DownloadLinks {
   projectId: string;
-  title?: string;
+  title: string;
   totalDocuments: number;
-  documents: Array<{
-    id: string;
-    filename: string;
-    type: string;
-    language: string;
-    size: string;
-    url: string;
-    downloadUrl: string;
-  }>;
-  zipDownloadUrl: string;
+  documents: DocumentInfo[];
 }
 
 export const booksApiSlice = apiSlice.injectEndpoints({

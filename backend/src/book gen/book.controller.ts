@@ -92,19 +92,57 @@ export class BookController {
   }
 
   @Get('download/:projectId/:documentId')
-  @ApiOperation({ summary: 'Download a specific document' })
-  @ApiResponse({ status: 200, description: 'File download' })
-  async downloadDocument(
+  @ApiOperation({ summary: 'Get document download URL (Cloudinary)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Document info with Cloudinary URL',
+  })
+  async getDocumentDownloadUrl(
+    @Param('projectId') projectId: string,
+    @Param('documentId') documentId: string,
+  ) {
+    const document = await this.documentService.findOne(documentId);
+
+    // Verify document belongs to project
+    if (document.projectId !== projectId) {
+      throw new NotFoundException('Document not found in this project');
+    }
+
+    return {
+      id: document.id,
+      filename: document.filename,
+      type: document.type,
+      language: document.language,
+      size: document.size,
+      // Return Cloudinary URL - frontend can use this directly
+      url: document.url,
+      cloudinaryPublicId: document.storageKey,
+      createdAt: document.createdAt,
+    };
+  }
+
+  // Optional: Add a redirect endpoint for direct downloads
+  @Get('download/:projectId/:documentId/file')
+  @ApiOperation({ summary: 'Redirect to Cloudinary download' })
+  @ApiResponse({ status: 302, description: 'Redirect to file' })
+  async redirectToDownload(
     @Param('projectId') projectId: string,
     @Param('documentId') documentId: string,
     @Res() res: Response,
   ) {
     const document = await this.documentService.findOne(documentId);
 
-    if (!fs.existsSync(document.storageKey)) {
-      throw new NotFoundException('File not found');
+    // Verify document belongs to project
+    if (document.projectId !== projectId) {
+      throw new NotFoundException('Document not found in this project');
     }
 
-    res.download(document.storageKey, document.filename);
+    // Redirect to Cloudinary URL with download flag
+    const downloadUrl = document.url.replace(
+      '/upload/',
+      '/upload/fl_attachment/',
+    );
+
+    res.redirect(downloadUrl);
   }
 }

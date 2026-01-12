@@ -112,4 +112,35 @@ export class CloudinaryDocumentService {
     const match = filename.match(/\.(pdf|docx)$/i);
     return match ? match[1].toLowerCase() : 'pdf';
   }
+
+  /**
+   * Get a download URL with attachment flag (forces download instead of opening in browser)
+   */
+  getDownloadUrl(publicId: string): string {
+    return cloudinary.url(publicId, {
+      resource_type: 'raw',
+      flags: 'attachment', // Force download
+      secure: true,
+    });
+  }
+
+  /**
+   * Get a signed download URL (expires after specified time)
+   */
+  getSignedDownloadUrl(
+    publicId: string,
+    expiresInSeconds: number = 3600,
+  ): string {
+    return cloudinary.url(publicId, {
+      resource_type: 'raw',
+      flags: 'attachment',
+      secure: true,
+      sign_url: true,
+      type: 'authenticated',
+      expires_at: Math.floor(Date.now() / 1000) + expiresInSeconds,
+    });
+  }
 }
+
+
+
