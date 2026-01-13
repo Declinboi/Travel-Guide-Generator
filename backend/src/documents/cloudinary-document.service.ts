@@ -39,7 +39,6 @@ export class CloudinaryDocumentService {
           resource_type: resourceType,
           folder: 'documents', // Organize in a folder
           public_id: this.sanitizeFilename(filename),
-          format: this.getFileExtension(filename),
           // Optional: Add tags for better organization
           tags: ['generated-document'],
         },
@@ -64,11 +63,9 @@ export class CloudinaryDocumentService {
         },
       );
 
-      // Convert buffer to stream and pipe to Cloudinary
-      const readableStream = new Readable();
-      readableStream.push(buffer);
-      readableStream.push(null);
-      readableStream.pipe(uploadStream);
+      // Convert buffer to stream properly using Readable.from()
+      const stream = Readable.from(buffer);
+      stream.pipe(uploadStream);
     });
   }
 
@@ -108,11 +105,6 @@ export class CloudinaryDocumentService {
       .toLowerCase();
   }
 
-  private getFileExtension(filename: string): string {
-    const match = filename.match(/\.(pdf|docx)$/i);
-    return match ? match[1].toLowerCase() : 'pdf';
-  }
-
   /**
    * Get a download URL with attachment flag (forces download instead of opening in browser)
    */
@@ -141,6 +133,3 @@ export class CloudinaryDocumentService {
     });
   }
 }
-
-
-

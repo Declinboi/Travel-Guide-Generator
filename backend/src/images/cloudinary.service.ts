@@ -6,7 +6,7 @@ import {
   UploadApiResponse,
   UploadApiErrorResponse,
 } from 'cloudinary';
-import * as streamifier from 'streamifier';
+import { Readable } from 'stream';
 
 @Injectable()
 export class CloudinaryService {
@@ -17,8 +17,7 @@ export class CloudinaryService {
       cloud_name: this.configService.get('CLOUDINARY_CLOUD_NAME'),
       api_key: this.configService.get('CLOUDINARY_API_KEY'),
       api_secret: this.configService.get('CLOUDINARY_API_SECRET'),
-      // Increase timeout to 120 seconds
-      timeout: 120000,
+      timeout: 120000, // 120 seconds
     });
   }
 
@@ -85,10 +84,13 @@ export class CloudinaryService {
           resource_type: 'image',
           timeout: 120000, // 120 second timeout per upload
         },
-        (error: UploadApiErrorResponse, result: UploadApiResponse) => {
+        (error: UploadApiErrorResponse | undefined, result: UploadApiResponse | undefined) => {
           if (error) {
             this.logger.error('Cloudinary upload error:', error);
             reject(error);
+          } else if (!result) {
+            this.logger.error('Cloudinary upload failed: No result returned');
+            reject(new Error('Upload failed: No result from Cloudinary'));
           } else {
             this.logger.log(`Image uploaded: ${result.secure_url}`);
             resolve(result);
@@ -96,7 +98,9 @@ export class CloudinaryService {
         },
       );
 
-      streamifier.createReadStream(file.buffer).pipe(uploadStream);
+      // FIXED: Use Readable.from() instead of streamifier
+      const stream = Readable.from(file.buffer);
+      stream.pipe(uploadStream);
     });
   }
 

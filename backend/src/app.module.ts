@@ -15,12 +15,13 @@ import {
 import { UserModule } from './auth/user.module';
 import { ProjectModule } from './project/project.module';
 import { ContentModule } from './content/content.module';
-import { RedisQueueModule } from './DB/config/redis.config';
+// import { RedisQueueModule } from './DB/config/redis.config';
 import { DocumentModule } from './documents/document.module';
 import { TranslationModule } from './translation/translation.module';
 import { ImageModule } from './images/image.module';
 import { BookGeneratorModule } from './book gen/book-generator.module';
 import { AuthModule } from './auth/auth.module';
+import { QueueModule } from './queues/queues.module';
 
 @Module({
   imports: [
@@ -40,7 +41,10 @@ import { AuthModule } from './auth/auth.module';
       inject: [ConfigService],
     }),
     EventEmitterModule.forRoot(),
-    RedisQueueModule,
+    // RedisQueueModule,
+
+    QueueModule,
+
     AuthModule,
     UserModule,
     ProjectModule,

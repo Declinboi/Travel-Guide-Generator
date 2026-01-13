@@ -9,6 +9,7 @@ import { TranslationModule } from 'src/translation/translation.module';
 import { DocumentModule } from 'src/documents/document.module';
 import { ImageModule } from 'src/images/image.module';
 import { BookController } from './book.controller';
+import { QueueModule } from 'src/queues/queues.module';
 
 @Module({
   imports: [
@@ -19,6 +20,8 @@ import { BookController } from './book.controller';
     TranslationModule,
     DocumentModule,
     ImageModule,
+
+    QueueModule,
   ],
   controllers: [BookController],
   providers: [BookGeneratorService],

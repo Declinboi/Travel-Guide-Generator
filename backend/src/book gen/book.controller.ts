@@ -1,3 +1,4 @@
+// src/book-generator/book.controller.ts
 import {
   Controller,
   Post,
@@ -6,25 +7,17 @@ import {
   Body,
   UseInterceptors,
   UploadedFiles,
-  Res,
-  NotFoundException,
   UseGuards,
   Request,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiConsumes,
-  ApiResponse,
-  ApiBearerAuth,
-} from '@nestjs/swagger';
-import type { Response } from 'express';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { BookGeneratorService } from './book-generator.service';
-import * as fs from 'fs';
-import { DocumentService } from 'src/documents/document.service';
+import { DocumentService } from '../documents/document.service';
 import { CreateBookDto } from './create-book.dto';
-import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ProjectService } from '../project/project.service';
+import { BookGenerationQueue } from 'src/queues/book-generation.queue';
 
 @ApiTags('books')
 @ApiBearerAuth('JWT-auth')
@@ -32,7 +25,9 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 @Controller('books')
 export class BookController {
   constructor(
+    private readonly bookGenerationQueue: BookGenerationQueue,
     private readonly bookGeneratorService: BookGeneratorService,
+    private readonly projectService: ProjectService,
     private readonly documentService: DocumentService,
   ) {}
 
@@ -43,23 +38,7 @@ export class BookController {
       { name: 'mapImage', maxCount: 1 },
     ]),
   )
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: 'Generate complete travel guide book',
-    description: `Upload all information at once:
-    1. Title, subtitle, author
-    2. Chapter images (10-12 images, auto-distributed)
-    3. Map image for last page
-    
-    System automatically:
-    - Generates 10 chapters of content
-    - Positions images throughout chapters
-    - Translates to 5 languages
-    - Creates 10 documents (PDF + DOCX for each language)
-    
-    Total time: 10-15 minutes`,
-  })
-  @ApiResponse({ status: 201, description: 'Book generation started' })
+  @ApiOperation({ summary: 'Generate complete travel guide book (Queue-based)' })
   async generateBook(
     @Body() createBookDto: CreateBookDto,
     @Request() req,
@@ -70,42 +49,88 @@ export class BookController {
     },
   ) {
     const userId = req.user.sub;
-    return await this.bookGeneratorService.generateCompleteBook(
+
+    // Create project first
+    const project = await this.projectService.create({
+      title: createBookDto.title,
+      subtitle: createBookDto.subtitle,
+      author: createBookDto.author,
+      numberOfChapters: 10,
+      userId: createBookDto.userId || userId,
+    });
+
+    // FIXED: Properly serialize buffers to JSON format
+    const serializedFiles = {
+      images: files.images?.map(f => ({
+        buffer: f.buffer.toJSON(), // Convert Buffer to { type: 'Buffer', data: [...] }
+        originalname: f.originalname,
+        mimetype: f.mimetype,
+      })),
+      mapImage: files.mapImage?.map(f => ({
+        buffer: f.buffer.toJSON(), // Convert Buffer to { type: 'Buffer', data: [...] }
+        originalname: f.originalname,
+        mimetype: f.mimetype,
+      })),
+    };
+
+    // Add job to queue
+    const jobId = await this.bookGenerationQueue.addBookGenerationJob({
+      projectId: project.id,
       createBookDto,
-      files,
-      userId,
-    );
+      files: serializedFiles,
+    });
+
+    return {
+      message: 'Book generation queued successfully! Processing in background.',
+      projectId: project.id,
+      jobId,
+      estimatedTime: '10-15 minutes',
+      steps: [
+        '1. Generating book content (10 chapters)',
+        '2. Processing and positioning images',
+        '3. Translating to 4 languages sequentially',
+        '4. Creating 10 documents sequentially',
+      ],
+      statusEndpoint: `/api/books/status/${project.id}`,
+      jobStatusEndpoint: `/api/books/job/${jobId}`,
+      downloadEndpoint: `/api/books/download/${project.id}`,
+    };
+  }
+
+  @Get('job/:jobId')
+  @ApiOperation({ summary: 'Get queue job status' })
+  async getJobStatus(@Param('jobId') jobId: string) {
+    return await this.bookGenerationQueue.getJobStatus(jobId);
+  }
+
+  @Get('queue/metrics')
+  @ApiOperation({ summary: 'Get queue metrics' })
+  async getQueueMetrics() {
+    return await this.bookGenerationQueue.getQueueMetrics();
   }
 
   @Get('status/:projectId')
   @ApiOperation({ summary: 'Check book generation status and progress' })
-  @ApiResponse({ status: 200, description: 'Current generation status' })
   async getStatus(@Param('projectId') projectId: string) {
     return await this.bookGeneratorService.getBookStatus(projectId);
   }
 
   @Get('download/:projectId')
   @ApiOperation({ summary: 'Get all download links for generated books' })
-  @ApiResponse({ status: 200, description: 'List of downloadable documents' })
   async getDownloads(@Param('projectId') projectId: string) {
     return await this.bookGeneratorService.getDownloadLinks(projectId);
   }
 
   @Get('download/:projectId/:documentId')
-  @ApiOperation({ summary: 'Get document download URL (Cloudinary)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Document info with Cloudinary URL',
-  })
+  @ApiOperation({ summary: 'Get document download URL' })
   async getDocumentDownloadUrl(
     @Param('projectId') projectId: string,
     @Param('documentId') documentId: string,
   ) {
     const document = await this.documentService.findOne(documentId);
 
-    // Verify document belongs to project
     if (document.projectId !== projectId) {
-      throw new NotFoundException('Document not found in this project');
+      throw new Error('Document not found in this project');
     }
 
     return {
@@ -114,35 +139,9 @@ export class BookController {
       type: document.type,
       language: document.language,
       size: document.size,
-      // Return Cloudinary URL - frontend can use this directly
       url: document.url,
       cloudinaryPublicId: document.storageKey,
       createdAt: document.createdAt,
     };
-  }
-
-  // Optional: Add a redirect endpoint for direct downloads
-  @Get('download/:projectId/:documentId/file')
-  @ApiOperation({ summary: 'Redirect to Cloudinary download' })
-  @ApiResponse({ status: 302, description: 'Redirect to file' })
-  async redirectToDownload(
-    @Param('projectId') projectId: string,
-    @Param('documentId') documentId: string,
-    @Res() res: Response,
-  ) {
-    const document = await this.documentService.findOne(documentId);
-
-    // Verify document belongs to project
-    if (document.projectId !== projectId) {
-      throw new NotFoundException('Document not found in this project');
-    }
-
-    // Redirect to Cloudinary URL with download flag
-    const downloadUrl = document.url.replace(
-      '/upload/',
-      '/upload/fl_attachment/',
-    );
-
-    res.redirect(downloadUrl);
   }
 }
