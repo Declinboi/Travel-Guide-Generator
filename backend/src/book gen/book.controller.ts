@@ -17,7 +17,7 @@ import { DocumentService } from '../documents/document.service';
 import { CreateBookDto } from './create-book.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectService } from '../project/project.service';
-import { BookGenerationQueue } from 'src/queues/book-generation.queue';
+import { BookGenerationQueue } from '../queues/book-generation.queue'; // FIXED import path
 
 @ApiTags('books')
 @ApiBearerAuth('JWT-auth')
@@ -59,15 +59,15 @@ export class BookController {
       userId: createBookDto.userId || userId,
     });
 
-    // FIXED: Properly serialize buffers to JSON format
+    // Serialize buffers to JSON format
     const serializedFiles = {
       images: files.images?.map(f => ({
-        buffer: f.buffer.toJSON(), // Convert Buffer to { type: 'Buffer', data: [...] }
+        buffer: f.buffer.toJSON(),
         originalname: f.originalname,
         mimetype: f.mimetype,
       })),
       mapImage: files.mapImage?.map(f => ({
-        buffer: f.buffer.toJSON(), // Convert Buffer to { type: 'Buffer', data: [...] }
+        buffer: f.buffer.toJSON(),
         originalname: f.originalname,
         mimetype: f.mimetype,
       })),

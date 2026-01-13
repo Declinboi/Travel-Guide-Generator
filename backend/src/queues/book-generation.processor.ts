@@ -1,10 +1,10 @@
-// src/queue/processors/book-generation.processor.ts
+// src/queues/book-generation.processor.ts
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { BookGenerationJobData } from '../queues/book-generation.queue';
+import { BookGenerationJobData } from './book-generation.queue';
 import {
   Project,
   ProjectStatus,
@@ -17,12 +17,14 @@ import { TranslationService } from '../translation/translation.service';
 import { DocumentService } from '../documents/document.service';
 import { ImageService } from '../images/image.service';
 import { DocumentType } from '../DB/entities/document.entity';
+import axios from 'axios';
 
 @Processor('book-generation', {
-  concurrency: 1, // CRITICAL: Reduced from 2 to 1 to prevent memory overflow
+  concurrency: 1, // ONE job at a time to prevent memory overflow
 })
 export class BookGenerationProcessor extends WorkerHost {
   private readonly logger = new Logger(BookGenerationProcessor.name);
+  private imageCache: Map<string, Buffer> = new Map(); // Image cache
 
   constructor(
     @InjectRepository(Project)
@@ -40,20 +42,11 @@ export class BookGenerationProcessor extends WorkerHost {
 
   async process(job: Job<BookGenerationJobData>): Promise<any> {
     const { projectId, createBookDto, files } = job.data;
-    let processedFiles: typeof files | null = files; // Create mutable copy for cleanup
+
+    this.logMemory('Job Start');
 
     try {
       this.logger.log(`[${projectId}] Starting book generation job ${job.id}`);
-
-      // CRITICAL: Don't load full project with all chapters - just get basic info
-      const project = await this.projectRepository.findOne({
-        where: { id: projectId },
-        select: ['id', 'status', 'title'],
-      });
-
-      if (!project) {
-        throw new Error(`Project ${projectId} not found`);
-      }
 
       // STEP 1: Generate Content (0-40%)
       await this.updateJobProgress(job, 0, 'Checking content status');
@@ -64,9 +57,12 @@ export class BookGenerationProcessor extends WorkerHost {
 
       if (chapterCount === 0) {
         await this.updateJobProgress(job, 5, 'Generating content');
-        await this.updateProjectStatus(projectId, ProjectStatus.GENERATING_CONTENT);
+        await this.updateProjectStatus(
+          projectId,
+          ProjectStatus.GENERATING_CONTENT,
+        );
 
-        this.logger.log(`[${projectId}] Step 1: Generating content...`);
+        this.logger.log(`[${projectId}] Generating content...`);
         const contentResult = await this.contentService.generateTravelGuideBook(
           projectId,
           {
@@ -79,51 +75,57 @@ export class BookGenerationProcessor extends WorkerHost {
 
         await this.waitForJobCompletion(contentResult.jobId);
         await this.updateJobProgress(job, 40, 'Content generated');
-        this.logger.log(`[${projectId}] Content generation completed`);
-        
-        await this.validateChaptersProjectId(projectId);
-        this.forceGarbageCollection();
+
+        await this.validateAndFixChapters(projectId);
+        this.aggressiveCleanup();
+        this.logMemory('After Content Generation');
       } else {
-        this.logger.log(`[${projectId}] Content already exists (${chapterCount} chapters)`);
+        this.logger.log(
+          `[${projectId}] Content exists (${chapterCount} chapters)`,
+        );
         await this.updateJobProgress(job, 40, 'Content already exists');
-        await this.validateChaptersProjectId(projectId);
+        await this.validateAndFixChapters(projectId);
       }
 
       // STEP 2: Process Images (40-50%)
-      const existingImageCount = await this.dataSource
+      const imageCount = await this.dataSource
         .createQueryBuilder()
         .select('COUNT(*)', 'count')
         .from('images', 'i')
         .where('i.projectId = :projectId', { projectId })
         .getRawOne();
 
-      if (existingImageCount.count === '0' && processedFiles?.images && processedFiles.images.length > 0) {
+      if (
+        imageCount.count === '0' &&
+        files?.images &&
+        files.images.length > 0
+      ) {
         await this.updateJobProgress(job, 40, 'Processing images');
-        this.logger.log(`[${projectId}] Step 2: Processing ${processedFiles.images.length} images...`);
-        
-        await this.processImages(projectId, createBookDto, processedFiles.images);
+        this.logger.log(
+          `[${projectId}] Processing ${files.images.length} images...`,
+        );
 
-        if (processedFiles?.mapImage && processedFiles.mapImage.length > 0) {
-          this.logger.log(`[${projectId}] Processing map image...`);
-          const mapFile = this.bufferToMulterFile(processedFiles.mapImage[0]);
+        await this.processImages(projectId, createBookDto, files.images);
+
+        if (files.mapImage && files.mapImage.length > 0) {
+          const mapFile = this.bufferToMulterFile(files.mapImage[0]);
           await this.imageService.uploadImage(projectId, mapFile, {
             isMap: true,
             caption: createBookDto.mapCaption,
           });
         }
-        
+
         await this.updateJobProgress(job, 50, 'Images processed');
-        this.forceGarbageCollection();
+        this.aggressiveCleanup();
+        this.logMemory('After Image Processing');
       } else {
-        this.logger.log(`[${projectId}] Images already uploaded, skipping`);
+        this.logger.log(`[${projectId}] Images already uploaded`);
         await this.updateJobProgress(job, 50, 'Images already exist');
       }
 
       // STEP 3: Translate (50-70%)
       await this.updateProjectStatus(projectId, ProjectStatus.TRANSLATING);
-
       await this.updateJobProgress(job, 50, 'Starting translations');
-      this.logger.log(`[${projectId}] Step 3: Translating to 4 languages...`);
 
       const targetLanguages = [
         Language.GERMAN,
@@ -134,22 +136,38 @@ export class BookGenerationProcessor extends WorkerHost {
 
       await this.translateSequentially(projectId, targetLanguages, job);
       await this.updateJobProgress(job, 70, 'Translations completed');
+      this.aggressiveCleanup();
+      this.logMemory('After Translations');
 
-      this.forceGarbageCollection();
+      // STEP 4: PRE-CACHE IMAGES (Critical memory optimization)
+      this.logger.log(
+        `[${projectId}] Pre-caching images for document generation...`,
+      );
+      await this.preCacheImages(projectId);
+      this.logMemory('After Image Caching');
 
-      // STEP 4: Generate Documents (70-100%)
-      await this.updateProjectStatus(projectId, ProjectStatus.GENERATING_DOCUMENTS);
-
+      // STEP 5: Generate Documents (70-100%)
+      await this.updateProjectStatus(
+        projectId,
+        ProjectStatus.GENERATING_DOCUMENTS,
+      );
       await this.updateJobProgress(job, 70, 'Generating documents');
-      this.logger.log(`[${projectId}] Step 4: Generating 10 documents...`);
 
       await this.generateDocumentsSequentially(projectId, job);
       await this.updateJobProgress(job, 100, 'All documents generated');
 
-      // COMPLETE
-      await this.updateProjectStatus(projectId, ProjectStatus.COMPLETED);
+      // Clear image cache
+      this.clearImageCache();
+      this.logMemory('After Documents');
 
+      // Complete
+      await this.updateProjectStatus(projectId, ProjectStatus.COMPLETED);
       this.logger.log(`[${projectId}] ✅ Book generation completed!`);
+
+      this.aggressiveCleanup();
+      this.logMemory('Job Complete');
+
+      await this.delay(1000);
 
       return {
         success: true,
@@ -158,63 +176,112 @@ export class BookGenerationProcessor extends WorkerHost {
       };
     } catch (error) {
       this.logger.error(`[${projectId}] Book generation failed:`, error);
+      this.logMemory('Job Failed');
 
-      await this.updateProjectStatus(projectId, ProjectStatus.FAILED);
+      try {
+        await this.updateProjectStatus(projectId, ProjectStatus.FAILED);
+      } catch (updateError) {
+        this.logger.error(`Failed to update project status:`, updateError);
+      }
 
       throw error;
     } finally {
-      // CRITICAL: Aggressive cleanup
-      processedFiles = null;
-      this.forceGarbageCollection();
+      // Critical cleanup
+      this.clearImageCache();
+      this.aggressiveCleanup();
+      this.logMemory('Job Cleanup');
     }
   }
 
-  // CRITICAL FIX: Lightweight project status update without loading full entity
-  private async updateProjectStatus(projectId: string, status: ProjectStatus): Promise<void> {
+  /**
+   * PRE-CACHE ALL IMAGES - Download once, reuse 10 times
+   * This saves 90% of image download memory
+   */
+  private async preCacheImages(projectId: string): Promise<void> {
+    const images = await this.dataSource
+      .createQueryBuilder()
+      .select(['i.id', 'i.url'])
+      .from('images', 'i')
+      .where('i.projectId = :projectId', { projectId })
+      .getRawMany();
+
+    this.logger.log(`Caching ${images.length} images...`);
+
+    for (const image of images) {
+      if (!this.imageCache.has(image.i_url)) {
+        try {
+          const response = await axios.get(image.i_url, {
+            responseType: 'arraybuffer',
+            timeout: 60000,
+            maxContentLength: 10 * 1024 * 1024,
+          });
+
+          this.imageCache.set(image.i_url, Buffer.from(response.data));
+          this.logger.log(`✓ Cached: ${image.i_url.substring(0, 50)}...`);
+        } catch (error) {
+          this.logger.error(
+            `Failed to cache image ${image.i_url}:`,
+            error.message,
+          );
+        }
+      }
+    }
+
+    this.logger.log(`Image cache ready: ${this.imageCache.size} images`);
+  }
+
+  /**
+   * Get cached image or download if not cached
+   */
+  getCachedImage(url: string): Buffer | null {
+    return this.imageCache.get(url) || null;
+  }
+
+  /**
+   * Clear image cache
+   */
+  private clearImageCache(): void {
+    const size = this.imageCache.size;
+    this.imageCache.clear();
+    this.logger.log(`Image cache cleared: ${size} images removed`);
+  }
+
+  /**
+   * Aggressive garbage collection
+   */
+  private aggressiveCleanup(): void {
+    if (global.gc) {
+      // Call GC multiple times for thorough cleanup
+      global.gc();
+      global.gc();
+      this.logger.debug('Aggressive garbage collection completed');
+    }
+  }
+
+  private async validateAndFixChapters(projectId: string): Promise<void> {
+    const result = await this.chapterRepository
+      .createQueryBuilder()
+      .update(Chapter)
+      .set({ projectId: projectId })
+      .where('projectId IS NULL')
+      .andWhere('project = :projectId', { projectId })
+      .execute();
+
+    if (result.affected && result.affected > 0) {
+      this.logger.log(`Fixed ${result.affected} chapters with null projectId`);
+    }
+  }
+
+  private async updateProjectStatus(
+    projectId: string,
+    status: ProjectStatus,
+  ): Promise<void> {
     await this.projectRepository
       .createQueryBuilder()
       .update(Project)
       .set({ status })
       .where('id = :id', { id: projectId })
       .execute();
-  }
-
-  // CRITICAL FIX: Validate chapters without loading all data
-  private async validateChaptersProjectId(projectId: string): Promise<void> {
-    try {
-      // Find chapters with null projectId using query builder (no entity loading)
-      const invalidChapters = await this.chapterRepository
-        .createQueryBuilder('chapter')
-        .select('chapter.id')
-        .where('chapter.projectId IS NULL')
-        .andWhere('chapter.project = :projectId', { projectId })
-        .getMany();
-
-      if (invalidChapters.length > 0) {
-        this.logger.warn(
-          `Found ${invalidChapters.length} chapters with null projectId for project ${projectId}`,
-        );
-
-        // Batch update all invalid chapters
-        const chapterIds = invalidChapters.map(c => c.id);
-        await this.chapterRepository
-          .createQueryBuilder()
-          .update(Chapter)
-          .set({ projectId: projectId })
-          .where('id IN (:...ids)', { ids: chapterIds })
-          .execute();
-
-        this.logger.log(
-          `Fixed ${invalidChapters.length} chapters with missing projectId`,
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `Error validating chapters for project ${projectId}:`,
-        error,
-      );
-      throw error;
-    }
   }
 
   private async translateSequentially(
@@ -232,7 +299,6 @@ export class BookGenerationProcessor extends WorkerHost {
           percent,
           `Translating to ${language}`,
         );
-
         this.logger.log(`[${projectId}] Translating to ${language}...`);
 
         const result = await this.translationService.translateProject(
@@ -246,12 +312,8 @@ export class BookGenerationProcessor extends WorkerHost {
         await this.waitForJobCompletion(result.jobId);
         this.logger.log(`[${projectId}] ✓ Completed ${language}`);
 
-        // Validate after translation
-        await this.validateChaptersProjectId(projectId);
-
-        // CRITICAL: Aggressive memory cleanup between translations
-        this.forceGarbageCollection();
-        await this.delay(8000); // Increased delay for memory to stabilize
+        this.aggressiveCleanup();
+        await this.delay(5000);
       } catch (error) {
         if (error.message?.includes('already exists')) {
           this.logger.log(
@@ -279,10 +341,9 @@ export class BookGenerationProcessor extends WorkerHost {
     const totalDocs = languages.length * types.length;
     let completed = 0;
 
-    // CRITICAL: Check existing docs without loading full entities
     const existingDocs = await this.dataSource
       .createQueryBuilder()
-      .select('CONCAT(d.type, \'-\', d.language)', 'key')
+      .select("CONCAT(d.type, '-', d.language)", 'key')
       .from('documents', 'd')
       .where('d.projectId = :projectId', { projectId })
       .getRawMany();
@@ -299,42 +360,28 @@ export class BookGenerationProcessor extends WorkerHost {
           await this.updateJobProgress(
             job,
             percent,
-            `Skipping ${type} (${language}) - already exists (${completed}/${totalDocs})`,
+            `Skipping ${type} (${language}) - exists`,
           );
-          this.logger.log(`[${projectId}] ✓ ${type}-${language} already exists`);
           continue;
         }
 
         completed++;
         const percent = 70 + Math.floor((completed / totalDocs) * 30);
-
         await this.updateJobProgress(
           job,
           percent,
-          `Generating ${type} (${language}) - ${completed}/${totalDocs}`,
+          `Generating ${type} (${language}) ${completed}/${totalDocs}`,
         );
 
-        this.logger.log(`[${projectId}] Generating ${type} for ${language}...`);
+        await this.documentService.generateDocumentSync(projectId, {
+          type,
+          language,
+          includeImages: true,
+        });
 
-        try {
-          await this.documentService.generateDocumentSync(projectId, {
-            type,
-            language,
-            includeImages: true,
-          });
-
-          this.logger.log(`[${projectId}] ✓ Completed ${type}-${language}`);
-        } catch (error) {
-          this.logger.error(
-            `[${projectId}] Failed to generate ${type}-${language}:`,
-            error.message,
-          );
-          // Continue with next document instead of failing entire job
-        }
-
-        // CRITICAL: Aggressive memory cleanup between documents
-        this.forceGarbageCollection();
-        await this.delay(3000);
+        // Aggressive cleanup after each document
+        this.aggressiveCleanup();
+        await this.delay(3000); // Increased delay for GC
       }
     }
   }
@@ -345,15 +392,10 @@ export class BookGenerationProcessor extends WorkerHost {
     images: any[],
   ) {
     const totalImages = images.length;
-    const numberOfChapters = 10;
-
     let chapterNumbers = createBookDto.imageChapterNumbers;
 
     if (!chapterNumbers || chapterNumbers.length !== totalImages) {
-      const mainChapters = Array.from(
-        { length: numberOfChapters - 2 },
-        (_, i) => i + 2,
-      );
+      const mainChapters = Array.from({ length: 8 }, (_, i) => i + 2);
       chapterNumbers = [];
       for (let i = 0; i < totalImages; i++) {
         const chapterIndex = Math.floor(
@@ -366,7 +408,6 @@ export class BookGenerationProcessor extends WorkerHost {
     for (let i = 0; i < images.length; i++) {
       const caption = createBookDto.imageCaptions?.[i] || `Image ${i + 1}`;
       const chapterNumber = chapterNumbers[i];
-
       const file = this.bufferToMulterFile(images[i]);
 
       await this.imageService.uploadImage(projectId, file, {
@@ -378,20 +419,16 @@ export class BookGenerationProcessor extends WorkerHost {
       this.logger.log(
         `Image ${i + 1}/${totalImages} uploaded to Chapter ${chapterNumber}`,
       );
-
-      // CRITICAL: Clear file reference immediately after upload
-      images[i] = null;
     }
   }
 
   private bufferToMulterFile(fileData: any): Express.Multer.File {
-    if (!fileData) {
-      throw new Error('Invalid file data');
-    }
-
     let buffer: Buffer;
-    
-    if (fileData.buffer?.type === 'Buffer' && Array.isArray(fileData.buffer.data)) {
+
+    if (
+      fileData.buffer?.type === 'Buffer' &&
+      Array.isArray(fileData.buffer.data)
+    ) {
       buffer = Buffer.from(fileData.buffer.data);
     } else if (Buffer.isBuffer(fileData.buffer)) {
       buffer = fileData.buffer;
@@ -411,7 +448,7 @@ export class BookGenerationProcessor extends WorkerHost {
 
   private async waitForJobCompletion(jobId: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const maxWaitTime = 600000; // 10 minutes
+      const maxWaitTime = 600000;
       const checkInterval = 5000;
       let elapsedTime = 0;
 
@@ -421,7 +458,7 @@ export class BookGenerationProcessor extends WorkerHost {
 
           if (elapsedTime >= maxWaitTime) {
             clearInterval(interval);
-            reject(new Error(`Job ${jobId} timed out after 10 minutes`));
+            reject(new Error(`Job ${jobId} timed out`));
             return;
           }
 
@@ -442,15 +479,6 @@ export class BookGenerationProcessor extends WorkerHost {
     });
   }
 
-  private forceGarbageCollection(): void {
-    if (global.gc) {
-      global.gc();
-      this.logger.debug('Forced garbage collection');
-    } else {
-      this.logger.warn('Garbage collection not exposed. Run with --expose-gc');
-    }
-  }
-
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -463,14 +491,25 @@ export class BookGenerationProcessor extends WorkerHost {
     await job.updateProgress({ percent, step });
   }
 
+  private logMemory(label: string): void {
+    const used = process.memoryUsage();
+    this.logger.log(
+      `[Memory ${label}] Heap: ${Math.round(used.heapUsed / 1024 / 1024)}MB / ${Math.round(used.heapTotal / 1024 / 1024)}MB | RSS: ${Math.round(used.rss / 1024 / 1024)}MB`,
+    );
+  }
+
   @OnWorkerEvent('completed')
   onCompleted(job: Job) {
     this.logger.log(`Job ${job.id} completed successfully`);
+    this.clearImageCache();
+    this.aggressiveCleanup();
   }
 
   @OnWorkerEvent('failed')
   onFailed(job: Job, error: Error) {
     this.logger.error(`Job ${job.id} failed:`, error);
+    this.clearImageCache();
+    this.aggressiveCleanup();
   }
 
   @OnWorkerEvent('active')

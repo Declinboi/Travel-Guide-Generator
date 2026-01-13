@@ -4,8 +4,30 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // const app = await NestFactory.create(AppModule);
 
+  console.log('=== Node.js Configuration ===');
+  console.log(`Node Version: ${process.version}`);
+  console.log(`Platform: ${process.platform}`);
+  console.log(`Architecture: ${process.arch}`);
+  console.log(`Garbage Collection Exposed: ${!!global.gc}`);
+
+  if (!global.gc) {
+    console.warn('⚠️  WARNING: Garbage collection not exposed!');
+    console.warn('⚠️  Run with: node --expose-gc dist/main.js');
+    console.warn('⚠️  Or update package.json start script');
+  }
+
+  const memUsage = process.memoryUsage();
+  console.log('=== Initial Memory Usage ===');
+  console.log(`Heap Used: ${Math.round(memUsage.heapUsed / 1024 / 1024)} MB`);
+  console.log(`Heap Total: ${Math.round(memUsage.heapTotal / 1024 / 1024)} MB`);
+  console.log(`RSS: ${Math.round(memUsage.rss / 1024 / 1024)} MB`);
+  console.log('===============================\n');
+
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log', 'debug'],
+  });
   // Enable CORS for frontend
   app.enableCors({
     origin: true,
