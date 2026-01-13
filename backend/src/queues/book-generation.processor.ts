@@ -194,8 +194,8 @@ export class BookGenerationProcessor extends WorkerHost {
   }
 
   /**
-   * PRE-CACHE ALL IMAGES - Download once, reuse 10 times
-   * This saves 90% of image download memory
+   * PRE-CACHE ALL IMAGES with retry logic
+   * Downloads once, reuses 10 times (saves 90% memory)
    */
   private async preCacheImages(projectId: string): Promise<void> {
     const images = await this.dataSource
@@ -205,45 +205,109 @@ export class BookGenerationProcessor extends WorkerHost {
       .where('i.projectId = :projectId', { projectId })
       .getRawMany();
 
-    this.logger.log(`Caching ${images.length} images...`);
+    this.logger.log(`Pre-caching ${images.length} images...`);
 
     for (const image of images) {
       if (!this.imageCache.has(image.i_url)) {
-        try {
-          const response = await axios.get(image.i_url, {
-            responseType: 'arraybuffer',
-            timeout: 60000,
-            maxContentLength: 10 * 1024 * 1024,
-          });
+        await this.cacheImageWithRetry(image.i_url);
+      }
+    }
 
-          this.imageCache.set(image.i_url, Buffer.from(response.data));
-          this.logger.log(`✓ Cached: ${image.i_url.substring(0, 50)}...`);
-        } catch (error) {
+    this.logger.log(
+      `✅ Image cache ready: ${this.imageCache.size}/${images.length} images`,
+    );
+  }
+
+  /**
+   * Cache single image with retry logic (matching PDF/DOCX download logic)
+   */
+  private async cacheImageWithRetry(
+    url: string,
+    maxRetries = 4,
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logger.log(
+          `[Attempt ${attempt}/${maxRetries}] Caching: ${url.substring(url.lastIndexOf('/') + 1)}`,
+        );
+
+        const response = await axios.get(url, {
+          responseType: 'arraybuffer',
+          timeout: 60000,
+          maxContentLength: 10 * 1024 * 1024,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideBot/1.0)',
+          },
+        });
+
+        const buffer = Buffer.from(response.data);
+        this.imageCache.set(url, buffer);
+
+        this.logger.log(
+          `✓ Cached successfully: ${url.substring(url.lastIndexOf('/') + 1)} (${Math.round(buffer.length / 1024)}KB)`,
+        );
+        return; // Success - exit retry loop
+      } catch (error) {
+        const isLastAttempt = attempt === maxRetries;
+
+        this.logger.warn(
+          `[Attempt ${attempt}/${maxRetries}] Failed to cache ${url}:`,
+          error.message,
+          isLastAttempt ? '(will skip this image)' : '(retrying...)',
+        );
+
+        if (!isLastAttempt) {
+          // Exponential backoff: 2s, 4s, 8s
+          const delayMs = Math.pow(2, attempt) * 1000;
+          await this.delay(delayMs);
+        } else {
+          // Log full error details on final failure
           this.logger.error(
-            `Failed to cache image ${image.i_url}:`,
-            error.message,
+            `❌ Failed to cache image after ${maxRetries} attempts:`,
+            {
+              url,
+              errorMessage: error.message,
+              errorCode: error.code,
+              errorResponse: error.response?.status,
+            },
           );
         }
       }
     }
-
-    this.logger.log(`Image cache ready: ${this.imageCache.size} images`);
   }
 
   /**
    * Get cached image or download if not cached
    */
   getCachedImage(url: string): Buffer | null {
-    return this.imageCache.get(url) || null;
+    const cached = this.imageCache.get(url);
+    if (cached) {
+      this.logger.debug(
+        `✓ Using cached image: ${url.substring(url.lastIndexOf('/') + 1)}`,
+      );
+    } else {
+      this.logger.warn(
+        `⚠ Image not in cache: ${url.substring(url.lastIndexOf('/') + 1)}`,
+      );
+    }
+    return cached || null;
   }
 
   /**
-   * Clear image cache
+   * Clear image cache and log stats
    */
   private clearImageCache(): void {
     const size = this.imageCache.size;
+    const totalBytes = Array.from(this.imageCache.values()).reduce(
+      (sum, buffer) => sum + buffer.length,
+      0,
+    );
+
     this.imageCache.clear();
-    this.logger.log(`Image cache cleared: ${size} images removed`);
+
+    this.logger.log(
+      `🧹 Image cache cleared: ${size} images, ${Math.round(totalBytes / 1024 / 1024)}MB freed`,
+    );
   }
 
   /**

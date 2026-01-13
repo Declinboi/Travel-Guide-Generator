@@ -1,4 +1,4 @@
-// src/book-generator/book.controller.ts
+// src/book-generator/book.controller.ts (Updated)
 import {
   Controller,
   Post,
@@ -12,12 +12,12 @@ import {
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { BookGenerationQueue } from '../queues/book-generation.queue';
 import { BookGeneratorService } from './book-generator.service';
 import { DocumentService } from '../documents/document.service';
 import { CreateBookDto } from './create-book.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectService } from '../project/project.service';
-import { BookGenerationQueue } from '../queues/book-generation.queue'; // FIXED import path
 
 @ApiTags('books')
 @ApiBearerAuth('JWT-auth')
@@ -59,7 +59,14 @@ export class BookController {
       userId: createBookDto.userId || userId,
     });
 
-    // Serialize buffers to JSON format
+    // Verify project was created
+    if (!project || !project.id) {
+      throw new Error('Failed to create project');
+    }
+
+    
+
+    // Serialize buffers to JSON format for Redis
     const serializedFiles = {
       images: files.images?.map(f => ({
         buffer: f.buffer.toJSON(),
