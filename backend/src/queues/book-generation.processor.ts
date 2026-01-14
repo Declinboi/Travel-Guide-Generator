@@ -81,7 +81,7 @@ export class BookGenerationProcessor extends WorkerHost {
         await this.updateJobProgress(job, 40, 'Content generated');
 
         await this.validateAndFixChapters(projectId);
-        this.aggressiveCleanup();
+        this.extremeCleanup();
         this.logMemory('After Content Generation');
       } else {
         this.logger.log(
@@ -120,7 +120,7 @@ export class BookGenerationProcessor extends WorkerHost {
         }
 
         await this.updateJobProgress(job, 50, 'Images processed');
-        this.aggressiveCleanup();
+        this.extremeCleanup();
         this.logMemory('After Image Processing');
       } else {
         this.logger.log(`[${projectId}] Images already uploaded`);
@@ -140,10 +140,10 @@ export class BookGenerationProcessor extends WorkerHost {
 
       await this.translateSequentially(projectId, targetLanguages, job);
       await this.updateJobProgress(job, 70, 'Translations completed');
-      this.aggressiveCleanup();
+      this.extremeCleanup();
       this.logMemory('After Translations');
 
-      // STEP 4: PRE-CACHE IMAGES (Critical memory optimization)
+      // STEP 4: PRE-CACHE IMAGES
       this.logger.log(
         `[${projectId}] Pre-caching images for document generation...`,
       );
@@ -168,10 +168,10 @@ export class BookGenerationProcessor extends WorkerHost {
       await this.updateProjectStatus(projectId, ProjectStatus.COMPLETED);
       this.logger.log(`[${projectId}] ✅ Book generation completed!`);
 
-      this.aggressiveCleanup();
+      this.extremeCleanup();
       this.logMemory('Job Complete');
 
-      await this.delay(1000);
+      await this.delay(2000);
 
       return {
         success: true,
@@ -191,7 +191,7 @@ export class BookGenerationProcessor extends WorkerHost {
       throw error;
     } finally {
       this.clearImageCache();
-      this.aggressiveCleanup();
+      this.extremeCleanup();
       this.logMemory('Job Cleanup');
     }
   }
@@ -220,9 +220,6 @@ export class BookGenerationProcessor extends WorkerHost {
     );
   }
 
-  /**
-   * Cache single image with retry logic
-   */
   private async cacheImageWithRetry(
     url: string,
     maxRetries = 4,
@@ -271,16 +268,10 @@ export class BookGenerationProcessor extends WorkerHost {
     }
   }
 
-  /**
-   * Get cached image
-   */
   getCachedImage(url: string): Buffer | null {
     return this.imageCache.get(url) || null;
   }
 
-  /**
-   * Clear image cache
-   */
   private clearImageCache(): void {
     const size = this.imageCache.size;
     const totalBytes = Array.from(this.imageCache.values()).reduce(
@@ -296,14 +287,15 @@ export class BookGenerationProcessor extends WorkerHost {
   }
 
   /**
-   * CRITICAL FIX: Aggressive garbage collection with multiple passes
+   * CRITICAL FIX: EXTREME cleanup with long pauses for GC
    */
-  private aggressiveCleanup(): void {
+  private async extremeCleanup(): Promise<void> {
     if (global.gc) {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 10; i++) {
         global.gc();
+        await this.delay(200); // Wait between GC calls
       }
-      this.logger.debug('Aggressive garbage collection completed');
+      this.logger.debug('Extreme garbage collection completed (10 passes)');
     }
   }
 
@@ -361,7 +353,7 @@ export class BookGenerationProcessor extends WorkerHost {
         await this.waitForJobCompletion(result.jobId);
         this.logger.log(`[${projectId}] ✓ Completed ${language}`);
 
-        this.aggressiveCleanup();
+        await this.extremeCleanup();
         await this.delay(5000);
       } catch (error) {
         if (error.message?.includes('already exists')) {
@@ -376,7 +368,7 @@ export class BookGenerationProcessor extends WorkerHost {
   }
 
   /**
-   * CRITICAL FIX: Generate documents with aggressive memory management
+   * CRITICAL FIX: Generate documents with MASSIVE delays and cleanup
    */
   private async generateDocumentsSequentially(
     projectId: string,
@@ -427,7 +419,6 @@ export class BookGenerationProcessor extends WorkerHost {
 
         this.logMemory(`Before ${type}-${language}`);
 
-        // PASS IMAGE CACHE to document service
         await this.documentService.generateDocumentSync(
           projectId,
           {
@@ -435,19 +426,29 @@ export class BookGenerationProcessor extends WorkerHost {
             language,
             includeImages: true,
           },
-          this.imageCache, // PASS THE CACHE!!!
+          this.imageCache,
         );
-
-        // CRITICAL: Multiple aggressive cleanup passes
-        for (let i = 0; i < 5; i++) {
-          if (global.gc) global.gc();
-          await this.delay(500);
-        }
 
         this.logMemory(`After ${type}-${language}`);
 
-        // CRITICAL: Longer delay between documents for memory recovery
-        await this.delay(10000); // Increased from 3s to 10s
+        // CRITICAL: MASSIVE cleanup + long delay
+        this.logger.log(
+          `💤 Starting extreme cleanup for ${type}-${language}...`,
+        );
+
+        // Clear ALL possible references
+        if (global.gc) {
+          for (let i = 0; i < 15; i++) {
+            global.gc();
+            await this.delay(300);
+          }
+        }
+
+        // MASSIVE delay for memory recovery (30 seconds)
+        this.logger.log(`💤 Waiting 30 seconds for memory recovery...`);
+        await this.delay(30000);
+
+        this.logMemory(`After cleanup ${type}-${language}`);
       }
     }
   }
@@ -568,14 +569,14 @@ export class BookGenerationProcessor extends WorkerHost {
   onCompleted(job: Job) {
     this.logger.log(`Job ${job.id} completed successfully`);
     this.clearImageCache();
-    this.aggressiveCleanup();
+    this.extremeCleanup();
   }
 
   @OnWorkerEvent('failed')
   onFailed(job: Job, error: Error) {
     this.logger.error(`Job ${job.id} failed:`, error);
     this.clearImageCache();
-    this.aggressiveCleanup();
+    this.extremeCleanup();
   }
 
   @OnWorkerEvent('active')
