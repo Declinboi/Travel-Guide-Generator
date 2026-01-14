@@ -1,22 +1,17 @@
-// src/queue/queue.module.ts
 import { Module, OnModuleInit, Logger, Injectable } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import Redis from 'ioredis';
-// import { BookGenerationQueue } from './queues/book-generation.queue';
-// import { BookGenerationProcessor } from './processors/book-generation.processor';
 import { Project, Job, Chapter, Translation, Document } from '../DB/entities';
 import { ContentModule } from '../content/content.module';
 import { TranslationModule } from '../translation/translation.module';
 import { DocumentModule } from '../documents/document.module';
 import { ImageModule } from '../images/image.module';
-import { BookGenerationProcessor } from './book-generation.processor';
 import { BookGenerationQueue } from './book-generation.queue';
+import { BookGenerationProcessor } from './book-generation.processor';
+import Redis from 'ioredis';
 
-// ============================================
-// DECLARE RedisMonitorService FIRST (before @Module)
-// ============================================
+// Redis Monitoring Service - MOVED BEFORE QueueModule
 @Injectable()
 class RedisMonitorService {
   private readonly logger = new Logger('RedisMonitor');
@@ -103,10 +98,6 @@ class RedisMonitorService {
   }
 }
 
-// ============================================
-// NOW DECLARE THE MODULE
-// ============================================
-
 @Module({
   imports: [
     // Configure Bull with Redis
@@ -156,7 +147,7 @@ class RedisMonitorService {
       },
     }),
 
-    // Register queue
+    // Register the book-generation queue
     BullModule.registerQueue({
       name: 'book-generation',
     }),
@@ -172,7 +163,7 @@ class RedisMonitorService {
     BookGenerationProcessor,
     RedisMonitorService,
   ],
-  exports: [BookGenerationQueue],
+  exports: [BookGenerationQueue, BullModule],
 })
 export class QueueModule implements OnModuleInit {
   private readonly logger = new Logger(QueueModule.name);
@@ -187,3 +178,6 @@ export class QueueModule implements OnModuleInit {
     await this.redisMonitor.startMonitoring();
   }
 }
+
+// Export RedisMonitorService
+export { RedisMonitorService };

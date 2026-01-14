@@ -12,28 +12,14 @@ import {
   PageNumber,
   Footer,
   NumberFormat,
-  PageBreak,
-  Tab,
-  TabStopType,
-  TabStopPosition,
 } from 'docx';
-import * as fs from 'fs';
-import * as path from 'path';
 import axios from 'axios';
 
 @Injectable()
 export class DocxService {
   private readonly logger = new Logger(DocxService.name);
-  private readonly storagePath: string;
 
-  constructor(private configService: ConfigService) {
-    this.storagePath =
-      this.configService.get('STORAGE_PATH') || './storage/documents';
-
-    if (!fs.existsSync(this.storagePath)) {
-      fs.mkdirSync(this.storagePath, { recursive: true });
-    }
-  }
+  constructor(private configService: ConfigService) {}
 
   async generateDOCXBuffer(
     title: string,
@@ -41,132 +27,24 @@ export class DocxService {
     author: string,
     chapters: any[],
     images: any[] = [],
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
   ): Promise<{ buffer: Buffer; filename: string }> {
     let doc: Document | null = null;
-    let sections: Paragraph[] = [];
 
     try {
       this.logMemory('DOCX Start');
 
       const filename = `${this.sanitizeFilename(title)}_${Date.now()}.docx`;
 
-      // TITLE PAGE
-      const titlePageSections = this.createTitlePage(title, subtitle, author);
-
-      // COPYRIGHT PAGE
-      const copyrightChapter = chapters.find((c) =>
-        c.title.toLowerCase().includes('copyright'),
+      // CRITICAL: Process in smaller batches to avoid memory overflow
+      const sections = await this.buildSectionsInBatches(
+        title,
+        subtitle,
+        author,
+        chapters,
+        images,
+        imageCache, // PASS cache through
       );
-      const copyrightSections = copyrightChapter
-        ? this.createCopyrightPage(copyrightChapter.content)
-        : [];
-
-      // ABOUT BOOK PAGE
-      const aboutChapter = chapters.find((c) =>
-        c.title.toLowerCase().includes('about'),
-      );
-      const aboutSections = aboutChapter
-        ? this.createAboutPage(aboutChapter.content)
-        : [];
-
-      // TABLE OF CONTENTS
-      const tocChapter = chapters.find((c) =>
-        c.title.toLowerCase().includes('table'),
-      );
-      const tocSections = tocChapter
-        ? this.createTableOfContents(tocChapter.content)
-        : [];
-
-      // Combine front matter
-      sections.push(
-        ...titlePageSections,
-        ...copyrightSections,
-        ...aboutSections,
-        ...tocSections,
-      );
-
-      // MAIN CHAPTERS
-      const mainChapters = chapters
-        .filter(
-          (c) =>
-            !['title', 'copyright', 'about', 'table'].some((keyword) =>
-              c.title.toLowerCase().includes(keyword),
-            ),
-        )
-        .sort((a, b) => a.order - b.order);
-
-      for (let i = 0; i < mainChapters.length; i++) {
-        const chapter = mainChapters[i];
-        const chapterNumber = chapter.order - 3;
-
-        // Clean the chapter title
-        const cleanTitle = this.cleanText(chapter.title);
-
-        sections.push(
-          new Paragraph({
-            text: '',
-            pageBreakBefore: true,
-          }),
-        );
-
-        // Chapter number - centered, smaller
-        sections.push(
-          new Paragraph({
-            text: `Chapter ${chapterNumber}`,
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 240, after: 240 },
-            children: [
-              new TextRun({
-                text: `Chapter ${chapterNumber}`,
-                size: 40,
-              }),
-            ],
-          }),
-        );
-
-        // Chapter title - centered, larger, bold (CLEANED)
-        sections.push(
-          new Paragraph({
-            text: cleanTitle,
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 600 },
-            children: [
-              new TextRun({
-                text: cleanTitle,
-                bold: true,
-                size: 40, // 20pt
-              }),
-            ],
-          }),
-        );
-
-        const chapterImages = images
-          .filter((img) => img.chapterNumber === chapterNumber && !img.isMap)
-          .sort((a, b) => (a.position || 0) - (b.position || 0));
-
-        if (chapterImages.length > 0) {
-          const contentWithImages = await this.createContentWithImages(
-            chapter.content,
-            chapterImages,
-          );
-          sections.push(...contentWithImages);
-          contentWithImages.length = 0;
-        } else {
-          sections.push(...this.createFormattedContent(chapter.content));
-        }
-
-        if (global.gc && i % 2 === 0) {
-          global.gc();
-        }
-      }
-
-      // MAP PAGE
-      const mapImage = images.find((img) => img.isMap);
-      if (mapImage) {
-        const mapSections = await this.createMapPage(mapImage);
-        sections.push(...mapSections);
-        mapSections.length = 0;
-      }
 
       // Create document
       doc = new Document({
@@ -210,26 +88,216 @@ export class DocxService {
         ],
       });
 
-      // Generate buffer instead of writing to file
+      // Generate buffer
       const buffer = await Packer.toBuffer(doc);
 
       this.logger.log(`DOCX generated: ${filename} (${buffer.length} bytes)`);
       this.logMemory('DOCX Complete');
 
-      return {
-        buffer,
-        filename,
-      };
+      return { buffer, filename };
     } catch (error) {
       this.logger.error('Error generating DOCX:', error);
       throw error;
     } finally {
       doc = null;
-      sections.length = 0;
 
       if (global.gc) {
         global.gc();
+        global.gc();
       }
+    }
+  }
+
+  /**
+   * CRITICAL FIX: Build sections in batches with cleanup between each
+   */
+  private async buildSectionsInBatches(
+    title: string,
+    subtitle: string,
+    author: string,
+    chapters: any[],
+    images: any[],
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
+  ): Promise<Paragraph[]> {
+    const allSections: Paragraph[] = [];
+
+    // BATCH 1: Front Matter
+    this.logger.log('Building front matter...');
+    const frontMatter = this.buildFrontMatter(
+      title,
+      subtitle,
+      author,
+      chapters,
+    );
+    allSections.push(...frontMatter);
+    this.cleanup(frontMatter);
+    this.logMemory('After Front Matter');
+
+    // BATCH 2: Main Chapters (process in smaller groups)
+    const mainChapters = chapters
+      .filter(
+        (c) =>
+          !['title', 'copyright', 'about', 'table'].some((keyword) =>
+            c.title.toLowerCase().includes(keyword),
+          ),
+      )
+      .sort((a, b) => a.order - b.order);
+
+    // Process chapters in groups of 2
+    for (let i = 0; i < mainChapters.length; i += 2) {
+      const chapterBatch = mainChapters.slice(i, i + 2);
+
+      for (const chapter of chapterBatch) {
+        this.logger.log(`Building chapter ${chapter.order}...`);
+        const chapterSections = await this.buildChapterSections(
+          chapter,
+          images,
+          imageCache,
+        ); // PASS cache
+        allSections.push(...chapterSections);
+        this.cleanup(chapterSections);
+      }
+
+      // Aggressive cleanup after every 2 chapters
+      if (global.gc) {
+        global.gc();
+        global.gc();
+      }
+
+      this.logMemory(
+        `After chapters ${i + 1}-${Math.min(i + 2, mainChapters.length)}`,
+      );
+      await this.delay(1000);
+    }
+
+    // BATCH 3: Map Page
+    const mapImage = images.find((img) => img.isMap);
+    if (mapImage) {
+      this.logger.log('Building map page...');
+      const mapSections = await this.createMapPage(mapImage, imageCache); // PASS cache
+      allSections.push(...mapSections);
+      this.cleanup(mapSections);
+      this.logMemory('After Map');
+    }
+
+    return allSections;
+  }
+
+  /**
+   * Build front matter sections
+   */
+  private buildFrontMatter(
+    title: string,
+    subtitle: string,
+    author: string,
+    chapters: any[],
+  ): Paragraph[] {
+    const sections: Paragraph[] = [];
+
+    // Title page
+    sections.push(...this.createTitlePage(title, subtitle, author));
+
+    // Copyright
+    const copyrightChapter = chapters.find((c) =>
+      c.title.toLowerCase().includes('copyright'),
+    );
+    if (copyrightChapter) {
+      sections.push(...this.createCopyrightPage(copyrightChapter.content));
+    }
+
+    // About
+    const aboutChapter = chapters.find((c) =>
+      c.title.toLowerCase().includes('about'),
+    );
+    if (aboutChapter) {
+      sections.push(...this.createAboutPage(aboutChapter.content));
+    }
+
+    // TOC
+    const tocChapter = chapters.find((c) =>
+      c.title.toLowerCase().includes('table'),
+    );
+    if (tocChapter) {
+      sections.push(...this.createTableOfContents(tocChapter.content));
+    }
+
+    return sections;
+  }
+
+  /**
+   * Build chapter sections with images
+   */
+  private async buildChapterSections(
+    chapter: any,
+    images: any[],
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
+  ): Promise<Paragraph[]> {
+    const sections: Paragraph[] = [];
+    const chapterNumber = chapter.order - 3;
+    const cleanTitle = this.cleanText(chapter.title);
+
+    // Page break
+    sections.push(new Paragraph({ text: '', pageBreakBefore: true }));
+
+    // Chapter number
+    sections.push(
+      new Paragraph({
+        text: `Chapter ${chapterNumber}`,
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 240, after: 240 },
+        children: [
+          new TextRun({
+            text: `Chapter ${chapterNumber}`,
+            size: 40,
+          }),
+        ],
+      }),
+    );
+
+    // Chapter title
+    sections.push(
+      new Paragraph({
+        text: cleanTitle,
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 600 },
+        children: [
+          new TextRun({
+            text: cleanTitle,
+            bold: true,
+            size: 40,
+          }),
+        ],
+      }),
+    );
+
+    // Content with images
+    const chapterImages = images
+      .filter((img) => img.chapterNumber === chapterNumber && !img.isMap)
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
+
+    if (chapterImages.length > 0) {
+      const contentSections = await this.createContentWithImages(
+        chapter.content,
+        chapterImages,
+        imageCache, // PASS cache
+      );
+      sections.push(...contentSections);
+      this.cleanup(contentSections);
+    } else {
+      const contentSections = this.createFormattedContent(chapter.content);
+      sections.push(...contentSections);
+      this.cleanup(contentSections);
+    }
+
+    return sections;
+  }
+
+  /**
+   * CRITICAL: Helper to clear arrays and force GC
+   */
+  private cleanup(items: any[]): void {
+    if (items && items.length > 0) {
+      items.length = 0;
     }
   }
 
@@ -262,7 +330,6 @@ export class DocxService {
           }),
         ],
       }),
-
       new Paragraph({
         text: 'By',
         alignment: AlignmentType.CENTER,
@@ -290,9 +357,7 @@ export class DocxService {
   }
 
   private createCopyrightPage(content: string): Paragraph[] {
-    // Clean the content
     const cleanedContent = this.cleanContent(content);
-
     return [
       new Paragraph({ text: '', pageBreakBefore: true }),
       new Paragraph({
@@ -311,7 +376,6 @@ export class DocxService {
     const paragraphs: Paragraph[] = [];
 
     paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
-
     paragraphs.push(
       new Paragraph({
         text: 'About Book',
@@ -320,7 +384,6 @@ export class DocxService {
       }),
     );
 
-    // Clean and split content
     const cleanedContent = this.cleanContent(content);
     const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
@@ -346,7 +409,6 @@ export class DocxService {
     const paragraphs: Paragraph[] = [];
 
     paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
-
     paragraphs.push(
       new Paragraph({
         text: 'Table of Contents',
@@ -355,7 +417,6 @@ export class DocxService {
       }),
     );
 
-    // Clean content first
     const cleanedContent = this.cleanContent(content);
     const lines = cleanedContent.split('\n').filter((l) => l.trim());
 
@@ -363,16 +424,10 @@ export class DocxService {
       const trimmed = line.trim();
 
       if (!trimmed) {
-        paragraphs.push(
-          new Paragraph({
-            text: '',
-            spacing: { after: 100 },
-          }),
-        );
+        paragraphs.push(new Paragraph({ text: '', spacing: { after: 100 } }));
         return;
       }
 
-      // Chapter headers
       if (trimmed.match(/^Chapter \d+$/)) {
         paragraphs.push(
           new Paragraph({
@@ -386,9 +441,7 @@ export class DocxService {
             spacing: { before: 200, after: 100 },
           }),
         );
-      }
-      // Chapter titles
-      else if (!trimmed.startsWith(' ')) {
+      } else if (!trimmed.startsWith(' ')) {
         paragraphs.push(
           new Paragraph({
             children: [
@@ -400,9 +453,7 @@ export class DocxService {
             spacing: { after: 100 },
           }),
         );
-      }
-      // Sections
-      else if (trimmed.match(/^[A-Z]/)) {
+      } else if (trimmed.match(/^[A-Z]/)) {
         paragraphs.push(
           new Paragraph({
             children: [
@@ -414,9 +465,7 @@ export class DocxService {
             spacing: { after: 50 },
           }),
         );
-      }
-      // Subsections
-      else {
+      } else {
         paragraphs.push(
           new Paragraph({
             children: [
@@ -436,15 +485,11 @@ export class DocxService {
 
   private createFormattedContent(content: string): Paragraph[] {
     const paragraphs: Paragraph[] = [];
-
-    // Clean the content
     const cleanedContent = this.cleanContent(content);
     const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     sections.forEach((section) => {
       const trimmed = section.trim();
-
-      // Check if this is a section header
       const isHeader =
         trimmed.length < 100 &&
         !trimmed.includes('.') &&
@@ -457,7 +502,7 @@ export class DocxService {
               new TextRun({
                 text: trimmed,
                 bold: true,
-                size: 28, // 14pt
+                size: 28,
               }),
             ],
             spacing: { before: 300, after: 240 },
@@ -470,7 +515,7 @@ export class DocxService {
             children: [
               new TextRun({
                 text: trimmed,
-                size: 22, // 11pt
+                size: 22,
               }),
             ],
             spacing: { after: 200 },
@@ -483,48 +528,54 @@ export class DocxService {
     return paragraphs;
   }
 
+  /**
+   * CRITICAL FIX: Process content with images in smaller chunks
+   */
   private async createContentWithImages(
     content: string,
     chapterImages: any[],
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     const textParagraphs = content.split('\n\n').filter((p) => p.trim());
 
-    // Calculate optimal image positions
     const sections = this.createContentSections(
       textParagraphs,
       chapterImages.length,
     );
 
-    for (const section of sections) {
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i];
+
       // Add text content
       if (section.paragraphs.length > 0) {
         const textContent = this.createFormattedContent(
           section.paragraphs.join('\n\n'),
         );
         paragraphs.push(...textContent);
+        this.cleanup(textContent);
       }
 
-      // Add image if this section has one
+      // Add image if present
       if (
         section.imageIndex !== undefined &&
         chapterImages[section.imageIndex]
       ) {
         const image = chapterImages[section.imageIndex];
 
-        // Add spacing before image
         paragraphs.push(
-          new Paragraph({
-            text: '',
-            spacing: { before: 400, after: 200 },
-          }),
+          new Paragraph({ text: '', spacing: { before: 400, after: 200 } }),
         );
 
         try {
-          const imageParagraphs = await this.createImageParagraph(image);
+          const imageParagraphs = await this.createImageParagraph(
+            image,
+            imageCache,
+          ); // PASS cache
           paragraphs.push(...imageParagraphs);
-          imageParagraphs.length = 0;
+          this.cleanup(imageParagraphs);
 
+          // Force GC after each image
           if (global.gc) {
             global.gc();
           }
@@ -534,22 +585,20 @@ export class DocxService {
           this.logger.error(`Failed to insert image ${image.filename}:`, error);
         }
 
-        // Add spacing after image
         paragraphs.push(
-          new Paragraph({
-            text: '',
-            spacing: { before: 200, after: 400 },
-          }),
+          new Paragraph({ text: '', spacing: { before: 200, after: 400 } }),
         );
+      }
+
+      // Cleanup every 2 sections
+      if (i % 2 === 0 && global.gc) {
+        global.gc();
       }
     }
 
     return paragraphs;
   }
 
-  /**
-   * Helper method to intelligently split content into sections with images
-   */
   private createContentSections(
     paragraphs: string[],
     imageCount: number,
@@ -563,17 +612,13 @@ export class DocxService {
 
     const minParagraphsBeforeImage = 2;
     const minParagraphsAfterImage = 2;
-
-    // Calculate usable space
     const usableSpace = paragraphs.length - minParagraphsAfterImage;
 
     if (usableSpace < minParagraphsBeforeImage) {
-      // Not enough space for proper placement
       sections.push({ paragraphs });
       return sections;
     }
 
-    // Distribute images evenly
     const spacing = Math.floor(usableSpace / (imageCount + 1));
     const placements: number[] = [];
 
@@ -589,44 +634,49 @@ export class DocxService {
 
     placements.forEach((position, idx) => {
       const sectionParagraphs = paragraphs.slice(lastIndex, position);
-
       sections.push({
         paragraphs: sectionParagraphs,
         imageIndex: idx,
       });
-
       lastIndex = position;
     });
 
-    // Add remaining paragraphs
     if (lastIndex < paragraphs.length) {
-      sections.push({
-        paragraphs: paragraphs.slice(lastIndex),
-      });
+      sections.push({ paragraphs: paragraphs.slice(lastIndex) });
     }
 
     return sections;
   }
 
   /**
-   * Improved image paragraph creation with better spacing and optional caption
+   * CRITICAL FIX: Use cached image or download if not cached
    */
-  private async createImageParagraph(image: any): Promise<Paragraph[]> {
+  private async createImageParagraph(
+    image: any,
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
+  ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     let imageBuffer: Buffer | null = null;
 
     try {
-      // Download with retry logic
-      imageBuffer = await this.downloadImageWithRetry(image.url);
+      // TRY CACHE FIRST
+      if (imageCache && imageCache.has(image.url)) {
+        imageBuffer = imageCache.get(image.url)!;
+        this.logger.debug(
+          `✓ Using cached image: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
+        );
+      } else {
+        // FALLBACK: Download if not in cache
+        this.logger.warn(
+          `⚠ Image not in cache, downloading: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
+        );
+        imageBuffer = await this.downloadImageWithRetry(image.url);
+      }
 
       const imageType = this.getImageType(image.mimeType || image.url);
-
-      // Image dimensions: 3.98 inches width x 2.53 inches height
-      // In EMUs (English Metric Units): 1 inch = 914,400 EMUs
       const widthInEMU = Math.round(3.98 * 914400);
       const heightInEMU = Math.round(2.53 * 914400);
 
-      // Add the image
       paragraphs.push(
         new Paragraph({
           alignment: AlignmentType.CENTER,
@@ -643,11 +693,11 @@ export class DocxService {
           spacing: { before: 300, after: 150 },
         }),
       );
-      imageBuffer = null;
     } catch (error) {
       this.logger.error('Error creating image paragraph:', error);
     } finally {
-      if (imageBuffer) {
+      // CRITICAL: Don't clear buffer if it's from cache (shared reference)
+      if (!imageCache || !imageCache.has(image.url)) {
         imageBuffer = null;
       }
 
@@ -659,13 +709,15 @@ export class DocxService {
     return paragraphs;
   }
 
-  private async createMapPage(mapImage: any): Promise<Paragraph[]> {
+  private async createMapPage(
+    mapImage: any,
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
+  ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     let imageBuffer: Buffer | null = null;
 
     try {
       paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
-
       paragraphs.push(
         new Paragraph({
           text: 'Geographical Map',
@@ -675,15 +727,23 @@ export class DocxService {
         }),
       );
 
-      // Download with retry logic
-      imageBuffer = await this.downloadImageWithRetry(mapImage.url);
+      // TRY CACHE FIRST
+      if (imageCache && imageCache.has(mapImage.url)) {
+        imageBuffer = imageCache.get(mapImage.url)!;
+        this.logger.debug(
+          `✓ Using cached map: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
+        );
+      } else {
+        // FALLBACK: Download if not in cache
+        this.logger.warn(
+          `⚠ Map not in cache, downloading: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
+        );
+        imageBuffer = await this.downloadImageWithRetry(mapImage.url);
+      }
 
       const imageType = this.getImageType(mapImage.mimeType || mapImage.url);
-
-      // Map dimensions: 3.97 inches width x 5.85 inches height
-      // In EMUs (English Metric Units): 1 inch = 914,400 EMUs
-      const widthInEMU = Math.round(3.97 * 914400); // 3,630,168 EMUs
-      const heightInEMU = Math.round(5.85 * 914400); // 5,349,240 EMUs
+      const widthInEMU = Math.round(3.97 * 914400);
+      const heightInEMU = Math.round(5.85 * 914400);
 
       paragraphs.push(
         new Paragraph({
@@ -703,7 +763,10 @@ export class DocxService {
     } catch (error) {
       this.logger.error('Error creating map image:', error);
     } finally {
-      imageBuffer = null;
+      // CRITICAL: Don't clear buffer if it's from cache
+      if (!imageCache || !imageCache.has(mapImage.url)) {
+        imageBuffer = null;
+      }
 
       if (global.gc) {
         global.gc();
@@ -715,11 +778,9 @@ export class DocxService {
 
   private getImageType(mimeTypeOrUrl: string): 'jpg' | 'png' | 'gif' | 'bmp' {
     const lower = mimeTypeOrUrl.toLowerCase();
-
     if (lower.includes('png')) return 'png';
     if (lower.includes('gif')) return 'gif';
     if (lower.includes('bmp')) return 'bmp';
-
     return 'jpg';
   }
 
@@ -737,74 +798,36 @@ export class DocxService {
     );
   }
 
-  async deleteDOCX(filepath: string): Promise<void> {
-    if (fs.existsSync(filepath)) {
-      fs.unlinkSync(filepath);
-      this.logger.log(`DOCX deleted: ${filepath}`);
-    }
-  }
-  // ============================================
-  // SHARED HELPER METHOD (Add to both services)
-  // ============================================
-
-  /**
-   * Clean markdown and special characters from text
-   */
   private cleanText(text: string): string {
     if (!text) return '';
 
-    return (
-      text
-        // Remove markdown bold (**text** or __text__)
-        .replace(/\*\*(.+?)\*\*/g, '$1')
-        .replace(/__(.+?)__/g, '$1')
-
-        // Remove markdown italic (*text* or _text_)
-        .replace(/\*(.+?)\*/g, '$1')
-        .replace(/_(.+?)_/g, '$1')
-
-        // Remove markdown headers (##, ###, etc.)
-        .replace(/^#+\s+/gm, '')
-
-        // Remove markdown strikethrough (~~text~~)
-        .replace(/~~(.+?)~~/g, '$1')
-
-        // Remove markdown code (`text`)
-        .replace(/`(.+?)`/g, '$1')
-
-        // Remove extra spaces created by removal
-        .replace(/\s+/g, ' ')
-
-        // Trim whitespace
-        .trim()
-    );
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/__(.+?)__/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/_(.+?)_/g, '$1')
+      .replace(/^#+\s+/gm, '')
+      .replace(/~~(.+?)~~/g, '$1')
+      .replace(/`(.+?)`/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
-  /**
-   * Clean content with paragraph preservation
-   */
   private cleanContent(content: string): string {
     if (!content) return '';
 
-    // Split into paragraphs
     const paragraphs = content.split('\n\n');
-
-    // Clean each paragraph
     const cleanedParagraphs = paragraphs
       .map((para) => this.cleanText(para))
       .filter((para) => para.length > 0);
 
-    // Rejoin with double newlines
     return cleanedParagraphs.join('\n\n');
   }
 
-  /**
-   * Download image with retry logic and better error handling
-   */
   private async downloadImageWithRetry(
     url: string,
     maxRetries: number = 4,
-    timeoutMs: number = 60000, // Increased to 60 seconds
+    timeoutMs: number = 60000,
   ): Promise<Buffer> {
     let lastError: any;
 
@@ -817,13 +840,12 @@ export class DocxService {
         const response = await axios.get(url, {
           responseType: 'arraybuffer',
           timeout: timeoutMs,
-          maxContentLength: 10 * 1024 * 1024, // 10MB
+          maxContentLength: 10 * 1024 * 1024,
           maxRedirects: 5,
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideGenerator/1.0)',
           },
-          // Disable IPv6 to avoid ENETUNREACH errors
-          family: 4, // Force IPv4
+          family: 4,
         });
 
         this.logger.log(`✓ Image downloaded successfully: ${url}`);
@@ -837,7 +859,6 @@ export class DocxService {
             `[Attempt ${attempt}/${maxRetries}] Failed to download image: ${code}`,
           );
 
-          // Don't retry on 404 or other permanent errors
           if (
             error.response?.status === 404 ||
             error.response?.status === 403
@@ -847,7 +868,6 @@ export class DocxService {
           }
         }
 
-        // Wait before retrying (exponential backoff)
         if (attempt < maxRetries) {
           const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
           this.logger.log(`Waiting ${waitTime}ms before retry...`);
@@ -856,16 +876,12 @@ export class DocxService {
       }
     }
 
-    // All retries failed
     this.logger.error(
       `Failed to download image after ${maxRetries} attempts: ${url}`,
     );
     throw lastError;
   }
 
-  /**
-   * Helper delay method
-   */
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }

@@ -20,11 +20,15 @@ import { DocumentType } from '../DB/entities/document.entity';
 import axios from 'axios';
 
 @Processor('book-generation', {
-  concurrency: 1, // ONE job at a time to prevent memory overflow
+  concurrency: 1,
+  limiter: {
+    max: 1,
+    duration: 1000,
+  },
 })
 export class BookGenerationProcessor extends WorkerHost {
   private readonly logger = new Logger(BookGenerationProcessor.name);
-  private imageCache: Map<string, Buffer> = new Map(); // Image cache
+  private imageCache: Map<string, Buffer> = new Map();
 
   constructor(
     @InjectRepository(Project)
@@ -186,7 +190,6 @@ export class BookGenerationProcessor extends WorkerHost {
 
       throw error;
     } finally {
-      // Critical cleanup
       this.clearImageCache();
       this.aggressiveCleanup();
       this.logMemory('Job Cleanup');
@@ -195,7 +198,6 @@ export class BookGenerationProcessor extends WorkerHost {
 
   /**
    * PRE-CACHE ALL IMAGES with retry logic
-   * Downloads once, reuses 10 times (saves 90% memory)
    */
   private async preCacheImages(projectId: string): Promise<void> {
     const images = await this.dataSource
@@ -219,7 +221,7 @@ export class BookGenerationProcessor extends WorkerHost {
   }
 
   /**
-   * Cache single image with retry logic (matching PDF/DOCX download logic)
+   * Cache single image with retry logic
    */
   private async cacheImageWithRetry(
     url: string,
@@ -238,6 +240,7 @@ export class BookGenerationProcessor extends WorkerHost {
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideBot/1.0)',
           },
+          family: 4,
         });
 
         const buffer = Buffer.from(response.data);
@@ -246,30 +249,22 @@ export class BookGenerationProcessor extends WorkerHost {
         this.logger.log(
           `✓ Cached successfully: ${url.substring(url.lastIndexOf('/') + 1)} (${Math.round(buffer.length / 1024)}KB)`,
         );
-        return; // Success - exit retry loop
+        return;
       } catch (error) {
         const isLastAttempt = attempt === maxRetries;
 
         this.logger.warn(
           `[Attempt ${attempt}/${maxRetries}] Failed to cache ${url}:`,
           error.message,
-          isLastAttempt ? '(will skip this image)' : '(retrying...)',
         );
 
         if (!isLastAttempt) {
-          // Exponential backoff: 2s, 4s, 8s
           const delayMs = Math.pow(2, attempt) * 1000;
           await this.delay(delayMs);
         } else {
-          // Log full error details on final failure
           this.logger.error(
             `❌ Failed to cache image after ${maxRetries} attempts:`,
-            {
-              url,
-              errorMessage: error.message,
-              errorCode: error.code,
-              errorResponse: error.response?.status,
-            },
+            { url, error: error.message },
           );
         }
       }
@@ -277,24 +272,14 @@ export class BookGenerationProcessor extends WorkerHost {
   }
 
   /**
-   * Get cached image or download if not cached
+   * Get cached image
    */
   getCachedImage(url: string): Buffer | null {
-    const cached = this.imageCache.get(url);
-    if (cached) {
-      this.logger.debug(
-        `✓ Using cached image: ${url.substring(url.lastIndexOf('/') + 1)}`,
-      );
-    } else {
-      this.logger.warn(
-        `⚠ Image not in cache: ${url.substring(url.lastIndexOf('/') + 1)}`,
-      );
-    }
-    return cached || null;
+    return this.imageCache.get(url) || null;
   }
 
   /**
-   * Clear image cache and log stats
+   * Clear image cache
    */
   private clearImageCache(): void {
     const size = this.imageCache.size;
@@ -311,13 +296,13 @@ export class BookGenerationProcessor extends WorkerHost {
   }
 
   /**
-   * Aggressive garbage collection
+   * CRITICAL FIX: Aggressive garbage collection with multiple passes
    */
   private aggressiveCleanup(): void {
     if (global.gc) {
-      // Call GC multiple times for thorough cleanup
-      global.gc();
-      global.gc();
+      for (let i = 0; i < 3; i++) {
+        global.gc();
+      }
       this.logger.debug('Aggressive garbage collection completed');
     }
   }
@@ -390,6 +375,9 @@ export class BookGenerationProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * CRITICAL FIX: Generate documents with aggressive memory management
+   */
   private async generateDocumentsSequentially(
     projectId: string,
     job: Job,
@@ -437,15 +425,29 @@ export class BookGenerationProcessor extends WorkerHost {
           `Generating ${type} (${language}) ${completed}/${totalDocs}`,
         );
 
-        await this.documentService.generateDocumentSync(projectId, {
-          type,
-          language,
-          includeImages: true,
-        });
+        this.logMemory(`Before ${type}-${language}`);
 
-        // Aggressive cleanup after each document
-        this.aggressiveCleanup();
-        await this.delay(3000); // Increased delay for GC
+        // PASS IMAGE CACHE to document service
+        await this.documentService.generateDocumentSync(
+          projectId,
+          {
+            type,
+            language,
+            includeImages: true,
+          },
+          this.imageCache, // PASS THE CACHE!!!
+        );
+
+        // CRITICAL: Multiple aggressive cleanup passes
+        for (let i = 0; i < 5; i++) {
+          if (global.gc) global.gc();
+          await this.delay(500);
+        }
+
+        this.logMemory(`After ${type}-${language}`);
+
+        // CRITICAL: Longer delay between documents for memory recovery
+        await this.delay(10000); // Increased from 3s to 10s
       }
     }
   }

@@ -1,4 +1,4 @@
-// src/modules/document/pdf.service.ts (Updated)
+// src/modules/document/pdf.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
@@ -16,6 +16,7 @@ export class PdfService {
     author: string,
     chapters: any[],
     images: any[] = [],
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
   ): Promise<{ buffer: Buffer; filename: string }> {
     return new Promise(async (resolve, reject) => {
       let doc: PDFKit.PDFDocument | null = null;
@@ -126,6 +127,7 @@ export class PdfService {
               doc,
               chapter.content,
               chapterImages,
+              imageCache, // PASS cache
             );
           } else {
             this.addFormattedContent(doc, chapter.content);
@@ -141,7 +143,7 @@ export class PdfService {
         if (mapImage) {
           doc.addPage();
           actualPageNumber++;
-          await this.addMapPage(doc, mapImage);
+          await this.addMapPage(doc, mapImage, imageCache); // PASS cache
         }
 
         // Add page numbers
@@ -173,9 +175,6 @@ export class PdfService {
       }
     });
   }
-
-  // Keep all your existing helper methods (addTitlePage, addCopyrightPage, etc.)
-  // They remain unchanged...
 
   private addTitlePage(
     doc: PDFKit.PDFDocument,
@@ -223,7 +222,6 @@ export class PdfService {
     doc.fontSize(16).font('Helvetica-Bold').text('About Book', 50, 50);
     doc.moveDown(1.5);
 
-    // Clean and split content
     const cleanedContent = this.cleanContent(content);
     const paragraphs = cleanedContent.split('\n\n').filter((p) => p.trim());
 
@@ -247,7 +245,6 @@ export class PdfService {
     doc.fontSize(16).font('Helvetica-Bold').text('Table of Contents', 50, 50);
     doc.moveDown(1.5);
 
-    // Clean content first
     const cleanedContent = this.cleanContent(content);
     const lines = cleanedContent.split('\n').filter((l) => l.trim());
 
@@ -284,7 +281,6 @@ export class PdfService {
     title: string,
     chapterNumber: number,
   ): void {
-    // Clean the title
     const cleanTitle = this.cleanText(title);
 
     doc.fontSize(16).font('Helvetica').text(`Chapter ${chapterNumber}`, {
@@ -299,14 +295,12 @@ export class PdfService {
   }
 
   private addFormattedContent(doc: PDFKit.PDFDocument, content: string): void {
-    // Clean the content
     const cleanedContent = this.cleanContent(content);
     const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     sections.forEach((section, index) => {
       const trimmed = section.trim();
 
-      // Check if this is a section header
       const isHeader =
         trimmed.length < 100 &&
         !trimmed.includes('.') &&
@@ -332,7 +326,6 @@ export class PdfService {
   }
 
   private addCopyrightPage(doc: PDFKit.PDFDocument, content: string): void {
-    // Clean the content
     const cleanedContent = this.cleanContent(content);
 
     doc
@@ -349,22 +342,20 @@ export class PdfService {
     doc: PDFKit.PDFDocument,
     content: string,
     chapterImages: any[],
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
   ): Promise<void> {
     const paragraphs = content.split('\n\n').filter((p) => p.trim());
 
-    // Calculate optimal image positions
     const sections = this.createContentSections(
       paragraphs,
       chapterImages.length,
     );
 
     for (const section of sections) {
-      // Add text content
       if (section.paragraphs.length > 0) {
         this.addFormattedContent(doc, section.paragraphs.join('\n\n'));
       }
 
-      // Add image if this section has one
       if (
         section.imageIndex !== undefined &&
         chapterImages[section.imageIndex]
@@ -372,12 +363,10 @@ export class PdfService {
         const image = chapterImages[section.imageIndex];
 
         try {
-          // Add generous spacing before image
           doc.moveDown(2.5);
 
-          // Check if we need a new page
           const imageHeight = 182.16;
-          const totalSpaceNeeded = imageHeight + 80; // Image + margins
+          const totalSpaceNeeded = imageHeight + 80;
 
           if (
             doc.y + totalSpaceNeeded >
@@ -387,20 +376,15 @@ export class PdfService {
             doc.moveDown(1);
           }
 
-          // Insert the image
-          await this.insertImage(doc, image);
+          await this.insertImage(doc, image, imageCache); // PASS cache
 
-          // Add generous spacing after image
           doc.moveDown(2.5);
 
+          if (global.gc) {
+            global.gc();
+          }
 
-           if (global.gc) {
-          global.gc();
-        }
-        
-        // Small delay to allow GC to complete
-        await this.delay(100);
-        
+          await this.delay(100);
         } catch (error) {
           this.logger.error(`Failed to insert image ${image.filename}:`, error);
         }
@@ -408,9 +392,6 @@ export class PdfService {
     }
   }
 
-  /**
-   * Helper method to intelligently split content into sections with images
-   */
   private createContentSections(
     paragraphs: string[],
     imageCount: number,
@@ -424,17 +405,13 @@ export class PdfService {
 
     const minParagraphsBeforeImage = 2;
     const minParagraphsAfterImage = 2;
-
-    // Calculate usable space
     const usableSpace = paragraphs.length - minParagraphsAfterImage;
 
     if (usableSpace < minParagraphsBeforeImage) {
-      // Not enough space for proper placement
       sections.push({ paragraphs });
       return sections;
     }
 
-    // Distribute images evenly
     const spacing = Math.floor(usableSpace / (imageCount + 1));
     const placements: number[] = [];
 
@@ -459,7 +436,6 @@ export class PdfService {
       lastIndex = position;
     });
 
-    // Add remaining paragraphs
     if (lastIndex < paragraphs.length) {
       sections.push({
         paragraphs: paragraphs.slice(lastIndex),
@@ -470,24 +446,36 @@ export class PdfService {
   }
 
   /**
-   * Improved image insertion with border and better positioning
+   * CRITICAL FIX: Use cached image or download if not cached
    */
   private async insertImage(
     doc: PDFKit.PDFDocument,
     image: any,
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
   ): Promise<void> {
     let imageBuffer: Buffer | null = null;
 
     try {
-      imageBuffer = await this.downloadImageWithRetry(image.url);
+      // TRY CACHE FIRST
+      if (imageCache && imageCache.has(image.url)) {
+        imageBuffer = imageCache.get(image.url)!;
+        this.logger.debug(
+          `✓ Using cached image: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
+        );
+      } else {
+        // FALLBACK: Download if not in cache
+        this.logger.warn(
+          `⚠ Image not in cache, downloading: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
+        );
+        imageBuffer = await this.downloadImageWithRetry(image.url);
+      }
+
       const imageWidth = 286.56;
       const imageHeight = 182.16;
       const xPosition = (doc.page.width - imageWidth) / 2;
 
-      // Save current position
       const imageY = doc.y;
 
-      // Draw subtle border
       const borderPadding = 4;
       doc.save();
       doc
@@ -502,24 +490,20 @@ export class PdfService {
         .stroke();
       doc.restore();
 
-      // Insert image
       doc.image(imageBuffer, xPosition, imageY, {
         width: imageWidth,
         height: imageHeight,
       });
 
-      // Move cursor past the image
       doc.y = imageY + imageHeight;
-
-       imageBuffer = null;
     } catch (error) {
       this.logger.error(`Error inserting image:`, error);
       throw error;
     } finally {
-      // Ensure buffer is cleared
-    if (imageBuffer) {
-      imageBuffer = null;
-    }
+      // CRITICAL: Don't clear buffer if it's from cache
+      if (!imageCache || !imageCache.has(image.url)) {
+        imageBuffer = null;
+      }
 
       if (global.gc) {
         global.gc();
@@ -530,6 +514,7 @@ export class PdfService {
   private async addMapPage(
     doc: PDFKit.PDFDocument,
     mapImage: any,
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
   ): Promise<void> {
     let imageBuffer: Buffer | null = null;
 
@@ -539,8 +524,19 @@ export class PdfService {
       });
       doc.moveDown(2);
 
-      imageBuffer = await this.downloadImageWithRetry(mapImage.url);
-
+      // TRY CACHE FIRST
+      if (imageCache && imageCache.has(mapImage.url)) {
+        imageBuffer = imageCache.get(mapImage.url)!;
+        this.logger.debug(
+          `✓ Using cached map: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
+        );
+      } else {
+        // FALLBACK: Download if not in cache
+        this.logger.warn(
+          `⚠ Map not in cache, downloading: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
+        );
+        imageBuffer = await this.downloadImageWithRetry(mapImage.url);
+      }
 
       const mapWidth = 285.84;
       const mapHeight = 421.2;
@@ -555,7 +551,11 @@ export class PdfService {
       this.logger.error(`Error inserting map image:`, error);
       throw error;
     } finally {
-      imageBuffer = null;
+      // CRITICAL: Don't clear buffer if it's from cache
+      if (!imageCache || !imageCache.has(mapImage.url)) {
+        imageBuffer = null;
+      }
+
       if (global.gc) {
         global.gc();
       }
@@ -586,68 +586,36 @@ export class PdfService {
     );
   }
 
-  // ============================================
-  // SHARED HELPER METHOD (Add to both services)
-  // ============================================
-
-  /**
-   * Clean markdown and special characters from text
-   */
   private cleanText(text: string): string {
     if (!text) return '';
 
-    return (
-      text
-        // Remove markdown bold (**text** or __text__)
-        .replace(/\*\*(.+?)\*\*/g, '$1')
-        .replace(/__(.+?)__/g, '$1')
-
-        // Remove markdown italic (*text* or _text_)
-        .replace(/\*(.+?)\*/g, '$1')
-        .replace(/_(.+?)_/g, '$1')
-
-        // Remove markdown headers (##, ###, etc.)
-        .replace(/^#+\s+/gm, '')
-
-        // Remove markdown strikethrough (~~text~~)
-        .replace(/~~(.+?)~~/g, '$1')
-
-        // Remove markdown code (`text`)
-        .replace(/`(.+?)`/g, '$1')
-
-        // Remove extra spaces created by removal
-        .replace(/\s+/g, ' ')
-
-        // Trim whitespace
-        .trim()
-    );
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/__(.+?)__/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/_(.+?)_/g, '$1')
+      .replace(/^#+\s+/gm, '')
+      .replace(/~~(.+?)~~/g, '$1')
+      .replace(/`(.+?)`/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
-  /**
-   * Clean content with paragraph preservation
-   */
   private cleanContent(content: string): string {
     if (!content) return '';
 
-    // Split into paragraphs
     const paragraphs = content.split('\n\n');
-
-    // Clean each paragraph
     const cleanedParagraphs = paragraphs
       .map((para) => this.cleanText(para))
       .filter((para) => para.length > 0);
 
-    // Rejoin with double newlines
     return cleanedParagraphs.join('\n\n');
   }
 
-  /**
-   * Download image with retry logic and better error handling
-   */
   private async downloadImageWithRetry(
     url: string,
     maxRetries: number = 4,
-    timeoutMs: number = 60000, // Increased to 60 seconds
+    timeoutMs: number = 60000,
   ): Promise<Buffer> {
     let lastError: any;
 
@@ -660,13 +628,12 @@ export class PdfService {
         const response = await axios.get(url, {
           responseType: 'arraybuffer',
           timeout: timeoutMs,
-          maxContentLength: 10 * 1024 * 1024, // 10MB
+          maxContentLength: 10 * 1024 * 1024,
           maxRedirects: 5,
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideGenerator/1.0)',
           },
-          // Disable IPv6 to avoid ENETUNREACH errors
-          family: 4, // Force IPv4
+          family: 4,
         });
 
         this.logger.log(`✓ Image downloaded successfully: ${url}`);
@@ -680,7 +647,6 @@ export class PdfService {
             `[Attempt ${attempt}/${maxRetries}] Failed to download image: ${code}`,
           );
 
-          // Don't retry on 404 or other permanent errors
           if (
             error.response?.status === 404 ||
             error.response?.status === 403
@@ -690,7 +656,6 @@ export class PdfService {
           }
         }
 
-        // Wait before retrying (exponential backoff)
         if (attempt < maxRetries) {
           const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
           this.logger.log(`Waiting ${waitTime}ms before retry...`);
@@ -699,16 +664,12 @@ export class PdfService {
       }
     }
 
-    // All retries failed
     this.logger.error(
       `Failed to download image after ${maxRetries} attempts: ${url}`,
     );
     throw lastError;
   }
 
-  /**
-   * Helper delay method
-   */
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }

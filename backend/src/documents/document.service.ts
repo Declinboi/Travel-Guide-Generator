@@ -1,4 +1,4 @@
-// src/modules/document/document.service.ts (Updated for Cloudinary)
+// src/modules/document/document.service.ts
 import {
   Injectable,
   Logger,
@@ -52,6 +52,7 @@ export class DocumentService {
   async generateDocumentSync(
     projectId: string,
     generateDto: GenerateDocumentDto,
+    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
   ): Promise<{
     message: string;
     jobId: string;
@@ -131,6 +132,7 @@ export class DocumentService {
           project.author,
           chapters,
           generateDto.includeImages ? project.images : [],
+          imageCache, // PASS cache
         );
       } else {
         this.logger.log(
@@ -142,6 +144,7 @@ export class DocumentService {
           project.author,
           chapters,
           generateDto.includeImages ? project.images : [],
+          imageCache, // PASS cache
         );
       }
 
@@ -166,8 +169,8 @@ export class DocumentService {
         type: generateDto.type,
         language: generateDto.language,
         filename: result.filename,
-        url: cloudinaryResult.url, // Cloudinary URL
-        storageKey: cloudinaryResult.publicId, // Cloudinary public ID
+        url: cloudinaryResult.url,
+        storageKey: cloudinaryResult.publicId,
         size: cloudinaryResult.size,
         status: DocumentStatus.COMPLETED,
       });
@@ -347,12 +350,8 @@ export class DocumentService {
 
   async remove(id: string) {
     const document = await this.findOne(id);
-
-    // Delete from Cloudinary using publicId stored in storageKey
     await this.cloudinaryService.deleteDocument(document.storageKey);
-
     await this.documentRepository.remove(document);
-
     this.logger.log(`Document deleted: ${document.filename}`);
   }
 }
