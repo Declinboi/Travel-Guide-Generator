@@ -8,7 +8,7 @@ import { Document,Project,Chapter,Translation, Job,} from 'src/DB/entities';
 import { CloudinaryDocumentService } from './cloudinary-document.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Document, Project, Chapter, Translation, Job])],
+  imports: [TypeOrmModule.forFeature([Document, Project, Chapter, Translation, Job]) ],
   controllers: [DocumentController],
   providers: [DocumentService, PdfService, DocxService, CloudinaryDocumentService],
   exports: [DocumentService, PdfService, DocxService],

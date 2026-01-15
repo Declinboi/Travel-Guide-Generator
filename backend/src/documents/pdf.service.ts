@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
+import { RedisCacheService } from 'src/queues/queues.module';
 
 @Injectable()
 export class PdfService {
@@ -16,7 +17,7 @@ export class PdfService {
     author: string,
     chapters: any[],
     images: any[] = [],
-    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
+    redisCache: RedisCacheService,
   ): Promise<{ buffer: Buffer; filename: string }> {
     return new Promise(async (resolve, reject) => {
       let doc: PDFKit.PDFDocument | null = null;
@@ -127,7 +128,7 @@ export class PdfService {
               doc,
               chapter.content,
               chapterImages,
-              imageCache, // PASS cache
+              redisCache, // PASS cache
             );
           } else {
             this.addFormattedContent(doc, chapter.content);
@@ -143,7 +144,7 @@ export class PdfService {
         if (mapImage) {
           doc.addPage();
           actualPageNumber++;
-          await this.addMapPage(doc, mapImage, imageCache); // PASS cache
+          await this.addMapPage(doc, mapImage, redisCache); // PASS cache
         }
 
         // Add page numbers
@@ -342,7 +343,7 @@ export class PdfService {
     doc: PDFKit.PDFDocument,
     content: string,
     chapterImages: any[],
-    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
+    redisCache: RedisCacheService, // ADDED: Optional image cache
   ): Promise<void> {
     const paragraphs = content.split('\n\n').filter((p) => p.trim());
 
@@ -376,7 +377,7 @@ export class PdfService {
             doc.moveDown(1);
           }
 
-          await this.insertImage(doc, image, imageCache); // PASS cache
+          await this.insertImage(doc, image, redisCache); // PASS cache
 
           doc.moveDown(2.5);
 
@@ -451,23 +452,24 @@ export class PdfService {
   private async insertImage(
     doc: PDFKit.PDFDocument,
     image: any,
-    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
+    redisCache: RedisCacheService, // ADDED: Optional image cache
   ): Promise<void> {
     let imageBuffer: Buffer | null = null;
 
     try {
-      // TRY CACHE FIRST
-      if (imageCache && imageCache.has(image.url)) {
-        imageBuffer = imageCache.get(image.url)!;
-        this.logger.debug(
-          `✓ Using cached image: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
-        );
-      } else {
-        // FALLBACK: Download if not in cache
+      // GET FROM REDIS
+      imageBuffer = await redisCache.getImage(image.url);
+
+      if (!imageBuffer) {
+        // FALLBACK: Download if not in Redis
         this.logger.warn(
-          `⚠ Image not in cache, downloading: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
+          `⚠ Image not in Redis, downloading: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
         );
         imageBuffer = await this.downloadImageWithRetry(image.url);
+      } else {
+        this.logger.debug(
+          `✓ Retrieved from Redis: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
+        );
       }
 
       const imageWidth = 286.56;
@@ -500,10 +502,7 @@ export class PdfService {
       this.logger.error(`Error inserting image:`, error);
       throw error;
     } finally {
-      // CRITICAL: Don't clear buffer if it's from cache
-      if (!imageCache || !imageCache.has(image.url)) {
-        imageBuffer = null;
-      }
+      imageBuffer = null;
 
       if (global.gc) {
         global.gc();
@@ -514,7 +513,7 @@ export class PdfService {
   private async addMapPage(
     doc: PDFKit.PDFDocument,
     mapImage: any,
-    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
+    redisCache: RedisCacheService,
   ): Promise<void> {
     let imageBuffer: Buffer | null = null;
 
@@ -524,18 +523,18 @@ export class PdfService {
       });
       doc.moveDown(2);
 
-      // TRY CACHE FIRST
-      if (imageCache && imageCache.has(mapImage.url)) {
-        imageBuffer = imageCache.get(mapImage.url)!;
-        this.logger.debug(
-          `✓ Using cached map: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
-        );
-      } else {
-        // FALLBACK: Download if not in cache
+      // GET FROM REDIS
+      imageBuffer = await redisCache.getImage(mapImage.url);
+
+      if (!imageBuffer) {
         this.logger.warn(
-          `⚠ Map not in cache, downloading: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
+          `⚠ Map not in Redis, downloading: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
         );
         imageBuffer = await this.downloadImageWithRetry(mapImage.url);
+      } else {
+        this.logger.debug(
+          `✓ Retrieved map from Redis: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
+        );
       }
 
       const mapWidth = 285.84;
@@ -551,10 +550,7 @@ export class PdfService {
       this.logger.error(`Error inserting map image:`, error);
       throw error;
     } finally {
-      // CRITICAL: Don't clear buffer if it's from cache
-      if (!imageCache || !imageCache.has(mapImage.url)) {
-        imageBuffer = null;
-      }
+      imageBuffer = null;
 
       if (global.gc) {
         global.gc();

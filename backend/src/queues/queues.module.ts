@@ -1,4 +1,4 @@
-import { Module, OnModuleInit, Logger, Injectable } from '@nestjs/common';
+import { Module, OnModuleInit, Logger, Injectable, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -10,6 +10,7 @@ import { ImageModule } from '../images/image.module';
 import { BookGenerationQueue } from './book-generation.queue';
 import { BookGenerationProcessor } from './book-generation.processor';
 import Redis from 'ioredis';
+import { RedisCacheService } from './cache/redis-cache.service';
 
 // Redis Monitoring Service - MOVED BEFORE QueueModule
 @Injectable()
@@ -153,17 +154,20 @@ class RedisMonitorService {
     }),
 
     TypeOrmModule.forFeature([Project, Job, Chapter, Translation, Document]),
-    ContentModule,
-    TranslationModule,
-    DocumentModule,
-    ImageModule,
+    
+    // Use forwardRef to break circular dependencies
+    forwardRef(() => ContentModule),
+    forwardRef(() => TranslationModule),
+    forwardRef(() => DocumentModule),
+    forwardRef(() => ImageModule),
   ],
   providers: [
     BookGenerationQueue,
     BookGenerationProcessor,
     RedisMonitorService,
+    RedisCacheService,
   ],
-  exports: [BookGenerationQueue, BullModule],
+  exports: [BookGenerationQueue, BullModule, RedisCacheService],
 })
 export class QueueModule implements OnModuleInit {
   private readonly logger = new Logger(QueueModule.name);
@@ -180,4 +184,4 @@ export class QueueModule implements OnModuleInit {
 }
 
 // Export RedisMonitorService
-export { RedisMonitorService };
+export { RedisMonitorService, RedisCacheService };

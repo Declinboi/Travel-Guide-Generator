@@ -11,6 +11,7 @@ import { DocumentType } from 'src/DB/entities/document.entity';
 import { ProjectService } from 'src/project/project.service';
 import { DocumentService } from 'src/documents/document.service';
 import { ImageService } from 'src/images/image.service';
+import { RedisCacheService } from 'src/queues/cache/redis-cache.service';
 
 @Injectable()
 export class BookGeneratorService {
@@ -24,6 +25,7 @@ export class BookGeneratorService {
     private readonly translationService: TranslationService,
     private readonly documentService: DocumentService,
     private readonly imageService: ImageService,
+    private readonly redisCache: RedisCacheService,
   ) {}
 
   async generateCompleteBook(
@@ -201,7 +203,9 @@ export class BookGeneratorService {
       types,
       languages,
       includeImages: true,
-    });
+    },
+    this.redisCache,
+  );
 
     // Force garbage collection after all documents
     this.forceGarbageCollection();

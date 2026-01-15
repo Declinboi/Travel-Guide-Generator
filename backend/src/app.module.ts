@@ -22,6 +22,7 @@ import { ImageModule } from './images/image.module';
 import { BookGeneratorModule } from './book gen/book-generator.module';
 import { AuthModule } from './auth/auth.module';
 import { QueueModule } from './queues/queues.module';
+import { CacheModule } from './queues/cache/cache.module';
 
 @Module({
   imports: [
@@ -41,8 +42,8 @@ import { QueueModule } from './queues/queues.module';
       inject: [ConfigService],
     }),
     EventEmitterModule.forRoot(),
-    // RedisQueueModule,
-
+   
+    CacheModule,
     QueueModule,
 
     AuthModule,

@@ -10,12 +10,19 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { DocumentService } from './document.service';
-import { GenerateDocumentDto, BulkGenerateDocumentsDto } from './dto/generate-document.dto';
+import {
+  GenerateDocumentDto,
+  BulkGenerateDocumentsDto,
+} from './dto/generate-document.dto';
+import { RedisCacheService } from 'src/queues/queues.module';
 
 @ApiTags('documents')
 @Controller('documents')
 export class DocumentController {
-  constructor(private readonly documentService: DocumentService) {}
+  constructor(
+    private readonly documentService: DocumentService,
+    private readonly redisCache: RedisCacheService,
+  ) {}
 
   @Post('generate/:projectId')
   @ApiOperation({ summary: 'Generate a single document (PDF or DOCX)' })
@@ -25,13 +32,18 @@ export class DocumentController {
     @Param('projectId') projectId: string,
     @Body() generateDto: GenerateDocumentDto,
   ) {
-    return await this.documentService.generateDocumentSync(projectId, generateDto);
+    return await this.documentService.generateDocumentSync(
+      projectId,
+      generateDto,
+      this.redisCache,
+    );
   }
 
   @Post('generate-all/:projectId')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Generate multiple documents for all languages and formats',
-    description: 'Generates PDFs and DOCXs for all specified languages (English, German, French, Spanish, Italian)'
+    description:
+      'Generates PDFs and DOCXs for all specified languages (English, German, French, Spanish, Italian)',
   })
   @ApiResponse({ status: 201, description: 'Bulk document generation started' })
   @ApiResponse({ status: 404, description: 'Project not found' })
@@ -39,7 +51,11 @@ export class DocumentController {
     @Param('projectId') projectId: string,
     @Body() bulkDto: BulkGenerateDocumentsDto,
   ) {
-    return await this.documentService.generateAllDocumentsSequential(projectId, bulkDto);
+    return await this.documentService.generateAllDocumentsSequential(
+      projectId,
+      bulkDto,
+      this.redisCache,
+    );
   }
 
   @Get('project/:projectId')

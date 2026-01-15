@@ -27,6 +27,7 @@ import {
   JobType,
   JobStatus,
 } from 'src/DB/entities';
+import { RedisCacheService } from 'src/queues/cache/redis-cache.service';
 
 @Injectable()
 export class DocumentService {
@@ -52,7 +53,7 @@ export class DocumentService {
   async generateDocumentSync(
     projectId: string,
     generateDto: GenerateDocumentDto,
-    imageCache?: Map<string, Buffer>, // ADDED: Optional image cache
+    redisCache: RedisCacheService, // Changed from imageCache: Map
   ): Promise<{
     message: string;
     jobId: string;
@@ -119,7 +120,7 @@ export class DocumentService {
       job.progress = 20;
       await this.jobRepository.save(job);
 
-      // Generate document buffer
+      // Generate document buffer - pass Redis cache
       let result: { buffer: Buffer; filename: string };
 
       if (generateDto.type === DocumentType.PDF) {
@@ -132,7 +133,7 @@ export class DocumentService {
           project.author,
           chapters,
           generateDto.includeImages ? project.images : [],
-          imageCache, // PASS cache
+          redisCache, // Pass Redis service
         );
       } else {
         this.logger.log(
@@ -144,7 +145,7 @@ export class DocumentService {
           project.author,
           chapters,
           generateDto.includeImages ? project.images : [],
-          imageCache, // PASS cache
+          redisCache, // Pass Redis service
         );
       }
 
@@ -226,6 +227,7 @@ export class DocumentService {
   async generateAllDocumentsSequential(
     projectId: string,
     bulkDto: BulkGenerateDocumentsDto,
+    redisCache: RedisCacheService,
   ) {
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
@@ -265,11 +267,15 @@ export class DocumentService {
             `[${projectId}] Generating ${type} for ${language} (${completedCount}/${totalDocs})...`,
           );
 
-          const result = await this.generateDocumentSync(projectId, {
-            type,
-            language,
-            includeImages: bulkDto.includeImages ?? true,
-          });
+          const result = await this.generateDocumentSync(
+            projectId,
+            {
+              type,
+              language,
+              includeImages: bulkDto.includeImages ?? true,
+            },
+            redisCache,
+          );
 
           results.push({
             type,

@@ -14,6 +14,7 @@ import {
   NumberFormat,
 } from 'docx';
 import axios from 'axios';
+import { RedisCacheService } from 'src/queues/cache/redis-cache.service';
 
 @Injectable()
 export class DocxService {
@@ -27,7 +28,7 @@ export class DocxService {
     author: string,
     chapters: any[],
     images: any[] = [],
-    imageCache?: Map<string, Buffer>,
+    redisCache: RedisCacheService,
   ): Promise<{ buffer: Buffer; filename: string }> {
     let doc: Document | null = null;
     let allSections: Paragraph[] = [];
@@ -44,7 +45,7 @@ export class DocxService {
         author,
         chapters,
         images,
-        imageCache,
+        redisCache,
       );
 
       this.logMemory('After Building Sections');
@@ -112,7 +113,7 @@ export class DocxService {
     author: string,
     chapters: any[],
     images: any[],
-    imageCache?: Map<string, Buffer>,
+    redisCache: RedisCacheService,
   ): Promise<Paragraph[]> {
     const allSections: Paragraph[] = [];
 
@@ -147,7 +148,7 @@ export class DocxService {
       const chapterSections = await this.buildChapterSections(
         chapter,
         images,
-        imageCache,
+        redisCache,
       );
       allSections.push(...chapterSections);
 
@@ -170,7 +171,7 @@ export class DocxService {
     const mapImage = images.find((img) => img.isMap);
     if (mapImage) {
       this.logger.log('Building map page...');
-      const mapSections = await this.createMapPage(mapImage, imageCache);
+      const mapSections = await this.createMapPage(mapImage, redisCache);
       allSections.push(...mapSections);
       mapSections.length = 0;
       this.forceGC();
@@ -217,7 +218,7 @@ export class DocxService {
   private async buildChapterSections(
     chapter: any,
     images: any[],
-    imageCache?: Map<string, Buffer>,
+    redisCache: RedisCacheService,
   ): Promise<Paragraph[]> {
     const sections: Paragraph[] = [];
     const chapterNumber = chapter.order - 3;
@@ -251,7 +252,7 @@ export class DocxService {
       const contentSections = await this.createContentWithImages(
         chapter.content,
         chapterImages,
-        imageCache,
+        redisCache,
       );
       sections.push(...contentSections);
       contentSections.length = 0; // Clear immediately
@@ -267,7 +268,7 @@ export class DocxService {
   private async createContentWithImages(
     content: string,
     chapterImages: any[],
-    imageCache?: Map<string, Buffer>,
+    redisCache: RedisCacheService,
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     const textParagraphs = content.split('\n\n').filter((p) => p.trim());
@@ -302,7 +303,7 @@ export class DocxService {
         try {
           const imageParagraphs = await this.createImageParagraph(
             image,
-            imageCache,
+            redisCache,
           );
           paragraphs.push(...imageParagraphs);
           imageParagraphs.length = 0; // Clear immediately
@@ -323,24 +324,30 @@ export class DocxService {
     return paragraphs;
   }
 
+  /**
+   * CRITICAL: Retrieve image from Redis
+   */
   private async createImageParagraph(
     image: any,
-    imageCache?: Map<string, Buffer>,
+    redisCache: RedisCacheService, // Changed
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     let imageBuffer: Buffer | null = null;
 
     try {
-      if (imageCache && imageCache.has(image.url)) {
-        imageBuffer = imageCache.get(image.url)!;
-        this.logger.debug(
-          `✓ Using cached image: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
-        );
-      } else {
+      // GET FROM REDIS
+      imageBuffer = await redisCache.getImage(image.url);
+
+      if (!imageBuffer) {
+        // FALLBACK: Download if not in Redis
         this.logger.warn(
-          `⚠ Image not in cache, downloading: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
+          `⚠ Image not in Redis, downloading: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
         );
         imageBuffer = await this.downloadImageWithRetry(image.url);
+      } else {
+        this.logger.debug(
+          `✓ Retrieved from Redis: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
+        );
       }
 
       const imageType = this.getImageType(image.mimeType || image.url);
@@ -363,10 +370,8 @@ export class DocxService {
     } catch (error) {
       this.logger.error('Error creating image paragraph:', error);
     } finally {
-      // Don't clear buffer if from cache
-      if (!imageCache || !imageCache.has(image.url)) {
-        imageBuffer = null;
-      }
+      // No need to clear buffer - Redis manages it
+      imageBuffer = null;
       this.forceGC();
     }
 
@@ -375,7 +380,7 @@ export class DocxService {
 
   private async createMapPage(
     mapImage: any,
-    imageCache?: Map<string, Buffer>,
+    redisCache: RedisCacheService, // Changed
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     let imageBuffer: Buffer | null = null;
@@ -391,16 +396,18 @@ export class DocxService {
         }),
       );
 
-      if (imageCache && imageCache.has(mapImage.url)) {
-        imageBuffer = imageCache.get(mapImage.url)!;
-        this.logger.debug(
-          `✓ Using cached map: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
-        );
-      } else {
+      // GET FROM REDIS
+      imageBuffer = await redisCache.getImage(mapImage.url);
+
+      if (!imageBuffer) {
         this.logger.warn(
-          `⚠ Map not in cache, downloading: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
+          `⚠ Map not in Redis, downloading: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
         );
         imageBuffer = await this.downloadImageWithRetry(mapImage.url);
+      } else {
+        this.logger.debug(
+          `✓ Retrieved map from Redis: ${mapImage.url.substring(mapImage.url.lastIndexOf('/') + 1)}`,
+        );
       }
 
       const imageType = this.getImageType(mapImage.mimeType || mapImage.url);
@@ -422,9 +429,7 @@ export class DocxService {
     } catch (error) {
       this.logger.error('Error creating map image:', error);
     } finally {
-      if (!imageCache || !imageCache.has(mapImage.url)) {
-        imageBuffer = null;
-      }
+      imageBuffer = null;
       this.forceGC();
     }
 

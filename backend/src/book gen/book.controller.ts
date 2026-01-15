@@ -18,6 +18,7 @@ import { DocumentService } from '../documents/document.service';
 import { CreateBookDto } from './create-book.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectService } from '../project/project.service';
+import { RedisCacheService } from 'src/queues/queues.module';
 
 @ApiTags('books')
 @ApiBearerAuth('JWT-auth')
@@ -29,6 +30,7 @@ export class BookController {
     private readonly bookGeneratorService: BookGeneratorService,
     private readonly projectService: ProjectService,
     private readonly documentService: DocumentService,
+    private readonly redisCache: RedisCacheService,
   ) {}
 
   @Post('generate')

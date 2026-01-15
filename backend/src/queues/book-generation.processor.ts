@@ -16,8 +16,10 @@ import { ContentService } from '../content/content.service';
 import { TranslationService } from '../translation/translation.service';
 import { DocumentService } from '../documents/document.service';
 import { ImageService } from '../images/image.service';
+// import { RedisCacheService } from '../common/services/redis-cache.service';
 import { DocumentType } from '../DB/entities/document.entity';
 import axios from 'axios';
+import { RedisCacheService } from './cache/redis-cache.service';
 
 @Processor('book-generation', {
   concurrency: 1,
@@ -28,7 +30,6 @@ import axios from 'axios';
 })
 export class BookGenerationProcessor extends WorkerHost {
   private readonly logger = new Logger(BookGenerationProcessor.name);
-  private imageCache: Map<string, Buffer> = new Map();
 
   constructor(
     @InjectRepository(Project)
@@ -39,6 +40,7 @@ export class BookGenerationProcessor extends WorkerHost {
     private readonly translationService: TranslationService,
     private readonly documentService: DocumentService,
     private readonly imageService: ImageService,
+    private readonly redisCache: RedisCacheService,
     private readonly dataSource: DataSource,
   ) {
     super();
@@ -52,9 +54,8 @@ export class BookGenerationProcessor extends WorkerHost {
     try {
       this.logger.log(`[${projectId}] Starting book generation job ${job.id}`);
 
-      // STEP 1: Generate Content (0-40%)
+      // STEP 1: Generate Content
       await this.updateJobProgress(job, 0, 'Checking content status');
-
       const chapterCount = await this.chapterRepository.count({
         where: { projectId },
       });
@@ -79,9 +80,9 @@ export class BookGenerationProcessor extends WorkerHost {
 
         await this.waitForJobCompletion(contentResult.jobId);
         await this.updateJobProgress(job, 40, 'Content generated');
-
         await this.validateAndFixChapters(projectId);
-        this.extremeCleanup();
+
+        if (global.gc) global.gc();
         this.logMemory('After Content Generation');
       } else {
         this.logger.log(
@@ -91,7 +92,7 @@ export class BookGenerationProcessor extends WorkerHost {
         await this.validateAndFixChapters(projectId);
       }
 
-      // STEP 2: Process Images (40-50%)
+      // STEP 2: Process Images
       const imageCount = await this.dataSource
         .createQueryBuilder()
         .select('COUNT(*)', 'count')
@@ -120,14 +121,14 @@ export class BookGenerationProcessor extends WorkerHost {
         }
 
         await this.updateJobProgress(job, 50, 'Images processed');
-        this.extremeCleanup();
+        if (global.gc) global.gc();
         this.logMemory('After Image Processing');
       } else {
         this.logger.log(`[${projectId}] Images already uploaded`);
         await this.updateJobProgress(job, 50, 'Images already exist');
       }
 
-      // STEP 3: Translate (50-70%)
+      // STEP 3: Translate
       await this.updateProjectStatus(projectId, ProjectStatus.TRANSLATING);
       await this.updateJobProgress(job, 50, 'Starting translations');
 
@@ -137,20 +138,18 @@ export class BookGenerationProcessor extends WorkerHost {
         Language.SPANISH,
         Language.ITALIAN,
       ];
-
       await this.translateSequentially(projectId, targetLanguages, job);
       await this.updateJobProgress(job, 70, 'Translations completed');
-      this.extremeCleanup();
+
+      if (global.gc) global.gc();
       this.logMemory('After Translations');
 
-      // STEP 4: PRE-CACHE IMAGES
-      this.logger.log(
-        `[${projectId}] Pre-caching images for document generation...`,
-      );
-      await this.preCacheImages(projectId);
-      this.logMemory('After Image Caching');
+      // STEP 4: PRE-CACHE IMAGES IN REDIS
+      this.logger.log(`[${projectId}] Pre-caching images to Redis...`);
+      await this.preCacheImagesToRedis(projectId);
+      this.logMemory('After Image Caching (Redis)');
 
-      // STEP 5: Generate Documents (70-100%)
+      // STEP 5: Generate Documents
       await this.updateProjectStatus(
         projectId,
         ProjectStatus.GENERATING_DOCUMENTS,
@@ -160,18 +159,15 @@ export class BookGenerationProcessor extends WorkerHost {
       await this.generateDocumentsSequentially(projectId, job);
       await this.updateJobProgress(job, 100, 'All documents generated');
 
-      // Clear image cache
-      this.clearImageCache();
+      // Clear Redis cache for this project
+      await this.redisCache.clearProject(projectId);
       this.logMemory('After Documents');
 
-      // Complete
       await this.updateProjectStatus(projectId, ProjectStatus.COMPLETED);
       this.logger.log(`[${projectId}] ✅ Book generation completed!`);
 
-      this.extremeCleanup();
+      if (global.gc) global.gc();
       this.logMemory('Job Complete');
-
-      await this.delay(2000);
 
       return {
         success: true,
@@ -184,22 +180,24 @@ export class BookGenerationProcessor extends WorkerHost {
 
       try {
         await this.updateProjectStatus(projectId, ProjectStatus.FAILED);
+        await this.redisCache.clearProject(projectId);
       } catch (updateError) {
         this.logger.error(`Failed to update project status:`, updateError);
       }
 
       throw error;
     } finally {
-      this.clearImageCache();
-      this.extremeCleanup();
+      // Cleanup Redis cache
+      await this.redisCache.clearProject(projectId);
+      if (global.gc) global.gc();
       this.logMemory('Job Cleanup');
     }
   }
 
   /**
-   * PRE-CACHE ALL IMAGES with retry logic
+   * PRE-CACHE ALL IMAGES TO REDIS
    */
-  private async preCacheImages(projectId: string): Promise<void> {
+  private async preCacheImagesToRedis(projectId: string): Promise<void> {
     const images = await this.dataSource
       .createQueryBuilder()
       .select(['i.id', 'i.url'])
@@ -207,27 +205,27 @@ export class BookGenerationProcessor extends WorkerHost {
       .where('i.projectId = :projectId', { projectId })
       .getRawMany();
 
-    this.logger.log(`Pre-caching ${images.length} images...`);
+    this.logger.log(`Pre-caching ${images.length} images to Redis...`);
 
     for (const image of images) {
-      if (!this.imageCache.has(image.i_url)) {
-        await this.cacheImageWithRetry(image.i_url);
+      const exists = await this.redisCache.hasImage(image.i_url);
+
+      if (!exists) {
+        await this.cacheImageToRedis(image.i_url);
       }
     }
 
+    const stats = await this.redisCache.getMemoryStats();
     this.logger.log(
-      `✅ Image cache ready: ${this.imageCache.size}/${images.length} images`,
+      `✅ Image cache ready in Redis - Memory: ${stats.used} (Peak: ${stats.peak})`,
     );
   }
 
-  private async cacheImageWithRetry(
-    url: string,
-    maxRetries = 4,
-  ): Promise<void> {
+  private async cacheImageToRedis(url: string, maxRetries = 4): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         this.logger.log(
-          `[Attempt ${attempt}/${maxRetries}] Caching: ${url.substring(url.lastIndexOf('/') + 1)}`,
+          `[Attempt ${attempt}/${maxRetries}] Caching to Redis: ${url.substring(url.lastIndexOf('/') + 1)}`,
         );
 
         const response = await axios.get(url, {
@@ -241,15 +239,16 @@ export class BookGenerationProcessor extends WorkerHost {
         });
 
         const buffer = Buffer.from(response.data);
-        this.imageCache.set(url, buffer);
+
+        // Store in Redis with 2-hour TTL
+        await this.redisCache.cacheImage(url, buffer, 7200);
 
         this.logger.log(
-          `✓ Cached successfully: ${url.substring(url.lastIndexOf('/') + 1)} (${Math.round(buffer.length / 1024)}KB)`,
+          `✓ Cached to Redis: ${url.substring(url.lastIndexOf('/') + 1)} (${Math.round(buffer.length / 1024)}KB)`,
         );
         return;
       } catch (error) {
         const isLastAttempt = attempt === maxRetries;
-
         this.logger.warn(
           `[Attempt ${attempt}/${maxRetries}] Failed to cache ${url}:`,
           error.message,
@@ -265,37 +264,6 @@ export class BookGenerationProcessor extends WorkerHost {
           );
         }
       }
-    }
-  }
-
-  getCachedImage(url: string): Buffer | null {
-    return this.imageCache.get(url) || null;
-  }
-
-  private clearImageCache(): void {
-    const size = this.imageCache.size;
-    const totalBytes = Array.from(this.imageCache.values()).reduce(
-      (sum, buffer) => sum + buffer.length,
-      0,
-    );
-
-    this.imageCache.clear();
-
-    this.logger.log(
-      `🧹 Image cache cleared: ${size} images, ${Math.round(totalBytes / 1024 / 1024)}MB freed`,
-    );
-  }
-
-  /**
-   * CRITICAL FIX: EXTREME cleanup with long pauses for GC
-   */
-  private async extremeCleanup(): Promise<void> {
-    if (global.gc) {
-      for (let i = 0; i < 10; i++) {
-        global.gc();
-        await this.delay(200); // Wait between GC calls
-      }
-      this.logger.debug('Extreme garbage collection completed (10 passes)');
     }
   }
 
@@ -353,8 +321,8 @@ export class BookGenerationProcessor extends WorkerHost {
         await this.waitForJobCompletion(result.jobId);
         this.logger.log(`[${projectId}] ✓ Completed ${language}`);
 
-        await this.extremeCleanup();
-        await this.delay(5000);
+        if (global.gc) global.gc();
+        await this.delay(3000);
       } catch (error) {
         if (error.message?.includes('already exists')) {
           this.logger.log(
@@ -368,7 +336,7 @@ export class BookGenerationProcessor extends WorkerHost {
   }
 
   /**
-   * CRITICAL FIX: Generate documents with MASSIVE delays and cleanup
+   * Generate documents with minimal delays - Redis handles memory
    */
   private async generateDocumentsSequentially(
     projectId: string,
@@ -419,6 +387,7 @@ export class BookGenerationProcessor extends WorkerHost {
 
         this.logMemory(`Before ${type}-${language}`);
 
+        // Pass Redis cache service instead of Map
         await this.documentService.generateDocumentSync(
           projectId,
           {
@@ -426,24 +395,22 @@ export class BookGenerationProcessor extends WorkerHost {
             language,
             includeImages: true,
           },
-          this.imageCache,
+          this.redisCache,
         );
 
         this.logMemory(`After ${type}-${language}`);
 
-        // CRITICAL: Aggressive cleanup but SHORTER delays
-        this.logger.log(`💤 Starting cleanup for ${type}-${language}...`);
-
+        // Minimal cleanup - Redis handles the heavy lifting
         if (global.gc) {
-          for (let i = 0; i < 20; i++) {
+          for (let i = 0; i < 5; i++) {
             global.gc();
-            await this.delay(200);
+            await this.delay(100);
           }
         }
 
-        // MASSIVE delay for memory recovery (30 seconds)
-        this.logger.log(`💤 Waiting 30 seconds for memory recovery...`);
-        await this.delay(30000);
+        // REDUCED: 5 seconds instead of 30
+        this.logger.log(`💤 Waiting 5 seconds for cleanup...`);
+        await this.delay(5000);
 
         this.logMemory(`After cleanup ${type}-${language}`);
       }
@@ -565,15 +532,15 @@ export class BookGenerationProcessor extends WorkerHost {
   @OnWorkerEvent('completed')
   onCompleted(job: Job) {
     this.logger.log(`Job ${job.id} completed successfully`);
-    this.clearImageCache();
-    this.extremeCleanup();
+    const { projectId } = job.data;
+    this.redisCache.clearProject(projectId);
   }
 
   @OnWorkerEvent('failed')
   onFailed(job: Job, error: Error) {
     this.logger.error(`Job ${job.id} failed:`, error);
-    this.clearImageCache();
-    this.extremeCleanup();
+    const { projectId } = job.data;
+    this.redisCache.clearProject(projectId);
   }
 
   @OnWorkerEvent('active')
