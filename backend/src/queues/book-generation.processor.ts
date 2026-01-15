@@ -431,16 +431,13 @@ export class BookGenerationProcessor extends WorkerHost {
 
         this.logMemory(`After ${type}-${language}`);
 
-        // CRITICAL: MASSIVE cleanup + long delay
-        this.logger.log(
-          `💤 Starting extreme cleanup for ${type}-${language}...`,
-        );
+        // CRITICAL: Aggressive cleanup but SHORTER delays
+        this.logger.log(`💤 Starting cleanup for ${type}-${language}...`);
 
-        // Clear ALL possible references
         if (global.gc) {
-          for (let i = 0; i < 15; i++) {
+          for (let i = 0; i < 20; i++) {
             global.gc();
-            await this.delay(300);
+            await this.delay(200);
           }
         }
 
