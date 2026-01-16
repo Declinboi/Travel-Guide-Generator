@@ -8,7 +8,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { GoogleTranslationService } from './google-translation.service';
 import {
   TranslateProjectDto,
   BulkTranslateDto,
@@ -24,6 +23,7 @@ import {
   Project,
   ProjectStatus,
 } from 'src/DB/entities';
+import { LibreTranslationService } from './google-translation.service';
 
 @Injectable()
 export class TranslationService {
@@ -34,11 +34,9 @@ export class TranslationService {
     private readonly translationRepository: Repository<Translation>,
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
-    // @InjectRepository(Chapter)
-    // private readonly chapterRepository: Repository<Chapter>,
     @InjectRepository(Job)
     private readonly jobRepository: Repository<Job>,
-    private readonly googleTranslationService: GoogleTranslationService,
+    private readonly libreTranslationService: LibreTranslationService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -167,7 +165,7 @@ export class TranslationService {
       );
 
       const translatedMetadata =
-        await this.googleTranslationService.translateMetadata(
+        await this.libreTranslationService.translateMetadata(
           project.title,
           project.subtitle,
           translateDto.targetLanguage,
@@ -181,7 +179,7 @@ export class TranslationService {
       await this.jobRepository.save(job);
 
       // Translate chapters using batch translation (20% - 95% progress)
-      this.logger.log(`Translating ${chapters.length} chapters using Google Translate...`);
+      this.logger.log(`Translating ${chapters.length} chapters using LibreTranslate...`);
 
       type TranslatedChapter = {
         title: string;
@@ -191,7 +189,7 @@ export class TranslationService {
 
       // Use batch translation for better performance
       const translatedChapters: TranslatedChapter[] = 
-        await this.googleTranslationService.translateChapters(
+        await this.libreTranslationService.translateChapters(
           chapters,
           translateDto.targetLanguage,
         );

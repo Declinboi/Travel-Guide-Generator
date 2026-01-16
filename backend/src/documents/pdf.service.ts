@@ -3,11 +3,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import axios from 'axios';
 import { RedisCacheService } from 'src/queues/queues.module';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
-
+  constructor(private configService: ConfigService) {}
   /**
    * Generate PDF and return as Buffer (for Cloudinary upload)
    */

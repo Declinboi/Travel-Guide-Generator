@@ -3,6 +3,8 @@ version: "3.8"
 services:
   postgres:
     image: postgres:16
+    container_name: travel-postgres
+    restart: unless-stopped
     ports:
       - "5433:5432"
     environment:
@@ -11,12 +13,77 @@ services:
       POSTGRES_DB: travel_guides
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U travel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7
+    container_name: travel-redis
+    restart: unless-stopped
     ports:
       - "6380:6379"
     command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    container_name: libretranslate
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      LT_HOST: 0.0.0.0
+      LT_PORT: 5000
+
+      # Enable API key auth
+      LT_API_KEYS: "true"
+
+      # Feature toggles
+      LT_DISABLE_WEB_UI: "false"
+      LT_DISABLE_FILES_TRANSLATION: "true"
+      LT_SUGGESTIONS: "false"
+
+      # Languages (reduce memory + startup time)
+      LT_LOAD_ONLY: en,de,fr,es,it
+
+      # Limits and performance
+      LT_BATCH_LIMIT: 100
+      LT_CHAR_LIMIT: 50000
+      LT_FRONTEND_TIMEOUT: 3600
+      LT_API_TIMEOUT: 3600
+      LT_THREADS: 4
+
+    volumes:
+      # API keys database (CRITICAL)
+      - libretranslate-db:/app/db
+
+      # Language models cache
+      - libretranslate-models:/home/libretranslate/.local
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    depends_on:
+      redis:
+        condition: service_healthy
 
 volumes:
   pgdata:
+    driver: local
+
+  libretranslate-db:
+    driver: local
+
+  libretranslate-models:
+    driver: local
