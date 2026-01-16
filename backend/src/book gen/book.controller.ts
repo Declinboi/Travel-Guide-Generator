@@ -1,4 +1,4 @@
-// src/book-generator/book.controller.ts (Updated)
+// src/book-generator/book.controller.ts - FIXED VERSION
 import {
   Controller,
   Post,
@@ -9,9 +9,11 @@ import {
   UploadedFiles,
   UseGuards,
   Request,
+  Logger,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { DataSource } from 'typeorm';
 import { BookGenerationQueue } from '../queues/book-generation.queue';
 import { BookGeneratorService } from './book-generator.service';
 import { DocumentService } from '../documents/document.service';
@@ -19,13 +21,21 @@ import { CreateBookDto } from './create-book.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProjectService } from '../project/project.service';
 import { RedisCacheService } from 'src/queues/queues.module';
+import { Project, ProjectStatus } from '../DB/entities/project.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 @ApiTags('books')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard)
 @Controller('books')
 export class BookController {
+  private readonly logger = new Logger(BookController.name);
+
   constructor(
+    @InjectRepository(Project)
+    private readonly projectRepository: Repository<Project>,
+    private readonly dataSource: DataSource,
     private readonly bookGenerationQueue: BookGenerationQueue,
     private readonly bookGeneratorService: BookGeneratorService,
     private readonly projectService: ProjectService,
@@ -40,7 +50,9 @@ export class BookController {
       { name: 'mapImage', maxCount: 1 },
     ]),
   )
-  @ApiOperation({ summary: 'Generate complete travel guide book (Queue-based)' })
+  @ApiOperation({
+    summary: 'Generate complete travel guide book (Queue-based)',
+  })
   async generateBook(
     @Body() createBookDto: CreateBookDto,
     @Request() req,
@@ -52,58 +64,111 @@ export class BookController {
   ) {
     const userId = req.user.sub;
 
-    // Create project first
-    const project = await this.projectService.create({
-      title: createBookDto.title,
-      subtitle: createBookDto.subtitle,
-      author: createBookDto.author,
-      numberOfChapters: 10,
-      userId: createBookDto.userId || userId,
-    });
+    // CRITICAL FIX: Use explicit transaction control
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    // Verify project was created
-    if (!project || !project.id) {
-      throw new Error('Failed to create project');
+    let project: Project;
+
+    try {
+      // Create project entity
+      const projectData = {
+        title: createBookDto.title,
+        subtitle: createBookDto.subtitle,
+        author: createBookDto.author,
+        numberOfChapters: 10,
+        userId: createBookDto.userId || userId,
+        status: ProjectStatus.DRAFT,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const newProject = queryRunner.manager.create(Project, projectData);
+
+      // Save within transaction
+      project = await queryRunner.manager.save(Project, newProject);
+      this.logger.log(`Project created: ${project.id}`);
+
+      // CRITICAL: Commit transaction BEFORE queuing
+      await queryRunner.commitTransaction();
+
+      // CRITICAL: Small delay to ensure DB write is visible
+      await this.delay(200);
+
+      // CRITICAL: Verify project exists before queuing
+      const verifiedProject = await this.projectRepository.findOne({
+        where: { id: project.id },
+      });
+
+      if (!verifiedProject) {
+        throw new Error(
+          `Project ${project.id} not found after commit - possible database issue`,
+        );
+      }
+
+      // Serialize buffers to JSON format for Redis
+      const serializedFiles = {
+        images: files.images?.map((f) => ({
+          buffer: f.buffer.toJSON(),
+          originalname: f.originalname,
+          mimetype: f.mimetype,
+        })),
+        mapImage: files.mapImage?.map((f) => ({
+          buffer: f.buffer.toJSON(),
+          originalname: f.originalname,
+          mimetype: f.mimetype,
+        })),
+      };
+
+      // NOW it's safe to queue the job
+      const jobId = await this.bookGenerationQueue.addBookGenerationJob({
+        projectId: project.id,
+        createBookDto,
+        files: serializedFiles,
+      });
+
+      this.logger.log(
+        `Book generation job queued: ${jobId} for project ${project.id}`,
+      );
+
+      return {
+        message:
+          'Book generation queued successfully! Processing in background.',
+        projectId: project.id,
+        jobId,
+        estimatedTime: '10-15 minutes',
+        steps: [
+          '1. Generating book content (10 chapters)',
+          '2. Processing and positioning images',
+          '3. Translating to 4 languages sequentially',
+          '4. Creating 10 documents sequentially',
+        ],
+        statusEndpoint: `/api/books/status/${project.id}`,
+        jobStatusEndpoint: `/api/books/job/${jobId}`,
+        downloadEndpoint: `/api/books/download/${project.id}`,
+      };
+    } catch (error) {
+      this.logger.error('Error during book generation setup:', error);
+
+      // Rollback transaction if it's still active
+      if (queryRunner.isTransactionActive) {
+        this.logger.log('Rolling back transaction...');
+        await queryRunner.rollbackTransaction();
+      }
+
+      throw error;
+    } finally {
+      // Always release the query runner
+      await queryRunner.release();
     }
+  }
 
-    
-
-    // Serialize buffers to JSON format for Redis
-    const serializedFiles = {
-      images: files.images?.map(f => ({
-        buffer: f.buffer.toJSON(),
-        originalname: f.originalname,
-        mimetype: f.mimetype,
-      })),
-      mapImage: files.mapImage?.map(f => ({
-        buffer: f.buffer.toJSON(),
-        originalname: f.originalname,
-        mimetype: f.mimetype,
-      })),
-    };
-
-    // Add job to queue
-    const jobId = await this.bookGenerationQueue.addBookGenerationJob({
-      projectId: project.id,
-      createBookDto,
-      files: serializedFiles,
-    });
-
-    return {
-      message: 'Book generation queued successfully! Processing in background.',
-      projectId: project.id,
-      jobId,
-      estimatedTime: '10-15 minutes',
-      steps: [
-        '1. Generating book content (10 chapters)',
-        '2. Processing and positioning images',
-        '3. Translating to 4 languages sequentially',
-        '4. Creating 10 documents sequentially',
-      ],
-      statusEndpoint: `/api/books/status/${project.id}`,
-      jobStatusEndpoint: `/api/books/job/${jobId}`,
-      downloadEndpoint: `/api/books/download/${project.id}`,
-    };
+  /**
+   * Helper method to create delays
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   @Get('job/:jobId')
