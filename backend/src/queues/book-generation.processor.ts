@@ -320,9 +320,16 @@ export class BookGenerationProcessor extends WorkerHost {
       const buffer = await this.downloadImageNative(url);
       await this.redisCache.cacheImage(url, buffer, 7200);
     } catch (error) {
-      // FIX: Handle errors without .message property
-      const errorMsg = error?.message || error?.toString() || 'Unknown error';
-      this.logger.warn(`Failed to cache ${url}: ${errorMsg}`);
+      // FIX: Handle errors without .message property AND log full error
+      const errorMsg =
+        error?.message ||
+        error?.toString() ||
+        JSON.stringify(error) ||
+        'Unknown error';
+      this.logger.error(
+        `Failed to cache ${url}: ${errorMsg}`,
+        error?.stack || '',
+      );
     }
   }
 
@@ -420,14 +427,16 @@ export class BookGenerationProcessor extends WorkerHost {
           await this.delay(500);
         } catch (error) {
           failed++;
-          this.logger.error(`Failed to cache ${image.i_url}:`, error);
+          this.logger.error(`❌ Failed to cache ${image.i_url}:`, error);
         }
+      } else {
+        cached++; // Count already cached images as success
       }
     }
 
     const stats = await this.redisCache.getMemoryStats();
     this.logger.log(
-      `✅ Images cached: ${cached} success, ${failed} failed - Redis: ${stats.used}`,
+      `✅ Images cached: ${cached}/${images.length} (${failed} failed) - Redis: ${stats.used}`,
     );
 
     // Don't fail the entire process if some images fail

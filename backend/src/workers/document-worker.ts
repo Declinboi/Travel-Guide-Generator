@@ -1,15 +1,37 @@
-// src/workers/document-worker.ts - RUN AS SEPARATE PROCESS
+// src/workers/document-worker.ts - COMPLETELY REWRITTEN
 import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { DataSource } from 'typeorm';
-import { Project, Chapter, Translation, Document, Job } from '../DB/entities';
-import { DocumentType, Language, DocumentStatus, JobType, JobStatus } from '../DB/entities';
+
+// CRITICAL: Remove .js extensions - let TypeScript/Node handle resolution
+import { 
+  Project, 
+  Chapter, 
+  Translation, 
+  Document, 
+  Job,
+  Image,
+  User,
+  DocumentType,
+  Language,
+  DocumentStatus,
+  JobType,
+  JobStatus,
+} from '../DB/entities/index';
+
+import { PdfService } from '../documents/pdf.service';
+import { DocxService } from '../documents/docx.service';
+import { CloudinaryDocumentService } from '../documents/cloudinary-document.service';
+import { RedisCacheService } from '../queues/cache/redis-cache.service';
+import { ConfigService } from '@nestjs/config';
 
 // Simple logger
 const log = {
   log: (msg: string) => console.log(`[${new Date().toISOString()}] LOG ${msg}`),
-  error: (msg: string, err?: any) => console.error(`[${new Date().toISOString()}] ERROR ${msg}`, err),
-  warn: (msg: string) => console.warn(`[${new Date().toISOString()}] WARN ${msg}`),
+  error: (msg: string, err?: any) =>
+    console.error(`[${new Date().toISOString()}] ERROR ${msg}`, err),
+  warn: (msg: string) =>
+    console.warn(`[${new Date().toISOString()}] WARN ${msg}`),
 };
 
 // Environment variables
@@ -48,7 +70,7 @@ async function initializeDatabase() {
     username: DB_USERNAME,
     password: DB_PASSWORD,
     database: DB_NAME,
-    entities: [Project, Chapter, Translation, Document, Job],
+    entities: [User, Project, Chapter, Translation, Document, Job, Image],
     synchronize: false,
     logging: false,
   });
@@ -58,27 +80,14 @@ async function initializeDatabase() {
   return dataSource;
 }
 
-// Import services AFTER environment is set
-async function loadServices() {
-  // Dynamically import to avoid issues
-  const { PdfService } = await import('../documents/pdf.service.js');
-  const { DocxService } = await import('../documents/docx.service.js');
-  const { CloudinaryDocumentService } = await import('../documents/cloudinary-document.service.js');
-  const { RedisCacheService } = await import('../queues/cache/redis-cache.service.js');
-  const { ConfigService } = await import('@nestjs/config');
+// Initialize services once
+const configService = new ConfigService();
+const pdfService = new PdfService(configService);
+const docxService = new DocxService(configService);
+const cloudinaryService = new CloudinaryDocumentService(configService);
+const redisCache = new RedisCacheService(configService);
 
-  const configService = new ConfigService();
-  
-  return {
-    pdfService: new PdfService(configService),
-    docxService: new DocxService(configService),
-    cloudinaryService: new CloudinaryDocumentService(configService),
-    redisCache: new RedisCacheService(configService),
-  };
-}
-
-// Initialize services
-let services: any = null;
+log.log('✅ Services initialized');
 
 // Worker processor
 const worker = new Worker(
@@ -86,21 +95,15 @@ const worker = new Worker(
   async (job) => {
     const startMem = process.memoryUsage().heapUsed / 1024 / 1024;
     const { type, language } = job.data;
-    
-    log.log(`[START] ${type}-${language} | Job ID: ${job.id} | Heap: ${Math.round(startMem)}MB`);
+
+    log.log(
+      `[START] ${type}-${language} | Job ID: ${job.id} | Heap: ${Math.round(startMem)}MB`,
+    );
 
     try {
       // Initialize database
       const db = await initializeDatabase();
-      
-      // Initialize services if not already done
-      if (!services) {
-        log.log('Initializing services...');
-        services = await loadServices();
-      }
 
-      const { pdfService, docxService, cloudinaryService, redisCache } = services;
-      
       const projectRepo = db.getRepository(Project);
       const chapterRepo = db.getRepository(Chapter);
       const translationRepo = db.getRepository(Translation);
@@ -131,7 +134,9 @@ const worker = new Worker(
         throw new Error(`Project ${projectId} not found`);
       }
 
-      log.log(`Found project with ${project.chapters.length} chapters and ${project.images.length} images`);
+      log.log(
+        `Found project with ${project.chapters.length} chapters and ${project.images.length} images`,
+      );
 
       // Get content
       let chapters = [...project.chapters].sort((a, b) => a.order - b.order);
@@ -162,7 +167,7 @@ const worker = new Worker(
 
       // Generate document
       log.log(`Generating ${type} document...`);
-      
+
       let result: { buffer: Buffer; filename: string };
 
       if (type === DocumentType.PDF) {
@@ -185,7 +190,9 @@ const worker = new Worker(
         );
       }
 
-      log.log(`Document generated: ${result.filename} (${Math.round(result.buffer.length / 1024)}KB)`);
+      log.log(
+        `Document generated: ${result.filename} (${Math.round(result.buffer.length / 1024)}KB)`,
+      );
 
       await job.updateProgress(60);
 
@@ -227,7 +234,9 @@ const worker = new Worker(
       await job.updateProgress(100);
 
       const endMem = process.memoryUsage().heapUsed / 1024 / 1024;
-      log.log(`[COMPLETE] ${type}-${language} | Heap: ${Math.round(endMem)}MB | Δ: ${Math.round(endMem - startMem)}MB`);
+      log.log(
+        `[COMPLETE] ${type}-${language} | Heap: ${Math.round(endMem)}MB | Δ: ${Math.round(endMem - startMem)}MB`,
+      );
 
       // Force GC
       if (global.gc) {
