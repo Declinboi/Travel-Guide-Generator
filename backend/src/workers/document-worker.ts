@@ -1,14 +1,18 @@
 // src/workers/document-worker.ts - COMPLETELY REWRITTEN
+// CRITICAL: Load environment variables first
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { DataSource } from 'typeorm';
 
 // CRITICAL: Remove .js extensions - let TypeScript/Node handle resolution
-import { 
-  Project, 
-  Chapter, 
-  Translation, 
-  Document, 
+import {
+  Project,
+  Chapter,
+  Translation,
+  Document,
   Job,
   Image,
   User,
@@ -47,6 +51,17 @@ log.log('🚀 Starting Document Worker...');
 log.log(`Redis: ${REDIS_HOST}:${REDIS_PORT}`);
 log.log(`Database: ${DB_HOST}:${DB_PORT}/${DB_NAME}`);
 
+// Verify Cloudinary credentials
+const cloudinaryName = process.env.CLOUDINARY_CLOUD_NAME;
+const cloudinaryKey = process.env.CLOUDINARY_API_KEY;
+if (!cloudinaryName || !cloudinaryKey) {
+  log.error('❌ Missing Cloudinary credentials!');
+  log.error(`CLOUDINARY_CLOUD_NAME: ${cloudinaryName ? 'SET' : 'MISSING'}`);
+  log.error(`CLOUDINARY_API_KEY: ${cloudinaryKey ? 'SET' : 'MISSING'}`);
+  process.exit(1);
+}
+log.log('✅ Cloudinary credentials loaded');
+
 // Redis connection for BullMQ
 const connection = new Redis({
   host: REDIS_HOST,
@@ -81,7 +96,8 @@ async function initializeDatabase() {
 }
 
 // Initialize services once
-const configService = new ConfigService();
+// CRITICAL: ConfigService needs the environment object to work properly
+const configService = new ConfigService(process.env);
 const pdfService = new PdfService(configService);
 const docxService = new DocxService(configService);
 const cloudinaryService = new CloudinaryDocumentService(configService);
@@ -117,7 +133,10 @@ const worker = new Worker(
       // Create job record
       const jobRecord = jobRepo.create({
         projectId,
-        type: type === DocumentType.PDF ? JobType.PDF_GENERATION : JobType.DOCX_GENERATION,
+        type:
+          type === DocumentType.PDF
+            ? JobType.PDF_GENERATION
+            : JobType.DOCX_GENERATION,
         status: JobStatus.IN_PROGRESS,
         progress: 0,
         startedAt: new Date(),
@@ -280,18 +299,39 @@ worker.on('active', (job) => {
 log.log('📄 Document Worker ready and listening for jobs');
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-  log.log('SIGTERM received, closing worker...');
-  await worker.close();
-  if (dataSource?.isInitialized) await dataSource.destroy();
-  await connection.quit();
-  process.exit(0);
-});
+let isShuttingDown = false;
 
-process.on('SIGINT', async () => {
-  log.log('SIGINT received, closing worker...');
-  await worker.close();
-  if (dataSource?.isInitialized) await dataSource.destroy();
-  await connection.quit();
+async function shutdown(signal: string) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  log.log(`${signal} received, closing worker...`);
+
+  try {
+    await worker.close();
+    log.log('Worker closed');
+  } catch (err) {
+    log.error('Error closing worker:', err);
+  }
+
+  try {
+    if (dataSource?.isInitialized) {
+      await dataSource.destroy();
+      log.log('Database connection closed');
+    }
+  } catch (err) {
+    log.error('Error closing database:', err);
+  }
+
+  try {
+    await connection.quit();
+    log.log('Redis connection closed');
+  } catch (err) {
+    log.error('Error closing Redis:', err);
+  }
+
   process.exit(0);
-});
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
