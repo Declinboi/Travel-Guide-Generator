@@ -31,8 +31,8 @@ class RedisMonitorService {
   async startMonitoring() {
     if (this.isMonitoring) return;
 
-    const redisHost = this.configService.get('REDIS_HOST', '127.0.0.1');
-    const redisPort = this.configService.get<number>('REDIS_PORT', 6380);
+    const redisHost = this.configService.get('REDIS_HOST');
+    const redisPort = this.configService.get<number>('REDIS_PORT', 6379);
 
     this.redisClient = new Redis({
       host: redisHost,
@@ -113,8 +113,8 @@ class RedisMonitorService {
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        const redisHost = config.get('REDIS_HOST', '127.0.0.1');
-        const redisPort = config.get<number>('REDIS_PORT', 6380);
+        const redisHost = config.get('REDIS_HOST');
+        const redisPort = config.get<number>('REDIS_PORT', 6379);
 
         console.log(`🔗 Connecting to Redis at ${redisHost}:${redisPort}`);
 

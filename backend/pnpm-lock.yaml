@@ -11,6 +11,9 @@ importers:
       '@google-cloud/translate':
         specifier: ^9.3.0
         version: 9.3.0
+      '@google/generative-ai':
+        specifier: ^0.24.1
+        version: 0.24.1
       '@nestjs/bull':
         specifier: ^11.0.4
         version: 11.0.4(@nestjs/common@11.1.11(class-transformer@0.5.1)(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.11)(bull@4.16.5)
@@ -465,6 +468,10 @@ packages:
   '@google-cloud/translate@9.3.0':
     resolution: {integrity: sha512-OgZ2bCu3P0ZzMhEdYubwyCo/eFFlJMYalozmgOxlVcD51vCYelYUJeVnGlS+3cFQTJQX4RE84bYTKu7W0wqByw==}
     engines: {node: '>=18'}
+
+  '@google/generative-ai@0.24.1':
+    resolution: {integrity: sha512-MqO+MLfM6kjxcKoy0p1wRzG3b4ZZXtPI+z2IE26UogS2Cm/XHO+7gGRBh6gcJsOiIVoH93UwKvW4HdgiOZCy9Q==}
+    engines: {node: '>=18.0.0'}
 
   '@grpc/grpc-js@1.14.3':
     resolution: {integrity: sha512-Iq8QQQ/7X3Sac15oB6p0FmUg/klxQvXLeileoqrTRGJYLV+/9tubbr9ipz0GKHjmXVsgFPo/+W+2cA8eNcR+XA==}
@@ -4279,6 +4286,8 @@ snapshots:
       is-html: 2.0.0
     transitivePeerDependencies:
       - supports-color
+
+  '@google/generative-ai@0.24.1': {}
 
   '@grpc/grpc-js@1.14.3':
     dependencies:

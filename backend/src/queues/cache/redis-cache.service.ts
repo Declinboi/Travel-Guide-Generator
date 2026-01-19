@@ -10,8 +10,8 @@ export class RedisCacheService implements OnModuleDestroy {
   private readonly TTL = 7200;
 
   constructor(private readonly configService: ConfigService) {
-    const redisHost = this.configService.get('REDIS_HOST', '127.0.0.1');
-    const redisPort = this.configService.get<number>('REDIS_PORT', 6380);
+    const redisHost = this.configService.get('REDIS_HOST');
+    const redisPort = this.configService.get<number>('REDIS_PORT', 6379);
 
     this.redis = new Redis({
       host: redisHost,

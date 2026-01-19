@@ -39,13 +39,13 @@ const log = {
 };
 
 // Environment variables
-const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
-const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6380');
-const DB_HOST = process.env.DB_HOST || 'localhost';
-const DB_PORT = parseInt(process.env.DB_PORT || '5433');
-const DB_USERNAME = process.env.DB_USERNAME || 'travel';
-const DB_PASSWORD = process.env.DB_PASSWORD || 'travelpass';
-const DB_NAME = process.env.DB_NAME || 'travel_guides';
+const REDIS_HOST = process.env.REDIS_HOST;
+const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
+const DB_HOST = process.env.DB_HOST;
+const DB_PORT = parseInt(process.env.DB_PORT || '5432');
+const DB_USERNAME = process.env.DB_USERNAME;
+const DB_PASSWORD = process.env.DB_PASSWORD;
+const DB_NAME = process.env.DB_NAME;
 
 log.log('🚀 Starting Document Worker...');
 log.log(`Redis: ${REDIS_HOST}:${REDIS_PORT}`);

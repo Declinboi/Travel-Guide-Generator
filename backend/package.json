@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@google-cloud/translate": "^9.3.0",
+    "@google/generative-ai": "^0.24.1",
     "@nestjs/bull": "^11.0.4",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
