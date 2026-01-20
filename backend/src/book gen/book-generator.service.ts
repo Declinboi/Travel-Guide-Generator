@@ -199,13 +199,15 @@ export class BookGeneratorService {
     this.logMemoryUsage('Before document generation');
 
     // Use the sequential generation method
-    await this.documentService.generateAllDocumentsSequential(projectId, {
-      types,
-      languages,
-      includeImages: true,
-    },
-    this.redisCache,
-  );
+    await this.documentService.generateAllDocumentsSequential(
+      projectId,
+      {
+        types,
+        languages,
+        includeImages: true,
+      },
+      this.redisCache,
+    );
 
     // Force garbage collection after all documents
     this.forceGarbageCollection();
@@ -370,7 +372,16 @@ export class BookGeneratorService {
   }
 
   async getBookStatus(projectId: string) {
-    const project = await this.projectService.findOne(projectId);
+    // Load project with only the relations we need for status
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      relations: ['jobs'], // Only load jobs for status check
+    });
+
+    if (!project) {
+      throw new Error(`Project ${projectId} not found`);
+    }
+
     const stats = await this.projectService.getProjectStats(projectId);
 
     // Get all job statuses
@@ -436,8 +447,15 @@ export class BookGeneratorService {
       };
     }
 
-    // Get project info for title
-    const project = await this.projectService.findOne(projectId);
+    // Get project info for title - only load what we need
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      select: ['id', 'title'], // Only select id and title
+    });
+
+    if (!project) {
+      throw new Error(`Project ${projectId} not found`);
+    }
 
     const downloadLinks = documents.map((doc) => ({
       id: doc.id,
@@ -445,9 +463,8 @@ export class BookGeneratorService {
       type: doc.type,
       language: doc.language,
       size: this.formatFileSize(doc.size),
-      // CRITICAL: Return Cloudinary URL directly
-      url: doc.url, // This is already the full Cloudinary URL
-      cloudinaryPublicId: doc.storageKey, // Include for reference
+      url: doc.url,
+      cloudinaryPublicId: doc.storageKey,
       createdAt: doc.createdAt,
     }));
 

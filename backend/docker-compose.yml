@@ -4,7 +4,7 @@ services:
     container_name: travel-postgres
     restart: unless-stopped
     ports:
-      - "5433:5432"
+      - "5432:5432"
     environment:
       POSTGRES_USER: travel
       POSTGRES_PASSWORD: travelpass
@@ -130,9 +130,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3G
+          memory: 8G
         reservations:
-          memory: 1G
+          memory: 3G
     
     networks:
       - travel-network
@@ -186,9 +186,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 5G
+          memory: 8G
         reservations:
-          memory: 2G
+          memory: 3G
     
     networks:
       - travel-network
