@@ -319,7 +319,7 @@ export class BookGenerationProcessor extends WorkerHost {
 
   private async cacheImageToRedis(
     url: string,
-    maxRetries: number = 8, // INCREASED from 5 to 8
+    maxRetries: number = 4, // INCREASED from 5 to 8
   ): Promise<boolean> {
     let lastError: any;
 

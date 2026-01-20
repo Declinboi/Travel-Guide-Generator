@@ -24,7 +24,7 @@ services:
     container_name: travel-redis
     restart: unless-stopped
     ports:
-      - "6380:6379"
+      - "6379:6379"
     command: redis-server --maxmemory 512mb --maxmemory-policy noeviction --save "" --appendonly no
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -148,7 +148,12 @@ services:
       
       # Database
       DATABASE_URL: postgresql://travel:travelpass@postgres:5432/travel_guides?sslmode=disable
-      
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: travel
+      DB_PASSWORD: travelpass
+      DB_NAME: travel_guides
+
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379

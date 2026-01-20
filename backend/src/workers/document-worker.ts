@@ -41,7 +41,7 @@ const log = {
 // Environment variables
 const REDIS_HOST = process.env.REDIS_HOST;
 const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
-const DB_HOST = process.env.DB_HOST;
+const DB_HOST = process.env.DB_HOST ;
 const DB_PORT = parseInt(process.env.DB_PORT || '5432');
 const DB_USERNAME = process.env.DB_USERNAME;
 const DB_PASSWORD = process.env.DB_PASSWORD;
