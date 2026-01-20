@@ -85,34 +85,6 @@ export class ProjectService {
     return project;
   }
 
-  // Optimized: Only load what's needed for stats
-  // async getProjectStats(id: string) {
-  //   const project = await this.projectRepository.findOne({
-  //     where: { id },
-  //     relations: ['chapters', 'images', 'translations', 'documents', 'jobs'],
-  //   });
-
-  //   if (!project) {
-  //     throw new NotFoundException(`Project with ID ${id} not found`);
-  //   }
-
-  //   return {
-  //     projectId: project.id,
-  //     title: project.title,
-  //     status: project.status,
-  //     stats: {
-  //       totalChapters: project.chapters?.length || 0,
-  //       totalImages: project.images?.length || 0,
-  //       completedTranslations: project.translations?.filter(t => t.status === 'COMPLETED').length || 0,
-  //       totalTranslations: project.translations?.length || 0,
-  //       completedDocuments: project.documents?.filter(d => d.status === 'COMPLETED').length || 0,
-  //       totalDocuments: project.documents?.length || 0,
-  //       activeJobs: project.jobs?.filter(j => j.status === 'IN_PROGRESS' || j.status === 'PENDING').length || 0,
-  //     },
-  //     createdAt: project.createdAt,
-  //     updatedAt: project.updatedAt,
-  //   };
-  // }
   async getProjectStats(id: string) {
     // Use raw SQL to get counts without loading all data
     const stats = await this.projectRepository
