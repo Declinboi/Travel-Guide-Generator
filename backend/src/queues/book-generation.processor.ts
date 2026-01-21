@@ -319,7 +319,7 @@ export class BookGenerationProcessor extends WorkerHost {
 
   // private async cacheImageToRedis(
   //   url: string,
-  //   maxRetries: number = 4, // INCREASED from 5 to 8
+  //   maxRetries: number = 5, // INCREASED from 5 to 8
   // ): Promise<boolean> {
   //   let lastError: any;
 
@@ -367,97 +367,51 @@ export class BookGenerationProcessor extends WorkerHost {
   // }
 
   // /**
-  //  * ENHANCED: Download with better timeout and connection handling
+  //  * ENHANCED: Download with axios and better timeout handling
   //  */
-  // private downloadImageNative(url: string): Promise<Buffer> {
-  //   return new Promise((resolve, reject) => {
-  //     const https = require('https');
-  //     const http = require('http');
+  // private async downloadImageNative(url: string): Promise<Buffer> {
+  //   const axios = require('axios');
 
-  //     const protocol = url.startsWith('https') ? https : http;
-
-  //     // Create agent with better settings
-  //     const agent =
-  //       protocol === https
-  //         ? new https.Agent({
-  //             keepAlive: true,
-  //             keepAliveMsecs: 30000,
-  //             maxSockets: 3, // REDUCED from 5 to prevent overwhelming connections
-  //             timeout: 90000, // 90s timeout
-  //             scheduling: 'lifo', // Last-in-first-out for better performance
-  //           })
-  //         : undefined;
-
-  //     const req = protocol.get(
-  //       url,
-  //       {
-  //         timeout: 90000, // INCREASED to 90 seconds
-  //         headers: {
-  //           'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideBot/1.0)',
-  //           Connection: 'keep-alive',
-  //           Accept: 'image/*',
-  //           'Accept-Encoding': 'gzip, deflate', // Support compression
-  //         },
-  //         agent,
+  //   try {
+  //     const response = await axios.get(url, {
+  //       responseType: 'arraybuffer',
+  //       timeout: 90000, // 90 seconds
+  //       maxRedirects: 5,
+  //       maxContentLength: 50 * 1024 * 1024, // 50MB limit
+  //       headers: {
+  //         'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideBot/1.0)',
+  //         Connection: 'keep-alive',
+  //         Accept: 'image/*',
+  //         'Accept-Encoding': 'gzip, deflate',
   //       },
-  //       (res) => {
-  //         // Handle redirects
-  //         if (res.statusCode === 301 || res.statusCode === 302) {
-  //           this.logger.debug(`Following redirect for ${url}`);
-  //           return this.downloadImageNative(res.headers.location!)
-  //             .then(resolve)
-  //             .catch(reject);
-  //         }
+  //       httpsAgent: new (require('https').Agent)({
+  //         keepAlive: true,
+  //         keepAliveMsecs: 30000,
+  //         maxSockets: 3,
+  //         timeout: 90000,
+  //         scheduling: 'lifo',
+  //       }),
+  //     });
 
-  //         if (res.statusCode !== 200) {
-  //           return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
-  //         }
+  //     if (response.status !== 200) {
+  //       throw new Error(`HTTP ${response.status} for ${url}`);
+  //     }
 
-  //         const chunks: Buffer[] = [];
-  //         let totalLength = 0;
+  //     const buffer = Buffer.from(response.data);
 
-  //         res.on('data', (chunk: Buffer) => {
-  //           chunks.push(chunk);
-  //           totalLength += chunk.length;
-
-  //           if (totalLength > 50 * 1024 * 1024) {
-  //             req.destroy();
-  //             reject(new Error('Image too large (>50MB)'));
-  //           }
-  //         });
-
-  //         res.on('end', () => {
-  //           const buffer = Buffer.concat(chunks);
-  //           this.logger.debug(
-  //             `Downloaded ${url}: ${Math.round(buffer.length / 1024)}KB`,
-  //           );
-  //           resolve(buffer);
-  //         });
-
-  //         res.on('error', (err) => {
-  //           reject(new Error(`Response error: ${err.message || err.code}`));
-  //         });
-  //       },
+  //     this.logger.debug(
+  //       `Downloaded ${url}: ${Math.round(buffer.length / 1024)}KB`,
   //     );
 
-  //     req.on('error', (err) => {
-  //       reject(
-  //         new Error(
-  //           `Request error: ${err.message || err.code || 'Connection failed'}`,
-  //         ),
-  //       );
-  //     });
-
-  //     req.on('timeout', () => {
-  //       req.destroy();
-  //       reject(new Error('Request timeout after 90s'));
-  //     });
-
-  //     req.setTimeout(90000, () => {
-  //       req.destroy();
-  //       reject(new Error('Socket timeout after 90s'));
-  //     });
-  //   });
+  //     return buffer;
+  //   } catch (error) {
+  //     if (error.code === 'ECONNABORTED') {
+  //       throw new Error('Request timeout after 90s');
+  //     }
+  //     throw new Error(
+  //       `Request error: ${error.message || error.code || 'Connection failed'}`,
+  //     );
+  //   }
   // }
 
   // /**
@@ -555,9 +509,77 @@ export class BookGenerationProcessor extends WorkerHost {
   //   }
   // }
 
+  /**
+   * FIXED: Download image with better error handling and connection management
+   */
+  /**
+   * FIXED: Download image using the SAME logic as document services
+   */
+  private async downloadImageNative(
+    url: string,
+    maxRetries: number = 4,
+    timeoutMs: number = 60000,
+  ): Promise<Buffer> {
+    let lastError: any;
+    const axios = require('axios');
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logger.log(
+          `[Attempt ${attempt}/${maxRetries}] Downloading image: ${url}`,
+        );
+
+        const response = await axios.get(url, {
+          responseType: 'arraybuffer',
+          timeout: timeoutMs,
+          maxContentLength: 10 * 1024 * 1024,
+          maxRedirects: 5,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideGenerator/1.0)',
+          },
+          family: 4,
+        });
+
+        this.logger.log(`✓ Image downloaded successfully: ${url}`);
+        return Buffer.from(response.data, 'binary');
+      } catch (error) {
+        lastError = error;
+
+        if (axios.isAxiosError(error)) {
+          const code = error.code || error.response?.status;
+          this.logger.warn(
+            `[Attempt ${attempt}/${maxRetries}] Failed to download image: ${code}`,
+          );
+
+          if (
+            error.response?.status === 404 ||
+            error.response?.status === 403
+          ) {
+            this.logger.error(`Image not found or forbidden: ${url}`);
+            throw new Error(`Image not accessible: ${url}`);
+          }
+        }
+
+        if (attempt < maxRetries) {
+          const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+          this.logger.log(`Waiting ${waitTime}ms before retry...`);
+          await this.delay(waitTime);
+        }
+      }
+    }
+
+    this.logger.error(
+      `Failed to download image after ${maxRetries} attempts: ${url}`,
+    );
+    throw lastError;
+  }
+
+  /**
+   * FIXED: Cache with better error handling
+   */
   private async cacheImageToRedis(
     url: string,
-    maxRetries: number = 5, // INCREASED from 5 to 8
+    maxRetries: number = 3, // REDUCED: Since downloadImageNative already does 4 retries
   ): Promise<boolean> {
     let lastError: any;
 
@@ -566,94 +588,50 @@ export class BookGenerationProcessor extends WorkerHost {
         // Check if already cached
         const exists = await this.redisCache.hasImage(url);
         if (exists) {
-          this.logger.debug(`✓ Image already cached: ${url}`);
+          this.logger.debug(
+            `✓ Already cached: ${url.substring(url.lastIndexOf('/') + 1)}`,
+          );
           return true;
         }
 
+        // Download image (this already has 4 internal retries)
         const buffer = await this.downloadImageNative(url);
+
+        // Cache to Redis
         await this.redisCache.cacheImage(url, buffer, 7200);
 
         if (attempt > 1) {
           this.logger.log(
-            `✅ Successfully cached ${url} on attempt ${attempt}/${maxRetries}`,
+            `✅ Successfully cached ${url.substring(url.lastIndexOf('/') + 1)} on attempt ${attempt}/${maxRetries}`,
           );
         }
 
-        return true; // Success
+        return true;
       } catch (error) {
         lastError = error;
 
-        const errorMsg =
-          error?.message || error?.code || error?.toString() || 'Unknown error';
+        const errorMsg = error?.message || error?.code || 'Unknown error';
+        const filename = url.substring(url.lastIndexOf('/') + 1);
 
         if (attempt < maxRetries) {
-          // Exponential backoff: 2s, 4s, 8s, 16s, 32s...
-          const delayMs = Math.min(Math.pow(2, attempt) * 1000, 60000); // Cap at 60s
+          const delayMs = Math.min(Math.pow(2, attempt) * 2000, 20000); // 2s, 4s, 8s...
           this.logger.warn(
-            `⚠️  Failed to cache ${url} (attempt ${attempt}/${maxRetries}): ${errorMsg}. Retrying in ${delayMs / 1000}s...`,
+            `⚠️  Failed to cache ${filename} (attempt ${attempt}/${maxRetries}): ${errorMsg}. Retrying in ${delayMs / 1000}s...`,
           );
           await this.delay(delayMs);
         } else {
           this.logger.error(
-            `❌ Failed to cache ${url} after ${maxRetries} attempts: ${errorMsg}`,
+            `❌ Failed to cache ${filename} after ${maxRetries} attempts: ${errorMsg}`,
           );
         }
       }
     }
 
-    return false; // All attempts failed
+    return false;
   }
 
   /**
-   * ENHANCED: Download with axios and better timeout handling
-   */
-  private async downloadImageNative(url: string): Promise<Buffer> {
-    const axios = require('axios');
-
-    try {
-      const response = await axios.get(url, {
-        responseType: 'arraybuffer',
-        timeout: 90000, // 90 seconds
-        maxRedirects: 5,
-        maxContentLength: 50 * 1024 * 1024, // 50MB limit
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideBot/1.0)',
-          Connection: 'keep-alive',
-          Accept: 'image/*',
-          'Accept-Encoding': 'gzip, deflate',
-        },
-        httpsAgent: new (require('https').Agent)({
-          keepAlive: true,
-          keepAliveMsecs: 30000,
-          maxSockets: 3,
-          timeout: 90000,
-          scheduling: 'lifo',
-        }),
-      });
-
-      if (response.status !== 200) {
-        throw new Error(`HTTP ${response.status} for ${url}`);
-      }
-
-      const buffer = Buffer.from(response.data);
-
-      this.logger.debug(
-        `Downloaded ${url}: ${Math.round(buffer.length / 1024)}KB`,
-      );
-
-      return buffer;
-    } catch (error) {
-      if (error.code === 'ECONNABORTED') {
-        throw new Error('Request timeout after 90s');
-      }
-      throw new Error(
-        `Request error: ${error.message || error.code || 'Connection failed'}`,
-      );
-    }
-  }
-
-  /**
-   * COMPLETELY REWRITTEN: Aggressive pre-caching with retry queue
+   * FIXED: Pre-cache with sequential processing and longer delays
    */
   private async preCacheImagesToRedis(projectId: string): Promise<void> {
     const images = await this.dataSource
@@ -673,8 +651,13 @@ export class BookGenerationProcessor extends WorkerHost {
     const failedImages: string[] = [];
     let cached = 0;
 
-    // PHASE 1: Initial caching attempt
-    for (const image of images) {
+    // PHASE 1: Initial caching attempt (ONE AT A TIME with delays)
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      const filename = image.i_url.substring(image.i_url.lastIndexOf('/') + 1);
+
+      this.logger.log(`[${i + 1}/${images.length}] Caching ${filename}...`);
+
       const success = await this.cacheImageToRedis(image.i_url);
 
       if (success) {
@@ -683,17 +666,24 @@ export class BookGenerationProcessor extends WorkerHost {
         failedImages.push(image.i_url);
       }
 
-      // Delay between images to prevent overwhelming the connection pool
-      await this.delay(3000); // 3 seconds between images
+      // CRITICAL: Longer delay between images to prevent connection issues
+      if (i < images.length - 1) {
+        await this.delay(5000); // 5 seconds between images
+      }
+
+      // Force garbage collection every 3 images
+      if (global.gc && (i + 1) % 3 === 0) {
+        global.gc();
+      }
     }
 
-    // PHASE 2: Retry failed images (up to 3 retry rounds)
+    // PHASE 2: Retry failed images (up to 2 retry rounds)
     if (failedImages.length > 0) {
       this.logger.warn(
-        `⚠️  ${failedImages.length} images failed initial caching. Starting retry rounds...`,
+        `⚠️  ${failedImages.length} images failed. Starting retry rounds...`,
       );
 
-      const maxRetryRounds = 3;
+      const maxRetryRounds = 2;
       let retryRound = 1;
 
       while (failedImages.length > 0 && retryRound <= maxRetryRounds) {
@@ -702,24 +692,23 @@ export class BookGenerationProcessor extends WorkerHost {
         );
 
         // Wait before retry round
-        await this.delay(10000); // 10 seconds between retry rounds
+        await this.delay(15000); // 15 seconds between retry rounds
 
         const stillFailing: string[] = [];
 
         for (const url of failedImages) {
-          const success = await this.cacheImageToRedis(url);
+          const success = await this.cacheImageToRedis(url, 3); // Only 3 retries on retry rounds
 
           if (success) {
             cached++;
-            this.logger.log(`✅ Recovered ${url} on retry round ${retryRound}`);
+            this.logger.log(`✅ Recovered on retry round ${retryRound}`);
           } else {
             stillFailing.push(url);
           }
 
-          await this.delay(5000); // 5 seconds between retry attempts
+          await this.delay(8000); // 8 seconds between retry attempts
         }
 
-        // Update failed list
         failedImages.length = 0;
         failedImages.push(...stillFailing);
         retryRound++;
@@ -730,19 +719,12 @@ export class BookGenerationProcessor extends WorkerHost {
     const failed = images.length - cached;
 
     this.logger.log(
-      `✅ Images cached: ${cached}/${images.length} (${failed} permanently failed) - Redis: ${stats.used}`,
+      `✅ Pre-caching complete: ${cached}/${images.length} cached (${failed} failed) - Redis: ${stats.used}`,
     );
 
     if (failedImages.length > 0) {
       this.logger.warn(
-        `⚠️  These images will be downloaded by workers: ${failedImages.join(', ')}`,
-      );
-    }
-
-    // Continue even if some images failed - workers will download them
-    if (cached === 0 && images.length > 0) {
-      this.logger.warn(
-        '⚠️  No images were cached. Workers will download all images.',
+        `⚠️  Workers will download these ${failedImages.length} images during document generation`,
       );
     }
   }

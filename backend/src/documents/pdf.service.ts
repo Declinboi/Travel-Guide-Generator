@@ -69,8 +69,6 @@ export class PdfService {
           reject(err);
         });
 
-        let actualPageNumber = 0;
-
         // FRONT MATTER
         doc.addPage();
         this.addTitlePage(doc, title, subtitle, author);
@@ -109,15 +107,13 @@ export class PdfService {
           )
           .sort((a, b) => a.order - b.order);
 
-        actualPageNumber = 1;
-
         for (let i = 0; i < mainChapters.length; i++) {
           const chapter = mainChapters[i];
           const chapterNumber = chapter.order - 3;
 
           doc.addPage();
-          actualPageNumber++;
 
+          // Add chapter number and title
           this.addChapterTitle(doc, chapter.title, chapterNumber);
 
           const chapterImages = images
@@ -129,10 +125,12 @@ export class PdfService {
               doc,
               chapter.content,
               chapterImages,
-              redisCache, // PASS cache
+              redisCache,
+              title,
+              subtitle,
             );
           } else {
-            this.addFormattedContent(doc, chapter.content);
+            this.addFormattedContent(doc, chapter.content, title, subtitle);
           }
 
           if (global.gc && i % 2 === 0) {
@@ -144,21 +142,26 @@ export class PdfService {
         const mapImage = images.find((img) => img.isMap);
         if (mapImage) {
           doc.addPage();
-          actualPageNumber++;
-          await this.addMapPage(doc, mapImage, redisCache); // PASS cache
+          await this.addMapPage(doc, mapImage, redisCache);
         }
 
-        // Add page numbers
+        // Add page numbers to ALL pages
         const range = doc.bufferedPageRange();
-        const startPage = 7;
+        const totalPages = range.count;
 
-        for (let i = startPage; i < range.count; i++) {
+        for (let i = 0; i < totalPages; i++) {
           doc.switchToPage(i);
-          const pageNum = i - startPage + 1;
-          this.addPageNumber(doc, pageNum);
-        }
 
-        doc.end();
+          // For the last page, only add number if there's substantial content
+          if (i === totalPages - 1) {
+            // Check if we've written content (y position moved significantly from top margin)
+            if (doc.y > doc.page.margins.top + 100) {
+              this.addPageNumber(doc, i + 1);
+            }
+          } else {
+            this.addPageNumber(doc, i + 1);
+          }
+        }
       } catch (error) {
         this.logger.error('Error generating PDF:', error);
 
@@ -228,10 +231,17 @@ export class PdfService {
     const paragraphs = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     paragraphs.forEach((para, index) => {
+      const trimmed = para.trim();
+
+      // Skip if it's the "About Book" heading
+      if (trimmed.toLowerCase().includes('about book') && trimmed.length < 30) {
+        return;
+      }
+
       doc
         .fontSize(11)
         .font('Helvetica')
-        .text(para.trim(), {
+        .text(trimmed, {
           width: doc.page.width - 100,
           align: 'left',
           lineGap: 5,
@@ -252,6 +262,15 @@ export class PdfService {
 
     lines.forEach((line) => {
       const trimmed = line.trim();
+
+      // Skip if it's the "Table of Contents" heading
+      if (
+        trimmed.toLowerCase().includes('table of contents') &&
+        trimmed.length < 30
+      ) {
+        return;
+      }
+
       if (!trimmed) {
         doc.moveDown(0.3);
         return;
@@ -285,10 +304,10 @@ export class PdfService {
   ): void {
     const cleanTitle = this.cleanText(title);
 
-    doc.fontSize(16).font('Helvetica').text(`Chapter ${chapterNumber}`, {
+    doc.fontSize(20).font('Helvetica-Bold').text(`Chapter ${chapterNumber}`, {
       align: 'center',
     });
-    doc.moveDown(1.5);
+    doc.moveDown(1);
 
     doc.fontSize(20).font('Helvetica-Bold').text(cleanTitle, {
       align: 'center',
@@ -296,12 +315,64 @@ export class PdfService {
     doc.moveDown(3);
   }
 
-  private addFormattedContent(doc: PDFKit.PDFDocument, content: string): void {
+  private addFormattedContent(
+    doc: PDFKit.PDFDocument,
+    content: string,
+    bookTitle?: string,
+    bookSubtitle?: string,
+  ): void {
     const cleanedContent = this.cleanContent(content);
     const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     sections.forEach((section, index) => {
       const trimmed = section.trim();
+      const lowerTrimmed = trimmed.toLowerCase();
+
+      // Skip chapter titles that are already added
+      if (trimmed.match(/^Chapter \d+$/i)) {
+        return;
+      }
+
+      // Skip chapter title text that matches the header
+      if (
+        trimmed.length < 100 &&
+        trimmed.toLowerCase().startsWith('chapter ') &&
+        trimmed.split(' ').length <= 15
+      ) {
+        return;
+      }
+
+      // Skip book title if it appears in content
+      if (bookTitle && lowerTrimmed === bookTitle.toLowerCase()) {
+        return;
+      }
+
+      // Skip book subtitle if it appears in content
+      if (bookSubtitle && lowerTrimmed === bookSubtitle.toLowerCase()) {
+        return;
+      }
+
+      // Skip if it looks like title/subtitle (short, all caps or title case, no period)
+      if (
+        trimmed.length < 150 &&
+        !trimmed.includes('.') &&
+        trimmed.split(' ').length <= 15 &&
+        (trimmed === trimmed.toUpperCase() || this.isTitleCase(trimmed))
+      ) {
+        // Check if it closely matches title or subtitle
+        if (
+          bookTitle &&
+          this.similarText(lowerTrimmed, bookTitle.toLowerCase())
+        ) {
+          return;
+        }
+        if (
+          bookSubtitle &&
+          this.similarText(lowerTrimmed, bookSubtitle.toLowerCase())
+        ) {
+          return;
+        }
+      }
 
       const isHeader =
         trimmed.length < 100 &&
@@ -327,11 +398,54 @@ export class PdfService {
     });
   }
 
+  // Helper method to check if text is in Title Case
+  private isTitleCase(text: string): boolean {
+    const words = text.split(' ');
+    return words.every((word) => {
+      if (word.length === 0) return true;
+      // Allow some lowercase words (a, an, the, of, in, etc.)
+      const lowercaseWords = [
+        'a',
+        'an',
+        'the',
+        'of',
+        'in',
+        'on',
+        'at',
+        'to',
+        'for',
+        'and',
+        'or',
+        'but',
+      ];
+      if (lowercaseWords.includes(word.toLowerCase())) return true;
+      // First letter should be uppercase
+      return word[0] === word[0].toUpperCase();
+    });
+  }
+
+  // Helper method to check if two strings are similar (handles minor variations)
+  private similarText(str1: string, str2: string): boolean {
+    // Remove special characters and extra spaces
+    const clean1 = str1
+      .replace(/[^a-z0-9\s]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const clean2 = str2
+      .replace(/[^a-z0-9\s]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return (
+      clean1 === clean2 || clean1.includes(clean2) || clean2.includes(clean1)
+    );
+  }
+
   private addCopyrightPage(doc: PDFKit.PDFDocument, content: string): void {
     const cleanedContent = this.cleanContent(content);
 
     doc
-      .fontSize(9)
+      .fontSize(11)
       .font('Helvetica')
       .text(cleanedContent, 50, 100, {
         width: doc.page.width - 100,
@@ -344,7 +458,9 @@ export class PdfService {
     doc: PDFKit.PDFDocument,
     content: string,
     chapterImages: any[],
-    redisCache: RedisCacheService, // ADDED: Optional image cache
+    redisCache: RedisCacheService,
+    bookTitle?: string,
+    bookSubtitle?: string,
   ): Promise<void> {
     const paragraphs = content.split('\n\n').filter((p) => p.trim());
 
@@ -355,7 +471,12 @@ export class PdfService {
 
     for (const section of sections) {
       if (section.paragraphs.length > 0) {
-        this.addFormattedContent(doc, section.paragraphs.join('\n\n'));
+        this.addFormattedContent(
+          doc,
+          section.paragraphs.join('\n\n'),
+          bookTitle,
+          bookSubtitle,
+        ); // UPDATE THIS
       }
 
       if (
@@ -378,7 +499,7 @@ export class PdfService {
             doc.moveDown(1);
           }
 
-          await this.insertImage(doc, image, redisCache); // PASS cache
+          await this.insertImage(doc, image, redisCache);
 
           doc.moveDown(2.5);
 
@@ -522,7 +643,7 @@ export class PdfService {
       doc.fontSize(16).font('Helvetica-Bold').text('Geographical Map', {
         align: 'center',
       });
-      doc.moveDown(2);
+      doc.moveDown(1);
 
       // GET FROM REDIS
       imageBuffer = await redisCache.getImage(mapImage.url);

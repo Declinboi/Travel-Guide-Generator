@@ -50,7 +50,7 @@ export class DocxService {
 
       this.logMemory('After Building Sections');
 
-      // Create document
+      // Create document with page numbers on ALL pages
       doc = new Document({
         sections: [
           {
@@ -126,7 +126,7 @@ export class DocxService {
       chapters,
     );
     allSections.push(...frontMatter);
-    frontMatter.length = 0; // Clear source array
+    frontMatter.length = 0;
     this.forceGC();
     this.logMemory('After Front Matter');
 
@@ -149,21 +149,18 @@ export class DocxService {
         chapter,
         images,
         redisCache,
+        title, // ADD THIS
+        subtitle, // ADD THIS
       );
       allSections.push(...chapterSections);
 
-      // CRITICAL: Clear the temp array immediately
       chapterSections.length = 0;
-
-      // Force GC after EVERY chapter
       this.forceGC(2);
 
-      // Log every 2 chapters
       if (i % 2 === 1 || i === mainChapters.length - 1) {
         this.logMemory(`After chapters ${i - (i % 2) + 1}-${i + 1}`);
       }
 
-      // Small delay to allow GC to complete
       await this.delay(200);
     }
 
@@ -219,6 +216,8 @@ export class DocxService {
     chapter: any,
     images: any[],
     redisCache: RedisCacheService,
+    bookTitle?: string,
+    bookSubtitle?: string,
   ): Promise<Paragraph[]> {
     const sections: Paragraph[] = [];
     const chapterNumber = chapter.order - 3;
@@ -253,11 +252,17 @@ export class DocxService {
         chapter.content,
         chapterImages,
         redisCache,
+        bookTitle,
+        bookSubtitle,
       );
       sections.push(...contentSections);
-      contentSections.length = 0; // Clear immediately
+      contentSections.length = 0;
     } else {
-      const contentSections = this.createFormattedContent(chapter.content);
+      const contentSections = this.createFormattedContent(
+        chapter.content,
+        bookTitle,
+        bookSubtitle,
+      );
       sections.push(...contentSections);
       contentSections.length = 0;
     }
@@ -269,6 +274,8 @@ export class DocxService {
     content: string,
     chapterImages: any[],
     redisCache: RedisCacheService,
+    bookTitle?: string,
+    bookSubtitle?: string,
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     const textParagraphs = content.split('\n\n').filter((p) => p.trim());
@@ -280,16 +287,16 @@ export class DocxService {
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
 
-      // Add text
       if (section.paragraphs.length > 0) {
         const textContent = this.createFormattedContent(
           section.paragraphs.join('\n\n'),
+          bookTitle,
+          bookSubtitle,
         );
         paragraphs.push(...textContent);
         textContent.length = 0;
       }
 
-      // Add image
       if (
         section.imageIndex !== undefined &&
         chapterImages[section.imageIndex]
@@ -306,9 +313,8 @@ export class DocxService {
             redisCache,
           );
           paragraphs.push(...imageParagraphs);
-          imageParagraphs.length = 0; // Clear immediately
+          imageParagraphs.length = 0;
 
-          // Force GC after each image
           this.forceGC();
           await this.delay(100);
         } catch (error) {
@@ -324,22 +330,17 @@ export class DocxService {
     return paragraphs;
   }
 
-  /**
-   * CRITICAL: Retrieve image from Redis
-   */
   private async createImageParagraph(
     image: any,
-    redisCache: RedisCacheService, // Changed
+    redisCache: RedisCacheService,
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     let imageBuffer: Buffer | null = null;
 
     try {
-      // GET FROM REDIS
       imageBuffer = await redisCache.getImage(image.url);
 
       if (!imageBuffer) {
-        // FALLBACK: Download if not in Redis
         this.logger.warn(
           `⚠ Image not in Redis, downloading: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
         );
@@ -370,7 +371,6 @@ export class DocxService {
     } catch (error) {
       this.logger.error('Error creating image paragraph:', error);
     } finally {
-      // No need to clear buffer - Redis manages it
       imageBuffer = null;
       this.forceGC();
     }
@@ -380,7 +380,7 @@ export class DocxService {
 
   private async createMapPage(
     mapImage: any,
-    redisCache: RedisCacheService, // Changed
+    redisCache: RedisCacheService,
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     let imageBuffer: Buffer | null = null;
@@ -392,11 +392,10 @@ export class DocxService {
           text: 'Geographical Map',
           heading: HeadingLevel.HEADING_1,
           alignment: AlignmentType.CENTER,
-          spacing: { after: 400 },
+          spacing: { after: 100 },
         }),
       );
 
-      // GET FROM REDIS
       imageBuffer = await redisCache.getImage(mapImage.url);
 
       if (!imageBuffer) {
@@ -436,7 +435,6 @@ export class DocxService {
     return paragraphs;
   }
 
-  // Helper methods remain the same...
   private createTitlePage(
     title: string,
     subtitle: string,
@@ -446,7 +444,7 @@ export class DocxService {
       new Paragraph({
         text: title.toUpperCase(),
         alignment: AlignmentType.CENTER,
-        spacing: { before: 1440, after: 400 },
+        spacing: { before: 440, after: 400 },
         children: [
           new TextRun({ text: title.toUpperCase(), bold: true, size: 64 }),
         ],
@@ -455,13 +453,13 @@ export class DocxService {
         text: subtitle,
         alignment: AlignmentType.CENTER,
         spacing: { after: 800 },
-        children: [new TextRun({ text: subtitle, size: 36 })],
+        children: [new TextRun({ text: subtitle, size: 20 })],
       }),
       new Paragraph({
         text: 'By',
         alignment: AlignmentType.CENTER,
-        spacing: { after: 200 },
-        children: [new TextRun({ text: 'By', size: 32 })],
+        spacing: { after: 400 },
+        children: [new TextRun({ text: 'By', size: 22 })],
       }),
       new Paragraph({
         text: author.toUpperCase(),
@@ -500,9 +498,16 @@ export class DocxService {
     const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     sections.forEach((section) => {
+      const trimmed = section.trim();
+
+      // Skip if it's the "About Book" heading
+      if (trimmed.toLowerCase().includes('about book') && trimmed.length < 30) {
+        return;
+      }
+
       paragraphs.push(
         new Paragraph({
-          children: [new TextRun({ text: section.trim(), size: 22 })],
+          children: [new TextRun({ text: trimmed, size: 22 })],
           spacing: { after: 200 },
           alignment: AlignmentType.LEFT,
         }),
@@ -519,7 +524,7 @@ export class DocxService {
       new Paragraph({
         text: 'Table of Contents',
         heading: HeadingLevel.HEADING_1,
-        spacing: { after: 300 },
+        spacing: { after: 100 },
       }),
     );
 
@@ -528,6 +533,15 @@ export class DocxService {
 
     lines.forEach((line) => {
       const trimmed = line.trim();
+
+      // Skip if it's the "Table of Contents" heading
+      if (
+        trimmed.toLowerCase().includes('table of contents') &&
+        trimmed.length < 30
+      ) {
+        return;
+      }
+
       if (!trimmed) {
         paragraphs.push(new Paragraph({ text: '', spacing: { after: 100 } }));
         return;
@@ -569,13 +583,64 @@ export class DocxService {
     return paragraphs;
   }
 
-  private createFormattedContent(content: string): Paragraph[] {
+  private createFormattedContent(
+    content: string,
+    bookTitle?: string,
+    bookSubtitle?: string,
+  ): Paragraph[] {
     const paragraphs: Paragraph[] = [];
     const cleanedContent = this.cleanContent(content);
     const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     sections.forEach((section) => {
       const trimmed = section.trim();
+      const lowerTrimmed = trimmed.toLowerCase();
+
+      // Skip chapter titles that are already added
+      if (trimmed.match(/^Chapter \d+$/i)) {
+        return;
+      }
+
+      // Skip chapter title text that matches the header
+      if (
+        trimmed.length < 100 &&
+        trimmed.toLowerCase().startsWith('chapter ') &&
+        trimmed.split(' ').length <= 15
+      ) {
+        return;
+      }
+
+      // Skip book title if it appears in content
+      if (bookTitle && lowerTrimmed === bookTitle.toLowerCase()) {
+        return;
+      }
+
+      // Skip book subtitle if it appears in content
+      if (bookSubtitle && lowerTrimmed === bookSubtitle.toLowerCase()) {
+        return;
+      }
+
+      // Skip if it looks like title/subtitle
+      if (
+        trimmed.length < 150 &&
+        !trimmed.includes('.') &&
+        trimmed.split(' ').length <= 15 &&
+        (trimmed === trimmed.toUpperCase() || this.isTitleCase(trimmed))
+      ) {
+        if (
+          bookTitle &&
+          this.similarText(lowerTrimmed, bookTitle.toLowerCase())
+        ) {
+          return;
+        }
+        if (
+          bookSubtitle &&
+          this.similarText(lowerTrimmed, bookSubtitle.toLowerCase())
+        ) {
+          return;
+        }
+      }
+
       const isHeader =
         trimmed.length < 100 &&
         !trimmed.includes('.') &&
@@ -601,6 +666,45 @@ export class DocxService {
     });
 
     return paragraphs;
+  }
+
+  // Helper methods
+  private isTitleCase(text: string): boolean {
+    const words = text.split(' ');
+    return words.every((word) => {
+      if (word.length === 0) return true;
+      const lowercaseWords = [
+        'a',
+        'an',
+        'the',
+        'of',
+        'in',
+        'on',
+        'at',
+        'to',
+        'for',
+        'and',
+        'or',
+        'but',
+      ];
+      if (lowercaseWords.includes(word.toLowerCase())) return true;
+      return word[0] === word[0].toUpperCase();
+    });
+  }
+
+  private similarText(str1: string, str2: string): boolean {
+    const clean1 = str1
+      .replace(/[^a-z0-9\s]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const clean2 = str2
+      .replace(/[^a-z0-9\s]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return (
+      clean1 === clean2 || clean1.includes(clean2) || clean2.includes(clean1)
+    );
   }
 
   private createContentSections(
