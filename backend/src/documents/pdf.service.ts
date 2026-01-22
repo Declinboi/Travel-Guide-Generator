@@ -23,7 +23,8 @@ export class PdfService {
     return new Promise(async (resolve, reject) => {
       let doc: PDFKit.PDFDocument | null = null;
       const chunks: Buffer[] = [];
-
+      let hasEnded = false;
+      
       try {
         this.logMemory('PDF Start');
 
@@ -162,14 +163,19 @@ export class PdfService {
             this.addPageNumber(doc, i + 1);
           }
         }
+        // CRITICAL FIX: Finalize the document
+        this.logger.log('Finalizing PDF document...');
+        hasEnded = true;
+        doc.end();
       } catch (error) {
         this.logger.error('Error generating PDF:', error);
 
-        if (doc) {
+        if (doc && !hasEnded) {
           try {
+            this.logger.log('Attempting to end document after error...');
             doc.end();
           } catch (e) {
-            // Ignore
+            this.logger.error('Failed to end document:', e);
           }
         }
 
