@@ -207,7 +207,7 @@ export class PdfService {
     }
 
     doc
-      .fontSize(16)
+      .fontSize(10)
       .font('Helvetica-Bold')
       .text('By', 50, 480, {
         width: pageWidth - 100,
@@ -225,7 +225,7 @@ export class PdfService {
 
   private addAboutPage(doc: PDFKit.PDFDocument, content: string): void {
     doc.fontSize(16).font('Helvetica-Bold').text('About Book', 50, 50);
-    doc.moveDown(1.5);
+    doc.moveDown(1);
 
     const cleanedContent = this.cleanContent(content);
     const paragraphs = cleanedContent.split('\n\n').filter((p) => p.trim());
@@ -255,7 +255,7 @@ export class PdfService {
 
   private addTableOfContents(doc: PDFKit.PDFDocument, content: string): void {
     doc.fontSize(16).font('Helvetica-Bold').text('Table of Contents', 50, 50);
-    doc.moveDown(1.5);
+    doc.moveDown(1);
 
     const cleanedContent = this.cleanContent(content);
     const lines = cleanedContent.split('\n').filter((l) => l.trim());
@@ -526,8 +526,8 @@ export class PdfService {
       return sections;
     }
 
-    const minParagraphsBeforeImage = 2;
-    const minParagraphsAfterImage = 2;
+    const minParagraphsBeforeImage = 1;
+    const minParagraphsAfterImage = 1;
     const usableSpace = paragraphs.length - minParagraphsAfterImage;
 
     if (usableSpace < minParagraphsBeforeImage) {

@@ -444,7 +444,7 @@ export class DocxService {
       new Paragraph({
         text: title.toUpperCase(),
         alignment: AlignmentType.CENTER,
-        spacing: { before: 440, after: 400 },
+        spacing: { before: 300, after: 400 },
         children: [
           new TextRun({ text: title.toUpperCase(), bold: true, size: 64 }),
         ],
@@ -458,13 +458,13 @@ export class DocxService {
       new Paragraph({
         text: 'By',
         alignment: AlignmentType.CENTER,
-        spacing: { after: 400 },
+        spacing: { after: 600 },
         children: [new TextRun({ text: 'By', size: 22 })],
       }),
       new Paragraph({
         text: author.toUpperCase(),
         alignment: AlignmentType.CENTER,
-        spacing: { after: 400 },
+        spacing: { after: 200 },
         children: [
           new TextRun({ text: author.toUpperCase(), bold: true, size: 32 }),
         ],
@@ -490,7 +490,7 @@ export class DocxService {
       new Paragraph({
         text: 'About Book',
         heading: HeadingLevel.HEADING_1,
-        spacing: { after: 300 },
+        spacing: { after: 100 },
       }),
     );
 
@@ -718,8 +718,8 @@ export class DocxService {
       return sections;
     }
 
-    const minParagraphsBeforeImage = 2;
-    const minParagraphsAfterImage = 2;
+    const minParagraphsBeforeImage = 1;
+    const minParagraphsAfterImage = 1;
     const usableSpace = paragraphs.length - minParagraphsAfterImage;
 
     if (usableSpace < minParagraphsBeforeImage) {
