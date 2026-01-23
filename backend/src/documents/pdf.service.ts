@@ -24,7 +24,7 @@ export class PdfService {
       let doc: PDFKit.PDFDocument | null = null;
       const chunks: Buffer[] = [];
       let hasEnded = false;
-      
+
       try {
         this.logMemory('PDF Start');
 
@@ -142,7 +142,18 @@ export class PdfService {
         // Add Map
         const mapImage = images.find((img) => img.isMap);
         if (mapImage) {
-          doc.addPage();
+          // Check if we need a new page for the map
+          const mapHeight = 421.2;
+          const titleHeight = 50;
+          const totalMapSpace = mapHeight + titleHeight + 100; // Extra padding
+
+          if (
+            doc.y + totalMapSpace >
+            doc.page.height - doc.page.margins.bottom
+          ) {
+            doc.addPage();
+          }
+
           await this.addMapPage(doc, mapImage, redisCache);
         }
 
@@ -152,17 +163,9 @@ export class PdfService {
 
         for (let i = 0; i < totalPages; i++) {
           doc.switchToPage(i);
-
-          // For the last page, only add number if there's substantial content
-          if (i === totalPages - 1) {
-            // Check if we've written content (y position moved significantly from top margin)
-            if (doc.y > doc.page.margins.top + 100) {
-              this.addPageNumber(doc, i + 1);
-            }
-          } else {
-            this.addPageNumber(doc, i + 1);
-          }
+          this.addPageNumber(doc, i + 1);
         }
+
         // CRITICAL FIX: Finalize the document
         this.logger.log('Finalizing PDF document...');
         hasEnded = true;
@@ -240,7 +243,10 @@ export class PdfService {
       const trimmed = para.trim();
 
       // Skip if it's the "About Book" heading
-      if (trimmed.toLowerCase().includes('about book') && trimmed.length < 30) {
+      if (
+        trimmed.toLowerCase().includes('about this book') &&
+        trimmed.length < 30
+      ) {
         return;
       }
 
@@ -260,16 +266,28 @@ export class PdfService {
   }
 
   private addTableOfContents(doc: PDFKit.PDFDocument, content: string): void {
-    doc.fontSize(16).font('Helvetica-Bold').text('Table of Contents', 50, 50);
+    const pageWidth = doc.page.width;
+    const leftMargin = 50;
+    const contentWidth = pageWidth - 100;
+
+    // Title
+    doc
+      .fontSize(18)
+      .font('Helvetica-Bold')
+      .text('Table of Contents', leftMargin, 50, {
+        width: contentWidth,
+        align: 'center',
+      });
+
     doc.moveDown(1);
 
     const cleanedContent = this.cleanContent(content);
     const lines = cleanedContent.split('\n').filter((l) => l.trim());
 
-    lines.forEach((line) => {
+    lines.forEach((line, index) => {
       const trimmed = line.trim();
 
-      // Skip if it's the "Table of Contents" heading
+      // Skip the heading itself
       if (
         trimmed.toLowerCase().includes('table of contents') &&
         trimmed.length < 30
@@ -278,28 +296,67 @@ export class PdfService {
       }
 
       if (!trimmed) {
+        doc.moveDown(0.5);
+        return;
+      }
+
+      // Chapter headings (e.g., "Chapter 1")
+      if (trimmed.match(/^Chapter \d+$/i)) {
+        doc.moveDown(0.8);
+        doc
+          .fontSize(12)
+          .font('Helvetica-Bold')
+          .fillColor('#2C3E50')
+          .text(trimmed, leftMargin, doc.y, {
+            continued: false,
+          });
+        doc.fillColor('#000000'); // Reset color
         doc.moveDown(0.3);
         return;
       }
 
-      if (trimmed.match(/^Chapter \d+$/)) {
-        doc.moveDown(0.5);
-        doc.fontSize(11).font('Helvetica-Bold').text(trimmed, {
-          continued: false,
-        });
-      } else if (!trimmed.startsWith(' ')) {
-        doc.fontSize(11).font('Helvetica').text(trimmed, {
-          continued: false,
-        });
-      } else if (trimmed.match(/^[A-Z]/)) {
-        doc.fontSize(10).font('Helvetica').text(trimmed.trim(), 65, doc.y, {
-          continued: false,
-        });
-      } else {
-        doc.fontSize(9).font('Helvetica').text(trimmed.trim(), 80, doc.y, {
-          continued: false,
-        });
+      // Main chapter titles (not indented)
+      if (!trimmed.startsWith(' ') && trimmed.length > 0) {
+        const indent = leftMargin + 20;
+        doc
+          .fontSize(11)
+          .font('Helvetica')
+          .text(trimmed, indent, doc.y, {
+            continued: false,
+            width: contentWidth - 20,
+          });
+        doc.moveDown(0.4);
+        return;
       }
+
+      // Sub-sections (single indent)
+      if (trimmed.match(/^\s{1,4}\S/)) {
+        const indent = leftMargin + 40;
+        doc
+          .fontSize(10)
+          .font('Helvetica')
+          .fillColor('#34495E')
+          .text(trimmed.trim(), indent, doc.y, {
+            continued: false,
+            width: contentWidth - 40,
+          });
+        doc.fillColor('#000000'); // Reset color
+        doc.moveDown(0.3);
+        return;
+      }
+
+      // Sub-sub-sections (double indent)
+      const indent = leftMargin + 60;
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#7F8C8D')
+        .text(trimmed.trim(), indent, doc.y, {
+          continued: false,
+          width: contentWidth - 60,
+        });
+      doc.fillColor('#000000'); // Reset color
+      doc.moveDown(0.25);
     });
   }
 
@@ -687,13 +744,28 @@ export class PdfService {
   }
 
   private addPageNumber(doc: PDFKit.PDFDocument, pageNumber: number): void {
-    doc
-      .fontSize(10)
-      .font('Helvetica')
-      .text(pageNumber.toString(), 50, doc.page.height - 30, {
+    const pageHeight = doc.page.height;
+    const pageWidth = doc.page.width;
+    const bottomMargin = doc.page.margins.bottom;
+
+    // Save current state
+    doc.save();
+
+    // Position at bottom center
+    const y = pageHeight - bottomMargin + 20; // 20 points above bottom margin
+
+    doc.fontSize(10).font('Helvetica').fillColor('#000000').text(
+      pageNumber.toString(),
+      0, // Start from left edge
+      y,
+      {
         align: 'center',
-        width: doc.page.width - 100,
-      });
+        width: pageWidth, // Full page width for centering
+      },
+    );
+
+    // Restore state
+    doc.restore();
   }
 
   private sanitizeFilename(filename: string): string {

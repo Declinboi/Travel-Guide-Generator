@@ -156,10 +156,20 @@ export class TranslationService {
         throw new Error(`Project ${projectId} not found`);
       }
 
-      // Sort chapters by order
-      const chapters = project.chapters.sort((a, b) => a.order - b.order);
+      // Sort all chapters by order
+      const allChapters = project.chapters.sort((a, b) => a.order - b.order);
 
-      // Translate metadata (20% progress)
+      // ✅ Separate front matter from content chapters
+      const frontMatter = allChapters.filter((chapter) => chapter.order < 4);
+      const contentChapters = allChapters.filter(
+        (chapter) => chapter.order >= 4,
+      );
+
+      this.logger.log(
+        `Translating ${frontMatter.length} front matter pages and ${contentChapters.length} content chapters`,
+      );
+
+      // Translate metadata (10% progress)
       this.logger.log(
         `Translating metadata to ${translateDto.targetLanguage}...`,
       );
@@ -175,42 +185,62 @@ export class TranslationService {
       translation.subtitle = translatedMetadata.subtitle;
       await this.translationRepository.save(translation);
 
-      job.progress = 20;
+      job.progress = 10;
       await this.jobRepository.save(job);
 
-      // Translate chapters using batch translation (20% - 95% progress)
-      this.logger.log(`Translating ${chapters.length} chapters using LibreTranslate...`);
+      // ✅ Translate front matter (10% - 25% progress)
+      this.logger.log(
+        `Translating ${frontMatter.length} front matter pages...`,
+      );
 
-      type TranslatedChapter = {
+      type TranslatedPage = {
         title: string;
         content: string;
         order: number;
       };
 
-      // Use batch translation for better performance
-      const translatedChapters: TranslatedChapter[] = 
+      const translatedFrontMatter: TranslatedPage[] =
         await this.libreTranslationService.translateChapters(
-          chapters,
+          frontMatter,
+          translateDto.targetLanguage,
+        );
+
+      job.progress = 25;
+      await this.jobRepository.save(job);
+
+      // ✅ Translate content chapters (25% - 95% progress)
+      this.logger.log(
+        `Translating ${contentChapters.length} content chapters using LibreTranslate...`,
+      );
+
+      const translatedContentChapters: TranslatedPage[] =
+        await this.libreTranslationService.translateChapters(
+          contentChapters,
           translateDto.targetLanguage,
         );
 
       // Update progress incrementally to show activity
-      for (let i = 0; i < translatedChapters.length; i++) {
-        const progressPerChapter = 75 / chapters.length;
-        job.progress = 20 + Math.round((i + 1) * progressPerChapter);
+      for (let i = 0; i < translatedContentChapters.length; i++) {
+        const progressPerChapter = 70 / contentChapters.length;
+        job.progress = 25 + Math.round((i + 1) * progressPerChapter);
         await this.jobRepository.save(job);
 
         this.eventEmitter.emit('translation.chapter.completed', {
           projectId,
           translationId,
           chapterNumber: i + 1,
-          totalChapters: chapters.length,
+          totalChapters: contentChapters.length,
           language: translateDto.targetLanguage,
         });
       }
 
-      // Save translated content
-      translation.content = translatedChapters as any;
+      // ✅ Combine front matter and content chapters in proper structure
+      // Store as object with separate arrays, not flat array
+      translation.content = {
+        frontMatter: translatedFrontMatter,
+        chapters: translatedContentChapters,
+      } as any;
+
       translation.status = TranslationStatus.COMPLETED;
       translation.completedAt = new Date();
       await this.translationRepository.save(translation);
@@ -222,7 +252,10 @@ export class TranslationService {
       job.result = {
         translationId: translation.id,
         language: translateDto.targetLanguage,
-        chaptersTranslated: translatedChapters.length,
+        frontMatterTranslated: translatedFrontMatter.length,
+        chaptersTranslated: translatedContentChapters.length,
+        totalPages:
+          translatedFrontMatter.length + translatedContentChapters.length,
       };
       await this.jobRepository.save(job);
 
@@ -233,7 +266,7 @@ export class TranslationService {
       });
 
       this.logger.log(
-        `Translation to ${translateDto.targetLanguage} completed successfully`,
+        `Translation to ${translateDto.targetLanguage} completed: ${translatedFrontMatter.length} front matter + ${translatedContentChapters.length} chapters`,
       );
     } catch (error) {
       this.logger.error(
@@ -379,7 +412,7 @@ export class TranslationService {
   // Optional: Retry failed translation
   async retryTranslation(translationId: string) {
     const translation = await this.findOne(translationId);
-    
+
     if (translation.status !== TranslationStatus.FAILED) {
       throw new BadRequestException('Can only retry failed translations');
     }

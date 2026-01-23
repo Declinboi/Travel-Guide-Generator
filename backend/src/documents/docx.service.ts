@@ -386,7 +386,7 @@ export class DocxService {
     let imageBuffer: Buffer | null = null;
 
     try {
-      paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
+      // paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
       paragraphs.push(
         new Paragraph({
           text: 'Geographical Map',
@@ -519,11 +519,14 @@ export class DocxService {
 
   private createTableOfContents(content: string): Paragraph[] {
     const paragraphs: Paragraph[] = [];
+
+    // Page break and title
     paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
     paragraphs.push(
       new Paragraph({
         text: 'Table of Contents',
         heading: HeadingLevel.HEADING_1,
+        alignment: AlignmentType.CENTER,
         spacing: { after: 100 },
       }),
     );
@@ -534,7 +537,7 @@ export class DocxService {
     lines.forEach((line) => {
       const trimmed = line.trim();
 
-      // Skip if it's the "Table of Contents" heading
+      // Skip the heading itself
       if (
         trimmed.toLowerCase().includes('table of contents') &&
         trimmed.length < 30
@@ -543,41 +546,79 @@ export class DocxService {
       }
 
       if (!trimmed) {
-        paragraphs.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+        paragraphs.push(new Paragraph({ text: '', spacing: { after: 150 } }));
         return;
       }
 
-      if (trimmed.match(/^Chapter \d+$/)) {
-        paragraphs.push(
-          new Paragraph({
-            children: [new TextRun({ text: trimmed, bold: true, size: 22 })],
-            spacing: { before: 200, after: 100 },
-          }),
-        );
-      } else if (!trimmed.startsWith(' ')) {
-        paragraphs.push(
-          new Paragraph({
-            children: [new TextRun({ text: trimmed, size: 22 })],
-            spacing: { after: 100 },
-          }),
-        );
-      } else if (trimmed.match(/^[A-Z]/)) {
-        paragraphs.push(
-          new Paragraph({
-            children: [new TextRun({ text: '  ' + trimmed.trim(), size: 20 })],
-            spacing: { after: 50 },
-          }),
-        );
-      } else {
+      // Chapter headings (e.g., "Chapter 1")
+      if (trimmed.match(/^Chapter \d+$/i)) {
         paragraphs.push(
           new Paragraph({
             children: [
-              new TextRun({ text: '    ' + trimmed.trim(), size: 18 }),
+              new TextRun({
+                text: trimmed,
+                bold: true,
+                size: 24,
+                color: '2C3E50',
+              }),
             ],
-            spacing: { after: 50 },
+            spacing: { before: 300, after: 100 },
+            indent: { left: 0 },
           }),
         );
+        return;
       }
+
+      // Chapter titles (main entries - not indented)
+      if (!trimmed.startsWith(' ') && trimmed.length > 0) {
+        paragraphs.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: trimmed,
+                size: 22,
+                bold: false,
+              }),
+            ],
+            spacing: { after: 120 },
+            indent: { left: 360 }, // 0.5 inch indent
+          }),
+        );
+        return;
+      }
+
+      // Sub-sections (single indent)
+      if (trimmed.match(/^\s{1,4}\S/)) {
+        paragraphs.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: trimmed.trim(),
+                size: 20,
+                color: '34495E',
+              }),
+            ],
+            spacing: { after: 80 },
+            indent: { left: 720 }, // 1 inch indent
+          }),
+        );
+        return;
+      }
+
+      // Sub-sub-sections (double indent)
+      paragraphs.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: trimmed.trim(),
+              size: 18,
+              color: '7F8C8D',
+            }),
+          ],
+          spacing: { after: 60 },
+          indent: { left: 1080 }, // 1.5 inch indent
+        }),
+      );
     });
 
     return paragraphs;
