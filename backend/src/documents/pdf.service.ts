@@ -34,7 +34,7 @@ export class PdfService {
           size: [432, 648],
           margins: {
             top: 79.2,
-            bottom: 79.2,
+            bottom: 79, // 79.2
             left: 72,
             right: 72,
           },
@@ -71,7 +71,7 @@ export class PdfService {
         });
 
         // FRONT MATTER
-        doc.addPage();
+        // doc.addPage();
         this.addTitlePage(doc, title, subtitle, author);
 
         const copyrightChapter = chapters.find((c) =>
@@ -190,6 +190,7 @@ export class PdfService {
       "droit d'auteur",
       "diritto d'autore",
       'derechos de autor',
+      'derechos',
     ];
     const lowerTitle = title.toLowerCase();
     return copyrightKeywords.some((keyword) => lowerTitle.includes(keyword));
@@ -205,6 +206,7 @@ export class PdfService {
       'informazioni su book',
       'sul libro',
       'sobre el libro',
+      'acerca del libro',
     ];
     const lowerTitle = title.toLowerCase();
     return aboutKeywords.some((keyword) => lowerTitle.includes(keyword));
@@ -218,6 +220,8 @@ export class PdfService {
       'sommaire',
       'tabella dei contenuti',
       'índice',
+      'tabla de contenidos',
+      'cuadro de contenidos',
     ];
     const lowerTitle = title.toLowerCase();
     return tocKeywords.some((keyword) => lowerTitle.includes(keyword));
@@ -254,6 +258,10 @@ export class PdfService {
       'derechos de autor',
       'sobre el libro',
       'índice',
+      'tabla de contenidos',
+      'cuadro de contenidos',
+      'acerca del libro',
+      'derechos',
     ];
 
     const lowerTitle = title.toLowerCase();
@@ -266,6 +274,7 @@ export class PdfService {
     subtitle: string,
     author: string,
   ): void {
+    doc.addPage();
     const pageWidth = doc.page.width;
     doc
       .fontSize(32)

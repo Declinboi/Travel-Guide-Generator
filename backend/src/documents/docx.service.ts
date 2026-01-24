@@ -223,7 +223,7 @@ export class DocxService {
     // Check if this is front matter
     const isFrontMatter = this.isFrontMatterChapter(chapter.title);
 
-    sections.push(new Paragraph({ text: '', pageBreakBefore: true }));
+    // sections.push(new Paragraph({ text: '', pageBreakBefore: true }));
 
     if (isFrontMatter) {
       // For front matter: Just show the title, NO "Chapter X"
@@ -234,6 +234,7 @@ export class DocxService {
           text: cleanTitle,
           alignment: AlignmentType.CENTER,
           spacing: { before: 50, after: 100 },
+          pageBreakBefore: true,
           children: [new TextRun({ text: cleanTitle, bold: true, size: 40 })],
         }),
       );
@@ -248,6 +249,7 @@ export class DocxService {
           text: `Chapter ${displayNumber}`,
           alignment: AlignmentType.CENTER,
           spacing: { before: 50, after: 100 },
+          pageBreakBefore: true,
           children: [
             new TextRun({ text: `Chapter ${displayNumber}`, size: 40 }),
           ],
@@ -303,6 +305,7 @@ export class DocxService {
       "droit d'auteur",
       "diritto d'autore",
       'derechos de autor',
+      'derechos',
     ];
     const lowerTitle = title.toLowerCase();
     return copyrightKeywords.some((keyword) => lowerTitle.includes(keyword));
@@ -318,6 +321,7 @@ export class DocxService {
       'informazioni su book',
       'sul libro',
       'sobre el libro',
+      'acerca del libro',
     ];
     const lowerTitle = title.toLowerCase();
     return aboutKeywords.some((keyword) => lowerTitle.includes(keyword));
@@ -331,6 +335,8 @@ export class DocxService {
       'sommaire',
       'tabella dei contenuti',
       'índice',
+      'tabla de contenidos',
+      'cuadro de contenidos',
     ];
     const lowerTitle = title.toLowerCase();
     return tocKeywords.some((keyword) => lowerTitle.includes(keyword));
@@ -340,33 +346,37 @@ export class DocxService {
   private isFrontMatterChapter(title: string): boolean {
     const frontMatterTitles = [
       // English
-      // 'title page',
+      'title page',
       'copyright',
       'about book',
       'table of contents',
       // German
-      // 'titelseite',
+      'titelseite',
       'urheberrecht',
       'über das buch',
       'inhaltsverzeichnis',
       // French
-      // 'titre page',
+      'titre page',
       'page de titre',
       "droit d'auteur",
       'à propos',
       'sommaire',
       'table des matières',
       // Italian
-      // 'pagina titolo',
+      'pagina titolo',
       "diritto d'autore",
       'informazioni su book',
       'tabella dei contenuti',
       'sommario',
       // Spanish
-      // 'página de título',
+      'página de título',
       'derechos de autor',
       'sobre el libro',
       'índice',
+      'tabla de contenidos',
+      'cuadro de contenidos',
+      'acerca del libro',
+      'derechos',
     ];
 
     const lowerTitle = title.toLowerCase();
@@ -578,22 +588,24 @@ export class DocxService {
   private createCopyrightPage(content: string): Paragraph[] {
     const cleanedContent = this.cleanFrontMatterContent(content);
     return [
-      new Paragraph({ text: '', pageBreakBefore: true }),
+      // new Paragraph({ text: '', pageBreakBefore: true }),
       new Paragraph({
         children: [new TextRun({ text: cleanedContent, size: 18 })],
         spacing: { after: 200 },
+        pageBreakBefore: true,
       }),
     ];
   }
 
   private createAboutPage(content: string): Paragraph[] {
     const paragraphs: Paragraph[] = [];
-    paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
+    // paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
     paragraphs.push(
       new Paragraph({
         text: 'About Book',
         heading: HeadingLevel.HEADING_1,
         spacing: { after: 100 },
+        pageBreakBefore: true,
       }),
     );
 
@@ -617,13 +629,14 @@ export class DocxService {
     const paragraphs: Paragraph[] = [];
 
     // Page break and title
-    paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
+    // paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
     paragraphs.push(
       new Paragraph({
         text: 'Table of Contents',
         heading: HeadingLevel.HEADING_1,
         alignment: AlignmentType.CENTER,
         spacing: { after: 100 },
+        pageBreakBefore: true,
       }),
     );
 
