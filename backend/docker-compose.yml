@@ -193,6 +193,63 @@ services:
     networks:
       - travel-network
 
+  # NEW: Document translation worker
+  worker-translation:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker-translation
+    container_name: travel-worker-translation
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      
+      # Database
+      DATABASE_URL: postgresql://travel:travelpass@postgres:5432/travel_guides?sslmode=disable
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: travel
+      DB_PASSWORD: travelpass
+      DB_NAME: travel_guides
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # LibreTranslate (CRITICAL for translation)
+      LIBRETRANSLATE_API_URL: http://libretranslate:5000
+      LIBRETRANSLATE_API_KEY: ${LIBRETRANSLATE_API_KEY}
+      LIBRETRANSLATE_TIMEOUT: 120000
+      
+      # API Keys
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS}
+      GOOGLE_TRANSLATE_API_KEY: ${GOOGLE_TRANSLATE_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      
+      # Cloudinary
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      libretranslate:
+        condition: service_healthy
+    
+    # Translation worker needs good resources for processing
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+        reservations:
+          memory: 2G
+    
+    networks:
+      - travel-network
+
 volumes:
   pgdata:
     driver: local

@@ -375,7 +375,7 @@ export class PdfService {
     doc.fontSize(20).font('Helvetica-Bold').text(cleanTitle, {
       align: 'center',
     });
-    doc.moveDown(3);
+    doc.moveDown(1);
   }
 
   private addFormattedContent(
@@ -447,7 +447,7 @@ export class PdfService {
           align: 'left',
           lineGap: 5,
         });
-        doc.moveDown(1.2);
+        doc.moveDown(0.5);
       } else {
         doc.fontSize(11).font('Helvetica').text(trimmed, {
           align: 'left',
@@ -455,7 +455,7 @@ export class PdfService {
         });
 
         if (index < sections.length - 1) {
-          doc.moveDown(1);
+          doc.moveDown(0.5);
         }
       }
     });
@@ -549,7 +549,7 @@ export class PdfService {
         const image = chapterImages[section.imageIndex];
 
         try {
-          doc.moveDown(2.5);
+          doc.moveDown(0.5);
 
           const imageHeight = 182.16;
           const totalSpaceNeeded = imageHeight + 80;
@@ -559,12 +559,12 @@ export class PdfService {
             doc.page.height - doc.page.margins.bottom
           ) {
             doc.addPage();
-            doc.moveDown(1);
+            doc.moveDown(0.5);
           }
 
           await this.insertImage(doc, image, redisCache);
 
-          doc.moveDown(2.5);
+          doc.moveDown(0.5);
 
           if (global.gc) {
             global.gc();
@@ -706,7 +706,7 @@ export class PdfService {
       doc.fontSize(16).font('Helvetica-Bold').text('Geographical Map', {
         align: 'center',
       });
-      doc.moveDown(1);
+      doc.moveDown(0.5);
 
       // GET FROM REDIS
       imageBuffer = await redisCache.getImage(mapImage.url);

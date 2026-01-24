@@ -1,8 +1,8 @@
+// src/book-generator/book-generator.service.ts - FIXED
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ContentService } from '../content/content.service';
-import { TranslationService } from '../translation/translation.service';
 import { CreateBookDto } from './create-book.dto';
 import { Project, ProjectStatus } from 'src/DB/entities/project.entity';
 import { Job, JobStatus } from 'src/DB/entities/job.entity';
@@ -22,7 +22,6 @@ export class BookGeneratorService {
     private readonly projectRepository: Repository<Project>,
     private readonly projectService: ProjectService,
     private readonly contentService: ContentService,
-    private readonly translationService: TranslationService,
     private readonly documentService: DocumentService,
     private readonly imageService: ImageService,
     private readonly redisCache: RedisCacheService,
@@ -37,7 +36,6 @@ export class BookGeneratorService {
       `Starting complete book generation: ${createBookDto.title}`,
     );
 
-    // Step 1: Create project
     const project = await this.projectService.create({
       title: createBookDto.title,
       subtitle: createBookDto.subtitle,
@@ -48,7 +46,6 @@ export class BookGeneratorService {
 
     this.logger.log(`Project created: ${project.id}`);
 
-    // Start background processing
     this.processBookGeneration(project.id, createBookDto, files);
 
     return {
@@ -58,8 +55,8 @@ export class BookGeneratorService {
       steps: [
         '1. Generating book content (10 chapters)',
         '2. Processing and positioning images',
-        '3. Translating to 4 languages sequentially (German, French, Spanish, Italian)',
-        '4. Creating 10 documents sequentially (2 formats × 5 languages)',
+        '3. Generating English documents (PDF + DOCX)',
+        '4. Translating documents to 4 languages (8 translated documents)',
       ],
       statusEndpoint: `/api/books/status/${project.id}`,
       downloadEndpoint: `/api/books/download/${project.id}`,
@@ -74,7 +71,6 @@ export class BookGeneratorService {
     let project: Project | null = null;
 
     try {
-      // Get project reference
       project = await this.projectRepository.findOne({
         where: { id: projectId },
       });
@@ -84,12 +80,11 @@ export class BookGeneratorService {
         return;
       }
 
-      // ✅ UPDATE STATUS: GENERATING_CONTENT
+      // STEP 1: Generate Content (0-40%)
       project.status = ProjectStatus.GENERATING_CONTENT;
       await this.projectRepository.save(project);
       this.logger.log(`[${projectId}] Status updated to: GENERATING_CONTENT`);
 
-      // STEP 1: Generate Content (0-40%)
       this.logger.log(`[${projectId}] Step 1: Generating content...`);
 
       const contentResult = await this.contentService.generateTravelGuideBook(
@@ -121,40 +116,25 @@ export class BookGeneratorService {
         });
       }
 
-      // ✅ UPDATE STATUS: TRANSLATING
-      project.status = ProjectStatus.TRANSLATING;
-      await this.projectRepository.save(project);
-      this.logger.log(`[${projectId}] Status updated to: TRANSLATING`);
+      // ❌ REMOVED: Translation step - no longer needed
+      // Documents will be translated directly instead of content
 
-      // STEP 3: Translate to All Languages SEQUENTIALLY (50-70%)
-      this.logger.log(
-        `[${projectId}] Step 3: Translating to 4 languages sequentially...`,
-      );
-
-      const targetLanguages = [
-        Language.GERMAN,
-        Language.FRENCH,
-        Language.SPANISH,
-        Language.ITALIAN,
-      ];
-
-      await this.translateSequentially(projectId, targetLanguages);
-      this.logger.log(`[${projectId}] All translations completed`);
-
-      // Force garbage collection after translations
-      this.forceGarbageCollection();
-
-      // ✅ UPDATE STATUS: GENERATING_DOCUMENTS
+      // STEP 3: Generate English Documents (50-65%)
       project.status = ProjectStatus.GENERATING_DOCUMENTS;
       await this.projectRepository.save(project);
       this.logger.log(`[${projectId}] Status updated to: GENERATING_DOCUMENTS`);
 
-      // STEP 4: Generate Documents SEQUENTIALLY (70-100%)
+      this.logger.log(`[${projectId}] Step 3: Generating English documents...`);
+
+      await this.generateEnglishDocuments(projectId);
+      this.forceGarbageCollection();
+
+      // STEP 4: Translate Documents (65-100%)
       this.logger.log(
-        `[${projectId}] Step 4: Generating 10 documents sequentially...`,
+        `[${projectId}] Step 4: Translating documents to 4 languages...`,
       );
 
-      await this.generateDocumentsSequentially(projectId);
+      await this.translateDocuments(projectId);
 
       // ✅ UPDATE STATUS: COMPLETED
       project.status = ProjectStatus.COMPLETED;
@@ -165,7 +145,6 @@ export class BookGeneratorService {
     } catch (error) {
       this.logger.error(`[${projectId}] Book generation failed:`, error);
 
-      // Update project status to failed
       if (project) {
         project.status = ProjectStatus.FAILED;
         await this.projectRepository.save(project);
@@ -175,14 +154,37 @@ export class BookGeneratorService {
   }
 
   /**
-   * Generate documents sequentially to avoid memory issues
-   * Uses the new generateAllDocumentsSequential method
+   * Generate English documents (PDF + DOCX)
    */
-  private async generateDocumentsSequentially(
-    projectId: string,
-  ): Promise<void> {
-    const languages = [
-      Language.ENGLISH,
+  private async generateEnglishDocuments(projectId: string): Promise<void> {
+    const types = [DocumentType.PDF, DocumentType.DOCX];
+
+    this.logger.log(`[${projectId}] Starting English document generation...`);
+
+    this.logMemoryUsage('Before English documents');
+
+    await this.documentService.generateAllDocumentsSequential(
+      projectId,
+      {
+        types,
+        languages: [Language.ENGLISH],
+        includeImages: true,
+      },
+      this.redisCache,
+    );
+
+    this.forceGarbageCollection();
+    this.logMemoryUsage('After English documents');
+
+    this.logger.log(`[${projectId}] English documents generated successfully`);
+  }
+
+  /**
+   * Translate documents to other languages
+   * NOTE: This now happens in the queue/worker, not here
+   */
+  private async translateDocuments(projectId: string): Promise<void> {
+    const targetLanguages = [
       Language.GERMAN,
       Language.FRENCH,
       Language.SPANISH,
@@ -191,90 +193,13 @@ export class BookGeneratorService {
 
     const types = [DocumentType.PDF, DocumentType.DOCX];
 
+    this.logger.log(`[${projectId}] Starting document translation...`);
+
+    // This will be handled by the queue processor
+    // Just logging here for clarity
     this.logger.log(
-      `[${projectId}] Starting sequential document generation...`,
+      `[${projectId}] Documents will be translated to ${targetLanguages.length} languages (${targetLanguages.length * types.length} total documents)`,
     );
-
-    // Log memory before generation
-    this.logMemoryUsage('Before document generation');
-
-    // Use the sequential generation method
-    await this.documentService.generateAllDocumentsSequential(
-      projectId,
-      {
-        types,
-        languages,
-        includeImages: true,
-      },
-      this.redisCache,
-    );
-
-    // Force garbage collection after all documents
-    this.forceGarbageCollection();
-
-    // Log memory after generation
-    this.logMemoryUsage('After document generation');
-
-    this.logger.log(`[${projectId}] All documents generated successfully`);
-  }
-
-  /**
-   * Translate to multiple languages sequentially with delays to avoid rate limiting
-   */
-  private async translateSequentially(
-    projectId: string,
-    targetLanguages: Language[],
-  ): Promise<void> {
-    const delayBetweenLanguages = 5000; // 5 seconds between languages
-
-    for (let i = 0; i < targetLanguages.length; i++) {
-      const language = targetLanguages[i];
-
-      try {
-        this.logger.log(
-          `[${projectId}] Starting translation ${i + 1}/${targetLanguages.length} to ${language}...`,
-        );
-
-        const result = await this.translationService.translateProject(
-          projectId,
-          {
-            targetLanguage: language,
-            maintainStyle: true,
-          },
-        );
-
-        // Wait for this translation to complete before starting next one
-        await this.waitForJobCompletion(result.jobId);
-
-        this.logger.log(
-          `[${projectId}] ✓ Completed translation to ${language} (${i + 1}/${targetLanguages.length})`,
-        );
-
-        // Force garbage collection after each translation
-        this.forceGarbageCollection();
-
-        // Add delay before next language (except after last one)
-        if (i < targetLanguages.length - 1) {
-          this.logger.log(
-            `[${projectId}] Waiting ${delayBetweenLanguages / 1000}s before next translation...`,
-          );
-          await this.delay(delayBetweenLanguages);
-        }
-      } catch (error) {
-        // If translation already exists, skip it
-        if (error.message && error.message.includes('already exists')) {
-          this.logger.log(
-            `[${projectId}] Skipping ${language} - translation already exists`,
-          );
-        } else {
-          this.logger.error(
-            `[${projectId}] Failed to translate to ${language}:`,
-            error,
-          );
-          throw error;
-        }
-      }
-    }
   }
 
   /**
@@ -312,16 +237,13 @@ export class BookGeneratorService {
     const totalImages = images.length;
     const numberOfChapters = 10;
 
-    // Auto-distribute images across chapters if not specified
     let chapterNumbers = createBookDto.imageChapterNumbers;
 
     if (!chapterNumbers || chapterNumbers.length !== totalImages) {
-      // Auto-distribute: spread images evenly across main chapters
-      // Skip chapter 1 (intro) and last chapter (conclusion)
       const mainChapters = Array.from(
         { length: numberOfChapters - 2 },
         (_, i) => i + 2,
-      ); // Creates [2, 3, 4, 5, 6, 7, 8, 9]
+      );
 
       chapterNumbers = [];
 
@@ -333,7 +255,6 @@ export class BookGeneratorService {
       }
     }
 
-    // Upload images with auto-positioning
     for (let i = 0; i < images.length; i++) {
       const caption = createBookDto.imageCaptions?.[i] || `Image ${i + 1}`;
       const chapterNumber = chapterNumbers[i];
@@ -367,15 +288,14 @@ export class BookGeneratorService {
           clearInterval(checkInterval);
           reject(error);
         }
-      }, 5000); // Check every 5 seconds
+      }, 5000);
     });
   }
 
   async getBookStatus(projectId: string) {
-    // Load project with only the relations we need for status
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
-      relations: ['jobs'], // Only load jobs for status check
+      relations: ['jobs'],
     });
 
     if (!project) {
@@ -384,7 +304,6 @@ export class BookGeneratorService {
 
     const stats = await this.projectService.getProjectStats(projectId);
 
-    // Get all job statuses
     const jobs = project.jobs || [];
     const activeJobs = jobs.filter(
       (j) =>
@@ -398,8 +317,8 @@ export class BookGeneratorService {
 
     if (stats.stats.totalChapters > 0) overallProgress += 40;
     if (stats.stats.totalImages > 0) overallProgress += 10;
-    if (stats.stats.completedTranslations === 4) overallProgress += 20;
-    if (stats.stats.completedDocuments === 10) overallProgress += 30;
+    // ❌ REMOVED: Translation progress check - not needed anymore
+    if (stats.stats.completedDocuments === 10) overallProgress += 50;
 
     const isComplete = overallProgress === 100;
     const hasFailed = failedJobs.length > 0;
@@ -428,7 +347,7 @@ export class BookGeneratorService {
 
   private estimateCompletion(progress: number): string {
     const remainingProgress = 100 - progress;
-    const minutesPerPercent = 0.15; // Roughly 15 minutes for 100%
+    const minutesPerPercent = 0.15;
     const remainingMinutes = Math.ceil(remainingProgress * minutesPerPercent);
 
     if (remainingMinutes < 1) return 'Less than 1 minute';
@@ -447,10 +366,9 @@ export class BookGeneratorService {
       };
     }
 
-    // Get project info for title - only load what we need
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
-      select: ['id', 'title'], // Only select id and title
+      select: ['id', 'title'],
     });
 
     if (!project) {

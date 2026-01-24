@@ -18,6 +18,7 @@ import { BookGenerationProcessor } from './book-generation.processor';
 import Redis from 'ioredis';
 import { RedisCacheService } from './cache/redis-cache.service';
 import { DocumentGenerationQueue } from './document-generation.queue';
+import { DocumentTranslationQueue } from './document-translation.queue';
 
 // Redis Monitoring Service - MOVED BEFORE QueueModule
 @Injectable()
@@ -161,6 +162,7 @@ class RedisMonitorService {
         name: 'book-generation',
       },
       { name: 'document-generation' },
+      { name: 'document-translation' },
     ),
 
     TypeOrmModule.forFeature([Project, Job, Chapter, Translation, Document]),
@@ -176,9 +178,10 @@ class RedisMonitorService {
     BookGenerationProcessor,
     RedisMonitorService,
     RedisCacheService,
+    DocumentTranslationQueue,
     DocumentGenerationQueue,
   ],
-  exports: [BookGenerationQueue, BullModule, DocumentGenerationQueue],
+  exports: [BookGenerationQueue, BullModule, DocumentGenerationQueue,DocumentTranslationQueue, ],
 })
 export class QueueModule implements OnModuleInit {
   private readonly logger = new Logger(QueueModule.name);

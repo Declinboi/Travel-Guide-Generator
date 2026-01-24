@@ -1,4 +1,4 @@
-// src/queues/book-generation.processor.ts - UPDATED TO USE WORKERS
+// src/queues/book-generation.processor.ts - UPDATED WORKFLOW
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
@@ -6,17 +6,17 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { BookGenerationJobData } from './book-generation.queue';
 import { DocumentGenerationQueue } from './document-generation.queue';
+import { DocumentTranslationQueue } from './document-translation.queue'; // NEW
 import {
   Project,
   ProjectStatus,
   JobStatus,
   Language,
   Chapter,
+  DocumentType,
 } from '../DB/entities';
 import { ContentService } from '../content/content.service';
-import { TranslationService } from '../translation/translation.service';
 import { ImageService } from '../images/image.service';
-import { DocumentType } from '../DB/entities/document.entity';
 import { RedisCacheService } from './cache/redis-cache.service';
 
 @Processor('book-generation', {
@@ -32,10 +32,10 @@ export class BookGenerationProcessor extends WorkerHost {
     @InjectRepository(Chapter)
     private readonly chapterRepository: Repository<Chapter>,
     private readonly contentService: ContentService,
-    private readonly translationService: TranslationService,
     private readonly imageService: ImageService,
     private readonly redisCache: RedisCacheService,
-    private readonly documentQueue: DocumentGenerationQueue, // NEW
+    private readonly documentQueue: DocumentGenerationQueue,
+    private readonly documentTranslationQueue: DocumentTranslationQueue, // NEW
     private readonly dataSource: DataSource,
   ) {
     super();
@@ -48,33 +48,30 @@ export class BookGenerationProcessor extends WorkerHost {
     try {
       this.logger.log(`[${projectId}] Starting book generation job ${job.id}`);
 
-      // Wait for project
       await this.waitForProjectAvailability(projectId);
 
-      // STEP 1: Content
+      // STEP 1: Content (0-30%)
       await this.generateContent(job, projectId, createBookDto);
       if (global.gc) global.gc();
 
-      // STEP 2: Images
+      // STEP 2: Images (30-40%)
       await this.processImagesStep(job, projectId, createBookDto, files);
       if (global.gc) global.gc();
 
-      // STEP 3: Translations
-      await this.translateStep(job, projectId);
-      if (global.gc) global.gc();
-
-      // STEP 4: Pre-cache images to Redis
+      // STEP 3: Pre-cache images to Redis (40-50%)
       this.logger.log(`[${projectId}] Pre-caching images to Redis...`);
-
       await this.preCacheImagesToRedis(projectId);
-
       if (global.gc) global.gc();
 
-      // STEP 5: Generate documents using WORKER PROCESSES
+      // STEP 4: Generate ENGLISH documents (PDF + DOCX) (50-65%)
+      this.logger.log(`[${projectId}] 🚀 Generating English documents...`);
+      await this.generateEnglishDocuments(projectId, job);
+
+      // STEP 5: Translate documents to other languages (65-100%)
       this.logger.log(
-        `[${projectId}] 🚀 Delegating documents to worker processes...`,
+        `[${projectId}] 🌍 Translating documents to 4 languages...`,
       );
-      await this.generateDocumentsUsingWorkers(projectId, job);
+      await this.translateDocuments(projectId, job);
 
       // Cleanup
       await this.redisCache.clearProject(projectId);
@@ -107,10 +104,9 @@ export class BookGenerationProcessor extends WorkerHost {
   }
 
   /**
-   * CRITICAL: Generate documents using separate worker processes
-   * This prevents memory accumulation in the main process
+   * NEW: Generate English documents first (PDF + DOCX)
    */
-  private async generateDocumentsUsingWorkers(
+  private async generateEnglishDocuments(
     projectId: string,
     job: Job,
   ): Promise<void> {
@@ -119,7 +115,6 @@ export class BookGenerationProcessor extends WorkerHost {
       ProjectStatus.GENERATING_DOCUMENTS,
     );
 
-    // Get project info
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
     });
@@ -128,37 +123,107 @@ export class BookGenerationProcessor extends WorkerHost {
       throw new Error(`Project ${projectId} not found`);
     }
 
-    const languages = [
-      Language.ENGLISH,
+    const types = [DocumentType.PDF, DocumentType.DOCX];
+    const totalDocs = types.length;
+    let completed = 0;
+
+    // Check existing English documents
+    const existingDocs = await this.dataSource
+      .createQueryBuilder()
+      .select('d.type', 'type')
+      .from('documents', 'd')
+      .where('d.projectId = :projectId', { projectId })
+      .andWhere('d.language = :language', { language: Language.ENGLISH })
+      .getRawMany();
+
+    const existingTypes = new Set(existingDocs.map((doc) => doc.type));
+
+    const jobPromises: Promise<any>[] = [];
+
+    for (const type of types) {
+      if (existingTypes.has(type)) {
+        completed++;
+        const percent = 50 + Math.floor((completed / totalDocs) * 15);
+        await this.updateJobProgress(
+          job,
+          percent,
+          `Skipping English ${type} - exists`,
+        );
+        continue;
+      }
+
+      this.logger.log(`📤 Queuing English ${type} to worker...`);
+
+      const docJobId = await this.documentQueue.addDocumentJob({
+        projectId,
+        type,
+        language: Language.ENGLISH,
+        title: project.title,
+        subtitle: project.subtitle,
+        author: project.author,
+        includeImages: true,
+      });
+
+      jobPromises.push(
+        this.waitForDocumentJob(docJobId, type, Language.ENGLISH).then(() => {
+          completed++;
+          const percent = 50 + Math.floor((completed / totalDocs) * 15);
+          return this.updateJobProgress(
+            job,
+            percent,
+            `Generated English ${type} [${completed}/${totalDocs}]`,
+          );
+        }),
+      );
+    }
+
+    await Promise.all(jobPromises);
+
+    if (global.gc) global.gc();
+    this.logMemory('After English documents');
+
+    this.logger.log('✅ English documents generated');
+  }
+
+  /**
+   * ✅ FIXED: Translate documents - Queue PDF + DOCX together for each language
+   */
+  private async translateDocuments(projectId: string, job: Job): Promise<void> {
+    const targetLanguages = [
       Language.GERMAN,
       Language.FRENCH,
       Language.SPANISH,
       Language.ITALIAN,
     ];
+
     const types = [DocumentType.PDF, DocumentType.DOCX];
-    const totalDocs = languages.length * types.length;
+    const totalDocs = targetLanguages.length * types.length; // 4 * 2 = 8
     let completed = 0;
 
-    // Check existing documents
+    // Check existing translated documents
     const existingDocs = await this.dataSource
       .createQueryBuilder()
       .select("CONCAT(d.type, '-', d.language)", 'key')
       .from('documents', 'd')
       .where('d.projectId = :projectId', { projectId })
+      .andWhere('d.language != :english', { english: Language.ENGLISH })
       .getRawMany();
 
     const existingKeys = new Set(existingDocs.map((doc) => doc.key));
 
-    // Queue all documents to worker processes
-    const jobPromises: Promise<any>[] = [];
+    // ✅ PROCESS BY LANGUAGE: Queue both PDF and DOCX for each language together
+    for (const language of targetLanguages) {
+      const languageJobs: Promise<any>[] = [];
 
-    for (const language of languages) {
+      this.logger.log(`🌍 Starting translation to ${language}...`);
+
+      // Queue both formats for this language
       for (const type of types) {
         const docKey = `${type}-${language}`;
 
         if (existingKeys.has(docKey)) {
           completed++;
-          const percent = 70 + Math.floor((completed / totalDocs) * 30);
+          const percent = 65 + Math.floor((completed / totalDocs) * 35);
           await this.updateJobProgress(
             job,
             percent,
@@ -167,71 +232,45 @@ export class BookGenerationProcessor extends WorkerHost {
           continue;
         }
 
-        // Get translation for title/subtitle
-        let title = project.title;
-        let subtitle = project.subtitle;
+        this.logger.log(`📤 Queuing ${type} translation to ${language}...`);
 
-        if (language !== Language.ENGLISH) {
-          const translation = await this.dataSource
-            .createQueryBuilder()
-            .select(['t.title', 't.subtitle'])
-            .from('translations', 't')
-            .where('t.projectId = :projectId', { projectId })
-            .andWhere('t.language = :language', { language })
-            .getRawOne();
+        const transJobId =
+          await this.documentTranslationQueue.addTranslationJob({
+            projectId,
+            type,
+            sourceLanguage: Language.ENGLISH,
+            targetLanguage: language,
+          });
 
-          if (translation) {
-            title = translation.t_title;
-            subtitle = translation.t_subtitle;
-          }
-        }
-
-        // Add job to document worker queue
-        this.logger.log(`📤 Queuing ${type} (${language}) to worker...`);
-
-        const docJobId = await this.documentQueue.addDocumentJob({
-          projectId,
-          type,
-          language,
-          title,
-          subtitle,
-          author: project.author,
-          includeImages: true,
-        });
-
-        // Wait for worker to complete
-        jobPromises.push(
-          this.waitForDocumentJob(docJobId, type, language).then(() => {
+        languageJobs.push(
+          this.waitForTranslationJob(transJobId, type, language).then(() => {
             completed++;
-            const percent = 70 + Math.floor((completed / totalDocs) * 30);
+            const percent = 65 + Math.floor((completed / totalDocs) * 35);
             return this.updateJobProgress(
               job,
               percent,
-              `Generated ${type} (${language}) [${completed}/${totalDocs}]`,
+              `Translated ${type} to ${language} [${completed}/${totalDocs}]`,
             );
           }),
         );
+      }
 
-        // Process in small batches to avoid overwhelming the queue
-        if (jobPromises.length >= 2) {
-          await Promise.all(jobPromises);
-          jobPromises.length = 0;
+      // Wait for both PDF and DOCX for this language to complete
+      if (languageJobs.length > 0) {
+        await Promise.all(languageJobs);
+        this.logger.log(`✅ Completed ${language} translation (PDF + DOCX)`);
 
-          // Small delay between batches
+        // Small delay between languages
+        if (language !== Language.ITALIAN) {
           await this.delay(3000);
-
-          if (global.gc) global.gc();
-          this.logMemory(`After ${completed}/${totalDocs} documents`);
         }
+
+        if (global.gc) global.gc();
+        this.logMemory(`After ${language} translation`);
       }
     }
 
-    // Wait for remaining jobs
-    if (jobPromises.length > 0) {
-      await Promise.all(jobPromises);
-    }
-
-    this.logger.log('✅ All documents generated by workers');
+    this.logger.log('✅ All documents translated');
   }
 
   /**
@@ -280,8 +319,57 @@ export class BookGenerationProcessor extends WorkerHost {
     });
   }
 
-  // ... (rest of the methods remain the same: preCacheImagesToRedis, generateContent, etc.)
-  // Copy from the previous processor implementation
+  /**
+   * NEW: Wait for translation worker to complete
+   */
+  private async waitForTranslationJob(
+    jobId: string,
+    type: DocumentType,
+    language: Language,
+  ): Promise<void> {
+    const maxWaitTime = 900000; // 10 minutes
+    const checkInterval = 2000;
+    let elapsedTime = 0;
+
+    return new Promise((resolve, reject) => {
+      const interval = setInterval(async () => {
+        try {
+          elapsedTime += checkInterval;
+
+          if (elapsedTime >= maxWaitTime) {
+            clearInterval(interval);
+            reject(new Error(`Translation job ${jobId} timed out`));
+            return;
+          }
+
+          const status =
+            await this.documentTranslationQueue.getJobStatus(jobId);
+
+          if (status.status === 'completed') {
+            clearInterval(interval);
+            this.logger.log(`✅ Translated ${type} to ${language}`);
+            resolve();
+          } else if (status.status === 'failed') {
+            clearInterval(interval);
+            this.logger.error(
+              `❌ Translation failed ${type} to ${language}: ${status.failedReason}`,
+            );
+            reject(
+              new Error(
+                `Translation job ${jobId} failed: ${status.failedReason}`,
+              ),
+            );
+          }
+        } catch (error) {
+          clearInterval(interval);
+          reject(error);
+        }
+      }, checkInterval);
+    });
+  }
+
+  // ... (keep all other methods: preCacheImagesToRedis, generateContent,
+  //      processImagesStep, waitForProjectAvailability, etc. - unchanged)
 
   private async waitForProjectAvailability(
     projectId: string,
@@ -317,204 +405,6 @@ export class BookGenerationProcessor extends WorkerHost {
     );
   }
 
-  // private async cacheImageToRedis(
-  //   url: string,
-  //   maxRetries: number = 5, // INCREASED from 5 to 8
-  // ): Promise<boolean> {
-  //   let lastError: any;
-
-  //   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-  //     try {
-  //       // Check if already cached
-  //       const exists = await this.redisCache.hasImage(url);
-  //       if (exists) {
-  //         this.logger.debug(`✓ Image already cached: ${url}`);
-  //         return true;
-  //       }
-
-  //       const buffer = await this.downloadImageNative(url);
-  //       await this.redisCache.cacheImage(url, buffer, 7200);
-
-  //       if (attempt > 1) {
-  //         this.logger.log(
-  //           `✅ Successfully cached ${url} on attempt ${attempt}/${maxRetries}`,
-  //         );
-  //       }
-
-  //       return true; // Success
-  //     } catch (error) {
-  //       lastError = error;
-
-  //       const errorMsg =
-  //         error?.message || error?.code || error?.toString() || 'Unknown error';
-
-  //       if (attempt < maxRetries) {
-  //         // Exponential backoff: 2s, 4s, 8s, 16s, 32s...
-  //         const delayMs = Math.min(Math.pow(2, attempt) * 1000, 60000); // Cap at 60s
-  //         this.logger.warn(
-  //           `⚠️  Failed to cache ${url} (attempt ${attempt}/${maxRetries}): ${errorMsg}. Retrying in ${delayMs / 1000}s...`,
-  //         );
-  //         await this.delay(delayMs);
-  //       } else {
-  //         this.logger.error(
-  //           `❌ Failed to cache ${url} after ${maxRetries} attempts: ${errorMsg}`,
-  //         );
-  //       }
-  //     }
-  //   }
-
-  //   return false; // All attempts failed
-  // }
-
-  // /**
-  //  * ENHANCED: Download with axios and better timeout handling
-  //  */
-  // private async downloadImageNative(url: string): Promise<Buffer> {
-  //   const axios = require('axios');
-
-  //   try {
-  //     const response = await axios.get(url, {
-  //       responseType: 'arraybuffer',
-  //       timeout: 90000, // 90 seconds
-  //       maxRedirects: 5,
-  //       maxContentLength: 50 * 1024 * 1024, // 50MB limit
-  //       headers: {
-  //         'User-Agent': 'Mozilla/5.0 (compatible; TravelGuideBot/1.0)',
-  //         Connection: 'keep-alive',
-  //         Accept: 'image/*',
-  //         'Accept-Encoding': 'gzip, deflate',
-  //       },
-  //       httpsAgent: new (require('https').Agent)({
-  //         keepAlive: true,
-  //         keepAliveMsecs: 30000,
-  //         maxSockets: 3,
-  //         timeout: 90000,
-  //         scheduling: 'lifo',
-  //       }),
-  //     });
-
-  //     if (response.status !== 200) {
-  //       throw new Error(`HTTP ${response.status} for ${url}`);
-  //     }
-
-  //     const buffer = Buffer.from(response.data);
-
-  //     this.logger.debug(
-  //       `Downloaded ${url}: ${Math.round(buffer.length / 1024)}KB`,
-  //     );
-
-  //     return buffer;
-  //   } catch (error) {
-  //     if (error.code === 'ECONNABORTED') {
-  //       throw new Error('Request timeout after 90s');
-  //     }
-  //     throw new Error(
-  //       `Request error: ${error.message || error.code || 'Connection failed'}`,
-  //     );
-  //   }
-  // }
-
-  // /**
-  //  * COMPLETELY REWRITTEN: Aggressive pre-caching with retry queue
-  //  */
-  // private async preCacheImagesToRedis(projectId: string): Promise<void> {
-  //   const images = await this.dataSource
-  //     .createQueryBuilder()
-  //     .select(['i.id', 'i.url'])
-  //     .from('images', 'i')
-  //     .where('i.projectId = :projectId', { projectId })
-  //     .getRawMany();
-
-  //   if (images.length === 0) {
-  //     this.logger.log('No images to cache');
-  //     return;
-  //   }
-
-  //   this.logger.log(`📦 Pre-caching ${images.length} images to Redis...`);
-
-  //   const failedImages: string[] = [];
-  //   let cached = 0;
-
-  //   // PHASE 1: Initial caching attempt
-  //   for (const image of images) {
-  //     const success = await this.cacheImageToRedis(image.i_url);
-
-  //     if (success) {
-  //       cached++;
-  //     } else {
-  //       failedImages.push(image.i_url);
-  //     }
-
-  //     // Delay between images to prevent overwhelming the connection pool
-  //     await this.delay(3000); // 3 seconds between images
-  //   }
-
-  //   // PHASE 2: Retry failed images (up to 3 retry rounds)
-  //   if (failedImages.length > 0) {
-  //     this.logger.warn(
-  //       `⚠️  ${failedImages.length} images failed initial caching. Starting retry rounds...`,
-  //     );
-
-  //     const maxRetryRounds = 3;
-  //     let retryRound = 1;
-
-  //     while (failedImages.length > 0 && retryRound <= maxRetryRounds) {
-  //       this.logger.log(
-  //         `🔄 Retry round ${retryRound}/${maxRetryRounds} for ${failedImages.length} images...`,
-  //       );
-
-  //       // Wait before retry round
-  //       await this.delay(10000); // 10 seconds between retry rounds
-
-  //       const stillFailing: string[] = [];
-
-  //       for (const url of failedImages) {
-  //         const success = await this.cacheImageToRedis(url);
-
-  //         if (success) {
-  //           cached++;
-  //           this.logger.log(`✅ Recovered ${url} on retry round ${retryRound}`);
-  //         } else {
-  //           stillFailing.push(url);
-  //         }
-
-  //         await this.delay(5000); // 5 seconds between retry attempts
-  //       }
-
-  //       // Update failed list
-  //       failedImages.length = 0;
-  //       failedImages.push(...stillFailing);
-  //       retryRound++;
-  //     }
-  //   }
-
-  //   const stats = await this.redisCache.getMemoryStats();
-  //   const failed = images.length - cached;
-
-  //   this.logger.log(
-  //     `✅ Images cached: ${cached}/${images.length} (${failed} permanently failed) - Redis: ${stats.used}`,
-  //   );
-
-  //   if (failedImages.length > 0) {
-  //     this.logger.warn(
-  //       `⚠️  These images will be downloaded by workers: ${failedImages.join(', ')}`,
-  //     );
-  //   }
-
-  //   // Continue even if some images failed - workers will download them
-  //   if (cached === 0 && images.length > 0) {
-  //     this.logger.warn(
-  //       '⚠️  No images were cached. Workers will download all images.',
-  //     );
-  //   }
-  // }
-
-  /**
-   * FIXED: Download image with better error handling and connection management
-   */
-  /**
-   * FIXED: Download image using the SAME logic as document services
-   */
   private async downloadImageNative(
     url: string,
     maxRetries: number = 4,
@@ -574,18 +464,14 @@ export class BookGenerationProcessor extends WorkerHost {
     throw lastError;
   }
 
-  /**
-   * FIXED: Cache with better error handling
-   */
   private async cacheImageToRedis(
     url: string,
-    maxRetries: number = 3, // REDUCED: Since downloadImageNative already does 4 retries
+    maxRetries: number = 3,
   ): Promise<boolean> {
     let lastError: any;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // Check if already cached
         const exists = await this.redisCache.hasImage(url);
         if (exists) {
           this.logger.debug(
@@ -594,10 +480,7 @@ export class BookGenerationProcessor extends WorkerHost {
           return true;
         }
 
-        // Download image (this already has 4 internal retries)
         const buffer = await this.downloadImageNative(url);
-
-        // Cache to Redis
         await this.redisCache.cacheImage(url, buffer, 7200);
 
         if (attempt > 1) {
@@ -614,7 +497,7 @@ export class BookGenerationProcessor extends WorkerHost {
         const filename = url.substring(url.lastIndexOf('/') + 1);
 
         if (attempt < maxRetries) {
-          const delayMs = Math.min(Math.pow(2, attempt) * 2000, 20000); // 2s, 4s, 8s...
+          const delayMs = Math.min(Math.pow(2, attempt) * 2000, 20000);
           this.logger.warn(
             `⚠️  Failed to cache ${filename} (attempt ${attempt}/${maxRetries}): ${errorMsg}. Retrying in ${delayMs / 1000}s...`,
           );
@@ -630,9 +513,6 @@ export class BookGenerationProcessor extends WorkerHost {
     return false;
   }
 
-  /**
-   * FIXED: Pre-cache with sequential processing and longer delays
-   */
   private async preCacheImagesToRedis(projectId: string): Promise<void> {
     const images = await this.dataSource
       .createQueryBuilder()
@@ -651,7 +531,6 @@ export class BookGenerationProcessor extends WorkerHost {
     const failedImages: string[] = [];
     let cached = 0;
 
-    // PHASE 1: Initial caching attempt (ONE AT A TIME with delays)
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
       const filename = image.i_url.substring(image.i_url.lastIndexOf('/') + 1);
@@ -666,18 +545,15 @@ export class BookGenerationProcessor extends WorkerHost {
         failedImages.push(image.i_url);
       }
 
-      // CRITICAL: Longer delay between images to prevent connection issues
       if (i < images.length - 1) {
-        await this.delay(5000); // 5 seconds between images
+        await this.delay(5000);
       }
 
-      // Force garbage collection every 3 images
       if (global.gc && (i + 1) % 3 === 0) {
         global.gc();
       }
     }
 
-    // PHASE 2: Retry failed images (up to 2 retry rounds)
     if (failedImages.length > 0) {
       this.logger.warn(
         `⚠️  ${failedImages.length} images failed. Starting retry rounds...`,
@@ -691,13 +567,12 @@ export class BookGenerationProcessor extends WorkerHost {
           `🔄 Retry round ${retryRound}/${maxRetryRounds} for ${failedImages.length} images...`,
         );
 
-        // Wait before retry round
-        await this.delay(15000); // 15 seconds between retry rounds
+        await this.delay(15000);
 
         const stillFailing: string[] = [];
 
         for (const url of failedImages) {
-          const success = await this.cacheImageToRedis(url, 3); // Only 3 retries on retry rounds
+          const success = await this.cacheImageToRedis(url, 3);
 
           if (success) {
             cached++;
@@ -706,7 +581,7 @@ export class BookGenerationProcessor extends WorkerHost {
             stillFailing.push(url);
           }
 
-          await this.delay(8000); // 8 seconds between retry attempts
+          await this.delay(8000);
         }
 
         failedImages.length = 0;
@@ -755,9 +630,9 @@ export class BookGenerationProcessor extends WorkerHost {
       );
 
       await this.waitForJobCompletion(result.jobId);
-      await this.updateJobProgress(job, 40, 'Content generated');
+      await this.updateJobProgress(job, 30, 'Content generated');
     } else {
-      await this.updateJobProgress(job, 40, 'Content exists');
+      await this.updateJobProgress(job, 30, 'Content exists');
     }
   }
 
@@ -775,7 +650,7 @@ export class BookGenerationProcessor extends WorkerHost {
       .getRawOne();
 
     if (count.count === '0' && files?.images?.length > 0) {
-      await this.updateJobProgress(job, 40, 'Processing images');
+      await this.updateJobProgress(job, 30, 'Processing images');
       await this.processImages(projectId, createBookDto, files.images);
 
       if (files.mapImage?.length > 0) {
@@ -786,46 +661,10 @@ export class BookGenerationProcessor extends WorkerHost {
         });
       }
 
-      await this.updateJobProgress(job, 50, 'Images processed');
+      await this.updateJobProgress(job, 40, 'Images processed');
     } else {
-      await this.updateJobProgress(job, 50, 'Images exist');
+      await this.updateJobProgress(job, 40, 'Images exist');
     }
-  }
-
-  private async translateStep(job: Job, projectId: string) {
-    await this.updateProjectStatus(projectId, ProjectStatus.TRANSLATING);
-    await this.updateJobProgress(job, 50, 'Starting translations');
-
-    const languages = [
-      Language.GERMAN,
-      Language.FRENCH,
-      Language.SPANISH,
-      Language.ITALIAN,
-    ];
-
-    for (let i = 0; i < languages.length; i++) {
-      const lang = languages[i];
-      const percent = 50 + Math.floor((i / languages.length) * 20);
-
-      try {
-        await this.updateJobProgress(job, percent, `Translating to ${lang}`);
-        const result = await this.translationService.translateProject(
-          projectId,
-          {
-            targetLanguage: lang,
-            maintainStyle: true,
-          },
-        );
-
-        await this.waitForJobCompletion(result.jobId);
-        if (global.gc) global.gc();
-        await this.delay(2000);
-      } catch (error) {
-        if (!error.message?.includes('already exists')) throw error;
-      }
-    }
-
-    await this.updateJobProgress(job, 70, 'Translations completed');
   }
 
   private async processImages(

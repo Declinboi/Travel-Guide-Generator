@@ -304,7 +304,7 @@ export class DocxService {
         const image = chapterImages[section.imageIndex];
 
         paragraphs.push(
-          new Paragraph({ text: '', spacing: { before: 400, after: 200 } }),
+          new Paragraph({ text: '', spacing: { before: 100, after: 100 } }),
         );
 
         try {
@@ -322,7 +322,7 @@ export class DocxService {
         }
 
         paragraphs.push(
-          new Paragraph({ text: '', spacing: { before: 200, after: 400 } }),
+          new Paragraph({ text: '', spacing: { before: 100, after: 100 } }),
         );
       }
     }
@@ -365,7 +365,7 @@ export class DocxService {
               transformation: { width: widthInEMU, height: heightInEMU },
             }),
           ],
-          spacing: { before: 300, after: 150 },
+          spacing: { before: 100, after: 100 },
         }),
       );
     } catch (error) {

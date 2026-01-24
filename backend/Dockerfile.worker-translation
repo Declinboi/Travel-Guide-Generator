@@ -1,0 +1,44 @@
+# =====================================================
+# Dockerfile.worker-translation
+# For document translation worker
+# =====================================================
+FROM node:24-alpine AS builder
+
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml* ./
+
+RUN npm install -g pnpm@latest && \
+    pnpm install --frozen-lockfile
+
+COPY . .
+
+RUN pnpm run build
+
+# Production stage
+FROM node:24-alpine AS production
+
+RUN apk add --no-cache dumb-init
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nestjs -u 1001
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml* ./
+
+RUN npm install -g pnpm@latest && \
+    pnpm install --prod --frozen-lockfile && \
+    pnpm store prune
+
+COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
+
+USER nestjs
+
+ENTRYPOINT ["dumb-init", "--"]
+
+# Translation worker - handles document translation
+# Needs good memory for translation + document generation
+CMD ["node", "--max-old-space-size=3072", "--expose-gc", "dist/workers/document-translation-worker.js"]
