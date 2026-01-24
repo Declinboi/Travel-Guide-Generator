@@ -189,21 +189,19 @@ export class DocxService {
     sections.push(...this.createTitlePage(title, subtitle, author));
 
     const copyrightChapter = chapters.find((c) =>
-      c.title.toLowerCase().includes('copyright'),
+      this.isCopyrightChapter(c.title),
     );
     if (copyrightChapter) {
       sections.push(...this.createCopyrightPage(copyrightChapter.content));
     }
 
-    const aboutChapter = chapters.find((c) =>
-      c.title.toLowerCase().includes('about'),
-    );
+    const aboutChapter = chapters.find((c) => this.isAboutChapter(c.title));
     if (aboutChapter) {
       sections.push(...this.createAboutPage(aboutChapter.content));
     }
 
     const tocChapter = chapters.find((c) =>
-      c.title.toLowerCase().includes('table'),
+      this.isTableOfContentsChapter(c.title),
     );
     if (tocChapter) {
       sections.push(...this.createTableOfContents(tocChapter.content));
@@ -218,38 +216,40 @@ export class DocxService {
     redisCache: RedisCacheService,
     bookTitle?: string,
     bookSubtitle?: string,
+    chapterNumber?: number, // Add this parameter
   ): Promise<Paragraph[]> {
     const sections: Paragraph[] = [];
 
-    // ✅ FIX: Check if this is front matter
+    // Check if this is front matter
     const isFrontMatter = this.isFrontMatterChapter(chapter.title);
 
     sections.push(new Paragraph({ text: '', pageBreakBefore: true }));
 
     if (isFrontMatter) {
-      // ✅ For front matter: Just show the title, NO "Chapter X"
+      // For front matter: Just show the title, NO "Chapter X"
       const cleanTitle = this.cleanText(chapter.title);
 
       sections.push(
         new Paragraph({
           text: cleanTitle,
           alignment: AlignmentType.CENTER,
-          spacing: { before: 240, after: 600 },
+          spacing: { before: 50, after: 100 },
           children: [new TextRun({ text: cleanTitle, bold: true, size: 40 })],
         }),
       );
     } else {
-      // ✅ For content chapters: Show "Chapter X" + Title
-      const chapterNumber = chapter.order - 3;
+      // For content chapters: Show "Chapter X" + Title
+      // Use the passed chapterNumber parameter
+      const displayNumber = chapterNumber || 1;
       const cleanTitle = this.cleanText(chapter.title);
 
       sections.push(
         new Paragraph({
-          text: `Chapter ${chapterNumber}`,
+          text: `Chapter ${displayNumber}`,
           alignment: AlignmentType.CENTER,
-          spacing: { before: 240, after: 240 },
+          spacing: { before: 50, after: 100 },
           children: [
-            new TextRun({ text: `Chapter ${chapterNumber}`, size: 40 }),
+            new TextRun({ text: `Chapter ${displayNumber}`, size: 40 }),
           ],
         }),
       );
@@ -258,12 +258,13 @@ export class DocxService {
         new Paragraph({
           text: cleanTitle,
           alignment: AlignmentType.CENTER,
-          spacing: { after: 600 },
+          spacing: { after: 100 },
           children: [new TextRun({ text: cleanTitle, bold: true, size: 40 })],
         }),
       );
     }
 
+    // Get chapter images (only for content chapters)
     const chapterImages = isFrontMatter
       ? []
       : images
@@ -295,17 +296,81 @@ export class DocxService {
     return sections;
   }
 
+  private isCopyrightChapter(title: string): boolean {
+    const copyrightKeywords = [
+      'copyright',
+      'urheberrecht',
+      "droit d'auteur",
+      "diritto d'autore",
+      'derechos de autor',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return copyrightKeywords.some((keyword) => lowerTitle.includes(keyword));
+  }
+
+  private isAboutChapter(title: string): boolean {
+    const aboutKeywords = [
+      'about book',
+      'about the',
+      'über das buch',
+      'über dieses buch',
+      'à propos',
+      'informazioni su book',
+      'sul libro',
+      'sobre el libro',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return aboutKeywords.some((keyword) => lowerTitle.includes(keyword));
+  }
+
+  private isTableOfContentsChapter(title: string): boolean {
+    const tocKeywords = [
+      'table of contents',
+      'inhaltsverzeichnis',
+      'table des matières',
+      'sommaire',
+      'tabella dei contenuti',
+      'índice',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return tocKeywords.some((keyword) => lowerTitle.includes(keyword));
+  }
+
   // ✅ NEW: Helper to identify front matter
   private isFrontMatterChapter(title: string): boolean {
     const frontMatterTitles = [
-      'title page',
+      // English
+      // 'title page',
       'copyright',
       'about book',
       'table of contents',
+      // German
+      // 'titelseite',
+      'urheberrecht',
+      'über das buch',
+      'inhaltsverzeichnis',
+      // French
+      // 'titre page',
+      'page de titre',
+      "droit d'auteur",
+      'à propos',
+      'sommaire',
+      'table des matières',
+      // Italian
+      // 'pagina titolo',
+      "diritto d'autore",
+      'informazioni su book',
+      'tabella dei contenuti',
+      'sommario',
+      // Spanish
+      // 'página de título',
+      'derechos de autor',
+      'sobre el libro',
+      'índice',
     ];
-    return frontMatterTitles.some((fm) =>
-      title.toLowerCase().includes(fm.toLowerCase()),
-    );
+
+    const lowerTitle = title.toLowerCase();
+    return frontMatterTitles.some((fm) => lowerTitle.includes(fm));
   }
 
   private async createContentWithImages(
@@ -482,7 +547,7 @@ export class DocxService {
       new Paragraph({
         text: title.toUpperCase(),
         alignment: AlignmentType.CENTER,
-        spacing: { before: 300, after: 400 },
+        spacing: { before: 100, after: 800 },
         children: [
           new TextRun({ text: title.toUpperCase(), bold: true, size: 64 }),
         ],
@@ -490,7 +555,7 @@ export class DocxService {
       new Paragraph({
         text: subtitle,
         alignment: AlignmentType.CENTER,
-        spacing: { after: 800 },
+        spacing: { after: 600 },
         children: [new TextRun({ text: subtitle, size: 20 })],
       }),
       new Paragraph({
@@ -511,7 +576,7 @@ export class DocxService {
   }
 
   private createCopyrightPage(content: string): Paragraph[] {
-    const cleanedContent = this.cleanContent(content);
+    const cleanedContent = this.cleanFrontMatterContent(content);
     return [
       new Paragraph({ text: '', pageBreakBefore: true }),
       new Paragraph({
@@ -532,20 +597,13 @@ export class DocxService {
       }),
     );
 
-    const cleanedContent = this.cleanContent(content);
+    const cleanedContent = this.cleanFrontMatterContent(content);
     const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     sections.forEach((section) => {
-      const trimmed = section.trim();
-
-      // Skip if it's the "About Book" heading
-      if (trimmed.toLowerCase().includes('about book') && trimmed.length < 30) {
-        return;
-      }
-
       paragraphs.push(
         new Paragraph({
-          children: [new TextRun({ text: trimmed, size: 22 })],
+          children: [new TextRun({ text: section.trim(), size: 22 })],
           spacing: { after: 200 },
           alignment: AlignmentType.LEFT,
         }),
@@ -569,27 +627,19 @@ export class DocxService {
       }),
     );
 
-    const cleanedContent = this.cleanContent(content);
+    const cleanedContent = this.cleanTableOfContents(content);
     const lines = cleanedContent.split('\n').filter((l) => l.trim());
 
     lines.forEach((line) => {
       const trimmed = line.trim();
 
-      // Skip the heading itself
-      if (
-        trimmed.toLowerCase().includes('table of contents') &&
-        trimmed.length < 30
-      ) {
+      // Skip empty or redundant lines
+      if (!trimmed || this.isRedundantTOCLine(trimmed)) {
         return;
       }
 
-      if (!trimmed) {
-        paragraphs.push(new Paragraph({ text: '', spacing: { after: 150 } }));
-        return;
-      }
-
-      // Chapter headings (e.g., "Chapter 1")
-      if (trimmed.match(/^Chapter \d+$/i)) {
+      // Chapter headings
+      if (this.isChapterHeading(trimmed)) {
         paragraphs.push(
           new Paragraph({
             children: [
@@ -607,7 +657,7 @@ export class DocxService {
         return;
       }
 
-      // Chapter titles (main entries - not indented)
+      // Main chapter titles
       if (!trimmed.startsWith(' ') && trimmed.length > 0) {
         paragraphs.push(
           new Paragraph({
@@ -619,13 +669,13 @@ export class DocxService {
               }),
             ],
             spacing: { after: 120 },
-            indent: { left: 360 }, // 0.5 inch indent
+            indent: { left: 360 },
           }),
         );
         return;
       }
 
-      // Sub-sections (single indent)
+      // Sub-sections
       if (trimmed.match(/^\s{1,4}\S/)) {
         paragraphs.push(
           new Paragraph({
@@ -637,13 +687,13 @@ export class DocxService {
               }),
             ],
             spacing: { after: 80 },
-            indent: { left: 720 }, // 1 inch indent
+            indent: { left: 720 },
           }),
         );
         return;
       }
 
-      // Sub-sub-sections (double indent)
+      // Sub-sub-sections
       paragraphs.push(
         new Paragraph({
           children: [
@@ -654,7 +704,7 @@ export class DocxService {
             }),
           ],
           spacing: { after: 60 },
-          indent: { left: 1080 }, // 1.5 inch indent
+          indent: { left: 1080 },
         }),
       );
     });
@@ -675,55 +725,14 @@ export class DocxService {
       const trimmed = section.trim();
       const lowerTrimmed = trimmed.toLowerCase();
 
-      // Skip chapter titles that are already added
-      if (trimmed.match(/^Chapter \d+$/i)) {
-        return;
-      }
-
-      // Skip chapter title text that matches the header
+      // Skip various redundant content
       if (
-        trimmed.length < 100 &&
-        trimmed.toLowerCase().startsWith('chapter ') &&
-        trimmed.split(' ').length <= 15
+        this.shouldSkipSection(trimmed, lowerTrimmed, bookTitle, bookSubtitle)
       ) {
         return;
       }
 
-      // Skip book title if it appears in content
-      if (bookTitle && lowerTrimmed === bookTitle.toLowerCase()) {
-        return;
-      }
-
-      // Skip book subtitle if it appears in content
-      if (bookSubtitle && lowerTrimmed === bookSubtitle.toLowerCase()) {
-        return;
-      }
-
-      // Skip if it looks like title/subtitle
-      if (
-        trimmed.length < 150 &&
-        !trimmed.includes('.') &&
-        trimmed.split(' ').length <= 15 &&
-        (trimmed === trimmed.toUpperCase() || this.isTitleCase(trimmed))
-      ) {
-        if (
-          bookTitle &&
-          this.similarText(lowerTrimmed, bookTitle.toLowerCase())
-        ) {
-          return;
-        }
-        if (
-          bookSubtitle &&
-          this.similarText(lowerTrimmed, bookSubtitle.toLowerCase())
-        ) {
-          return;
-        }
-      }
-
-      const isHeader =
-        trimmed.length < 100 &&
-        !trimmed.includes('.') &&
-        trimmed.split(' ').length <= 10;
+      const isHeader = this.isHeaderSection(trimmed);
 
       if (isHeader) {
         paragraphs.push(
@@ -745,6 +754,69 @@ export class DocxService {
     });
 
     return paragraphs;
+  }
+
+  private shouldSkipSection(
+    trimmed: string,
+    lowerTrimmed: string,
+    bookTitle?: string,
+    bookSubtitle?: string,
+  ): boolean {
+    // Skip if it's a redundant line
+    if (this.isRedundantLine(trimmed)) return true;
+
+    // Skip chapter number lines
+    if (/^Chapter\s+\d+$/i.test(trimmed)) return true;
+    if (/^Kapitel\s+\d+$/i.test(trimmed)) return true;
+    if (/^Chapitre\s+\d+$/i.test(trimmed)) return true;
+    if (/^Capitolo\s+\d+$/i.test(trimmed)) return true;
+
+    // Skip chapter title text that matches the header
+    if (
+      trimmed.length < 100 &&
+      /^(Chapter|Kapitel|Chapitre|Capitolo)\s+\d+/i.test(trimmed) &&
+      trimmed.split(' ').length <= 15
+    ) {
+      return true;
+    }
+
+    // Skip book title/subtitle if they appear in content
+    if (bookTitle && lowerTrimmed === bookTitle.toLowerCase()) return true;
+    if (bookSubtitle && lowerTrimmed === bookSubtitle.toLowerCase())
+      return true;
+
+    // Skip title-like content
+    if (
+      trimmed.length < 150 &&
+      !trimmed.includes('.') &&
+      trimmed.split(' ').length <= 15 &&
+      (trimmed === trimmed.toUpperCase() || this.isTitleCase(trimmed))
+    ) {
+      if (
+        bookTitle &&
+        this.similarText(lowerTrimmed, bookTitle.toLowerCase())
+      ) {
+        return true;
+      }
+      if (
+        bookSubtitle &&
+        this.similarText(lowerTrimmed, bookSubtitle.toLowerCase())
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // 6. NEW helper method - is header section?
+  private isHeaderSection(trimmed: string): boolean {
+    return (
+      trimmed.length < 100 &&
+      !trimmed.includes('.') &&
+      trimmed.split(' ').length <= 10 &&
+      trimmed.split(' ').length > 0
+    );
   }
 
   // Helper methods
@@ -864,7 +936,9 @@ export class DocxService {
 
   private cleanText(text: string): string {
     if (!text) return '';
-    return text
+
+    let cleaned = text
+      // Remove markdown
       .replace(/\*\*(.+?)\*\*/g, '$1')
       .replace(/__(.+?)__/g, '$1')
       .replace(/\*(.+?)\*/g, '$1')
@@ -872,17 +946,239 @@ export class DocxService {
       .replace(/^#+\s+/gm, '')
       .replace(/~~(.+?)~~/g, '$1')
       .replace(/`(.+?)`/g, '$1')
+      // Remove special characters
+      .replace(/[•■□●○◆◇]/g, '') // Bullets
+      .replace(/[–—]/g, '-') // Em/en dashes to hyphen
+      .replace(/[""]/g, '"') // Smart quotes to regular
+      .replace(/['']/g, "'") // Smart apostrophes to regular
+      // Clean up whitespace
       .replace(/\s+/g, ' ')
       .trim();
+
+    return cleaned;
   }
 
   private cleanContent(content: string): string {
     if (!content) return '';
-    const paragraphs = content.split('\n\n');
+
+    let cleaned = content;
+
+    // Remove markdown formatting
+    cleaned = cleaned
+      .replace(/\*\*(.+?)\*\*/g, '$1') // Bold
+      .replace(/__(.+?)__/g, '$1') // Bold underscore
+      .replace(/\*(.+?)\*/g, '$1') // Italic
+      .replace(/_(.+?)_/g, '$1') // Italic underscore
+      .replace(/^#+\s+/gm, '') // Headers
+      .replace(/~~(.+?)~~/g, '$1') // Strikethrough
+      .replace(/`(.+?)`/g, '$1'); // Code
+
+    // Remove redundant chapter references
+    cleaned = this.removeRedundantChapterReferences(cleaned);
+
+    // Clean up paragraphs
+    const paragraphs = cleaned.split('\n\n');
     const cleanedParagraphs = paragraphs
       .map((para) => this.cleanText(para))
-      .filter((para) => para.length > 0);
+      .filter((para) => para.length > 0)
+      .filter((para) => !this.isRedundantLine(para));
+
     return cleanedParagraphs.join('\n\n');
+  }
+
+  // 2. NEW method to remove redundant chapter references
+  private removeRedundantChapterReferences(content: string): string {
+    // Remove lines that are just chapter headings repeated in content
+    const lines = content.split('\n');
+    const filtered = lines.filter((line, index) => {
+      const trimmed = line.trim();
+
+      // Skip empty lines
+      if (!trimmed) return true;
+
+      // Remove standalone "Chapter X" lines
+      if (/^Chapter\s+\d+$/i.test(trimmed)) return false;
+      if (/^Kapitel\s+\d+$/i.test(trimmed)) return false; // German
+      if (/^Chapitre\s+\d+$/i.test(trimmed)) return false; // French
+      if (/^Capitolo\s+\d+$/i.test(trimmed)) return false; // Italian
+      if (/^Capítulo\s+\d+$/i.test(trimmed)) return false; // Spanish
+
+      // Remove lines like "Chapter 1 Introduction: Title"
+      if (
+        /^Chapter\s+\d+\s+[A-Z]/i.test(trimmed) &&
+        trimmed.split(' ').length <= 10
+      ) {
+        return false;
+      }
+
+      // Remove lines that look like repeated chapter titles at start of content
+      if (
+        index < 5 &&
+        trimmed.length < 100 &&
+        !trimmed.includes('.') &&
+        trimmed.split(' ').length <= 15
+      ) {
+        // Likely a repeated title
+        return false;
+      }
+
+      return true;
+    });
+
+    return filtered.join('\n');
+  }
+
+  // 3. NEW method to identify redundant lines
+  private isRedundantLine(text: string): boolean {
+    const trimmed = text.trim();
+
+    // Empty or very short
+    if (trimmed.length < 3) return true;
+
+    // Just punctuation
+    if (/^[^\w\s]+$/.test(trimmed)) return true;
+
+    // Repeated markdown syntax leftovers
+    if (/^[\*_#`~-]+$/.test(trimmed)) return true;
+
+    // Lines with only numbers
+    if (/^\d+$/.test(trimmed)) return true;
+
+    // Common redundant phrases in multiple languages
+    const redundantPhrases = [
+      // English
+      'chapter',
+      'table of contents',
+      'introduction',
+      // German
+      'kapitel',
+      'inhaltsverzeichnis',
+      'einführung',
+      // French
+      'chapitre',
+      'sommaire',
+      'table des matières',
+      // Italian
+      'capitolo',
+      'sommario',
+      'introduzione',
+      // Spanish
+      'capítulo',
+      'índice',
+      'introducción',
+    ];
+
+    const lower = trimmed.toLowerCase();
+
+    // If it's ONLY a redundant phrase (nothing else)
+    if (redundantPhrases.some((phrase) => lower === phrase)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private cleanFrontMatterContent(content: string): string {
+    const cleaned = this.cleanContent(content);
+    const paragraphs = cleaned.split('\n\n').filter((p) => p.trim());
+
+    return paragraphs
+      .filter((para) => {
+        const trimmed = para.trim();
+        const lower = trimmed.toLowerCase();
+
+        // Skip the heading itself if it appears in content
+        const frontMatterHeadings = [
+          'about this book',
+          'about book',
+          'about the',
+          'über dieses buch',
+          'über das buch',
+          'à propos du livre',
+          'à propos',
+          'informazioni su',
+          'sul libro',
+          'copyright',
+          'urheberrecht',
+          "droit d'auteur",
+          "diritto d'autore",
+        ];
+
+        if (
+          frontMatterHeadings.some((heading) => lower.includes(heading)) &&
+          trimmed.length < 50
+        ) {
+          return false;
+        }
+
+        // Keep everything else
+        return trimmed.length > 0;
+      })
+      .join('\n\n');
+  }
+
+  private cleanTableOfContents(content: string): string {
+    let cleaned = this.cleanContent(content);
+
+    // Remove the heading itself if it appears multiple times
+    const lines = cleaned.split('\n');
+    const filtered = lines.filter((line, index) => {
+      const trimmed = line.trim();
+      const lower = trimmed.toLowerCase();
+
+      // Skip TOC heading duplicates (keep only if it's very first line)
+      const tocHeadings = [
+        'table of contents',
+        'inhaltsverzeichnis',
+        'table des matières',
+        'sommaire',
+        'tabella dei contenuti',
+        'índice',
+      ];
+
+      if (tocHeadings.some((heading) => lower.includes(heading))) {
+        // If it's short and looks like just the heading
+        if (trimmed.length < 50) {
+          return false; // Skip it, we add it ourselves
+        }
+      }
+
+      return true;
+    });
+
+    return filtered.join('\n');
+  }
+
+  // 4. NEW helper - is redundant TOC line?
+  private isRedundantTOCLine(line: string): boolean {
+    const lower = line.toLowerCase();
+
+    // Redundant TOC headings
+    const headings = [
+      'table of contents',
+      'inhaltsverzeichnis',
+      'table des matières',
+      'sommaire',
+      'tabella dei contenuti',
+      'índice',
+    ];
+
+    if (headings.some((h) => lower.includes(h)) && line.length < 50) {
+      return true;
+    }
+
+    // Other redundant patterns
+    if (line.length < 2) return true;
+    if (/^[^\w\s]+$/.test(line)) return true;
+    if (/^\d+$/.test(line)) return true;
+
+    return false;
+  }
+
+  // 5. NEW helper - is chapter heading?
+  private isChapterHeading(line: string): boolean {
+    // Match "Chapter 1", "Kapitel 1", "Chapitre 1", "Capitolo 1", "Capítulo 1"
+    return /^(Chapter|Kapitel|Chapitre|Capitolo|Capítulo)\s+\d+$/i.test(line);
   }
 
   private async downloadImageWithRetry(

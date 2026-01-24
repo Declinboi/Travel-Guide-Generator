@@ -75,23 +75,21 @@ export class PdfService {
         this.addTitlePage(doc, title, subtitle, author);
 
         const copyrightChapter = chapters.find((c) =>
-          c.title.toLowerCase().includes('copyright'),
+          this.isCopyrightChapter(c.title),
         );
         if (copyrightChapter) {
           doc.addPage();
           this.addCopyrightPage(doc, copyrightChapter.content);
         }
 
-        const aboutChapter = chapters.find((c) =>
-          c.title.toLowerCase().includes('about'),
-        );
+        const aboutChapter = chapters.find((c) => this.isAboutChapter(c.title));
         if (aboutChapter) {
           doc.addPage();
           this.addAboutPage(doc, aboutChapter.content);
         }
 
         const tocChapter = chapters.find((c) =>
-          c.title.toLowerCase().includes('table'),
+          this.isTableOfContentsChapter(c.title),
         );
         if (tocChapter) {
           doc.addPage();
@@ -105,11 +103,13 @@ export class PdfService {
 
         for (let i = 0; i < mainChapters.length; i++) {
           const chapter = mainChapters[i];
-          const chapterNumber = chapter.order - 3;
+
+          // Calculate proper chapter number (starting from 1)
+          const chapterNumber = i + 1;
 
           doc.addPage();
 
-          // ✅ Add chapter number and title ONLY for content chapters
+          // Add chapter number and title for content chapters
           this.addChapterTitle(doc, chapter.title, chapterNumber);
 
           const chapterImages = images
@@ -183,17 +183,81 @@ export class PdfService {
     });
   }
 
+  private isCopyrightChapter(title: string): boolean {
+    const copyrightKeywords = [
+      'copyright',
+      'urheberrecht',
+      "droit d'auteur",
+      "diritto d'autore",
+      'derechos de autor',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return copyrightKeywords.some((keyword) => lowerTitle.includes(keyword));
+  }
+
+  private isAboutChapter(title: string): boolean {
+    const aboutKeywords = [
+      'about book',
+      'about the',
+      'über das buch',
+      'über dieses buch',
+      'à propos',
+      'informazioni su book',
+      'sul libro',
+      'sobre el libro',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return aboutKeywords.some((keyword) => lowerTitle.includes(keyword));
+  }
+
+  private isTableOfContentsChapter(title: string): boolean {
+    const tocKeywords = [
+      'table of contents',
+      'inhaltsverzeichnis',
+      'table des matières',
+      'sommaire',
+      'tabella dei contenuti',
+      'índice',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return tocKeywords.some((keyword) => lowerTitle.includes(keyword));
+  }
+
   // ✅ NEW: Helper to identify front matter
   private isFrontMatterChapter(title: string): boolean {
     const frontMatterTitles = [
+      // English
       'title page',
       'copyright',
       'about book',
       'table of contents',
+      // German
+      'titelseite',
+      'urheberrecht',
+      'über das buch',
+      'inhaltsverzeichnis',
+      // French
+      'titre page',
+      'page de titre',
+      "droit d'auteur",
+      'à propos',
+      'sommaire',
+      'table des matières',
+      // Italian
+      'pagina titolo',
+      "diritto d'autore",
+      'informazioni su book',
+      'tabella dei contenuti',
+      'sommario',
+      // Spanish (if needed)
+      'página de título',
+      'derechos de autor',
+      'sobre el libro',
+      'índice',
     ];
-    return frontMatterTitles.some((fm) =>
-      title.toLowerCase().includes(fm.toLowerCase()),
-    );
+
+    const lowerTitle = title.toLowerCase();
+    return frontMatterTitles.some((fm) => lowerTitle.includes(fm));
   }
 
   private addTitlePage(
@@ -242,24 +306,14 @@ export class PdfService {
     doc.fontSize(16).font('Helvetica-Bold').text('About Book', 50, 50);
     doc.moveDown(1);
 
-    const cleanedContent = this.cleanContent(content);
+    const cleanedContent = this.cleanFrontMatterContent(content);
     const paragraphs = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     paragraphs.forEach((para, index) => {
-      const trimmed = para.trim();
-
-      // Skip if it's the "About Book" heading
-      if (
-        trimmed.toLowerCase().includes('about this book') &&
-        trimmed.length < 30
-      ) {
-        return;
-      }
-
       doc
         .fontSize(11)
         .font('Helvetica')
-        .text(trimmed, {
+        .text(para.trim(), {
           width: doc.page.width - 100,
           align: 'left',
           lineGap: 5,
@@ -287,27 +341,19 @@ export class PdfService {
 
     doc.moveDown(1);
 
-    const cleanedContent = this.cleanContent(content);
+    const cleanedContent = this.cleanTableOfContents(content);
     const lines = cleanedContent.split('\n').filter((l) => l.trim());
 
-    lines.forEach((line, index) => {
+    lines.forEach((line) => {
       const trimmed = line.trim();
 
-      // Skip the heading itself
-      if (
-        trimmed.toLowerCase().includes('table of contents') &&
-        trimmed.length < 30
-      ) {
+      // Skip empty or redundant lines
+      if (!trimmed || this.isRedundantTOCLine(trimmed)) {
         return;
       }
 
-      if (!trimmed) {
-        doc.moveDown(0.5);
-        return;
-      }
-
-      // Chapter headings (e.g., "Chapter 1")
-      if (trimmed.match(/^Chapter \d+$/i)) {
+      // Chapter headings (e.g., "Chapter 1", "Kapitel 1", etc.)
+      if (this.isChapterHeading(trimmed)) {
         doc.moveDown(0.8);
         doc
           .fontSize(12)
@@ -315,8 +361,9 @@ export class PdfService {
           .fillColor('#2C3E50')
           .text(trimmed, leftMargin, doc.y, {
             continued: false,
+            align: 'center',
           });
-        doc.fillColor('#000000'); // Reset color
+        doc.fillColor('#000000');
         doc.moveDown(0.3);
         return;
       }
@@ -330,6 +377,7 @@ export class PdfService {
           .text(trimmed, indent, doc.y, {
             continued: false,
             width: contentWidth - 20,
+            align: 'center',
           });
         doc.moveDown(0.4);
         return;
@@ -345,8 +393,9 @@ export class PdfService {
           .text(trimmed.trim(), indent, doc.y, {
             continued: false,
             width: contentWidth - 40,
+            align: 'center',
           });
-        doc.fillColor('#000000'); // Reset color
+        doc.fillColor('#000000');
         doc.moveDown(0.3);
         return;
       }
@@ -360,9 +409,10 @@ export class PdfService {
         .text(trimmed.trim(), indent, doc.y, {
           continued: false,
           width: contentWidth - 60,
+          align: 'center',
         });
-      doc.fillColor('#000000'); // Reset color
-      doc.moveDown(0.25);
+      doc.fillColor('#000000');
+      doc.moveDown(0.5);
     });
   }
 
@@ -373,11 +423,15 @@ export class PdfService {
   ): void {
     const cleanTitle = this.cleanText(title);
 
-    doc.fontSize(20).font('Helvetica-Bold').text(`Chapter ${chapterNumber}`, {
-      align: 'center',
-    });
-    doc.moveDown(1);
+    // Only show "Chapter X" for actual content chapters (chapterNumber > 0)
+    if (chapterNumber > 0) {
+      doc.fontSize(20).font('Helvetica-Bold').text(`Chapter ${chapterNumber}`, {
+        align: 'center',
+      });
+      doc.moveDown(1);
+    }
 
+    // Always show the chapter title
     doc.fontSize(20).font('Helvetica-Bold').text(cleanTitle, {
       align: 'center',
     });
@@ -397,56 +451,14 @@ export class PdfService {
       const trimmed = section.trim();
       const lowerTrimmed = trimmed.toLowerCase();
 
-      // Skip chapter titles that are already added
-      if (trimmed.match(/^Chapter \d+$/i)) {
-        return;
-      }
-
-      // Skip chapter title text that matches the header
+      // Skip various redundant content
       if (
-        trimmed.length < 100 &&
-        trimmed.toLowerCase().startsWith('chapter ') &&
-        trimmed.split(' ').length <= 15
+        this.shouldSkipSection(trimmed, lowerTrimmed, bookTitle, bookSubtitle)
       ) {
         return;
       }
 
-      // Skip book title if it appears in content
-      if (bookTitle && lowerTrimmed === bookTitle.toLowerCase()) {
-        return;
-      }
-
-      // Skip book subtitle if it appears in content
-      if (bookSubtitle && lowerTrimmed === bookSubtitle.toLowerCase()) {
-        return;
-      }
-
-      // Skip if it looks like title/subtitle (short, all caps or title case, no period)
-      if (
-        trimmed.length < 150 &&
-        !trimmed.includes('.') &&
-        trimmed.split(' ').length <= 15 &&
-        (trimmed === trimmed.toUpperCase() || this.isTitleCase(trimmed))
-      ) {
-        // Check if it closely matches title or subtitle
-        if (
-          bookTitle &&
-          this.similarText(lowerTrimmed, bookTitle.toLowerCase())
-        ) {
-          return;
-        }
-        if (
-          bookSubtitle &&
-          this.similarText(lowerTrimmed, bookSubtitle.toLowerCase())
-        ) {
-          return;
-        }
-      }
-
-      const isHeader =
-        trimmed.length < 100 &&
-        !trimmed.includes('.') &&
-        trimmed.split(' ').length <= 10;
+      const isHeader = this.isHeaderSection(trimmed);
 
       if (isHeader) {
         doc.fontSize(14).font('Helvetica-Bold').text(trimmed, {
@@ -465,6 +477,70 @@ export class PdfService {
         }
       }
     });
+  }
+
+  // 5. NEW helper method - should skip section?
+  private shouldSkipSection(
+    trimmed: string,
+    lowerTrimmed: string,
+    bookTitle?: string,
+    bookSubtitle?: string,
+  ): boolean {
+    // Skip if it's a redundant line
+    if (this.isRedundantLine(trimmed)) return true;
+
+    // Skip chapter number lines
+    if (/^Chapter\s+\d+$/i.test(trimmed)) return true;
+    if (/^Kapitel\s+\d+$/i.test(trimmed)) return true;
+    if (/^Chapitre\s+\d+$/i.test(trimmed)) return true;
+    if (/^Capitolo\s+\d+$/i.test(trimmed)) return true;
+
+    // Skip chapter title text that matches the header
+    if (
+      trimmed.length < 100 &&
+      /^(Chapter|Kapitel|Chapitre|Capitolo)\s+\d+/i.test(trimmed) &&
+      trimmed.split(' ').length <= 15
+    ) {
+      return true;
+    }
+
+    // Skip book title/subtitle if they appear in content
+    if (bookTitle && lowerTrimmed === bookTitle.toLowerCase()) return true;
+    if (bookSubtitle && lowerTrimmed === bookSubtitle.toLowerCase())
+      return true;
+
+    // Skip title-like content
+    if (
+      trimmed.length < 150 &&
+      !trimmed.includes('.') &&
+      trimmed.split(' ').length <= 15 &&
+      (trimmed === trimmed.toUpperCase() || this.isTitleCase(trimmed))
+    ) {
+      if (
+        bookTitle &&
+        this.similarText(lowerTrimmed, bookTitle.toLowerCase())
+      ) {
+        return true;
+      }
+      if (
+        bookSubtitle &&
+        this.similarText(lowerTrimmed, bookSubtitle.toLowerCase())
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // 6. NEW helper method - is header section?
+  private isHeaderSection(trimmed: string): boolean {
+    return (
+      trimmed.length < 100 &&
+      !trimmed.includes('.') &&
+      trimmed.split(' ').length <= 10 &&
+      trimmed.split(' ').length > 0
+    );
   }
 
   // Helper method to check if text is in Title Case
@@ -511,7 +587,7 @@ export class PdfService {
   }
 
   private addCopyrightPage(doc: PDFKit.PDFDocument, content: string): void {
-    const cleanedContent = this.cleanContent(content);
+    const cleanedContent = this.cleanFrontMatterContent(content);
 
     doc
       .fontSize(11)
@@ -709,7 +785,7 @@ export class PdfService {
     let imageBuffer: Buffer | null = null;
 
     try {
-      doc.fontSize(16).font('Helvetica-Bold').text('Geographical Map', {
+      doc.fontSize(20).font('Helvetica-Bold').text('Geographical Map', {
         align: 'center',
       });
       doc.moveDown(0.5);
@@ -752,26 +828,18 @@ export class PdfService {
   private addPageNumber(doc: PDFKit.PDFDocument, pageNumber: number): void {
     const pageHeight = doc.page.height;
     const pageWidth = doc.page.width;
-    const bottomMargin = doc.page.margins.bottom;
+    const yPosition = pageHeight - 30; // Fixed positioning
 
-    // Save current state
-    doc.save();
-
-    // Position at bottom center
-    const y = pageHeight - bottomMargin + 20; // 20 points above bottom margin
-
-    doc.fontSize(10).font('Helvetica').fillColor('#000000').text(
-      pageNumber.toString(),
-      0, // Start from left edge
-      y,
-      {
+    doc
+      .fontSize(10)
+      .font('Helvetica')
+      .fillColor('#666666') // Subtle gray like DOCX
+      .text(pageNumber.toString(), 0, yPosition, {
         align: 'center',
-        width: pageWidth, // Full page width for centering
-      },
-    );
+        width: pageWidth,
+      });
 
-    // Restore state
-    doc.restore();
+    doc.fillColor('#000000'); // Reset to black
   }
 
   private sanitizeFilename(filename: string): string {
@@ -791,7 +859,8 @@ export class PdfService {
   private cleanText(text: string): string {
     if (!text) return '';
 
-    return text
+    let cleaned = text
+      // Remove markdown
       .replace(/\*\*(.+?)\*\*/g, '$1')
       .replace(/__(.+?)__/g, '$1')
       .replace(/\*(.+?)\*/g, '$1')
@@ -799,19 +868,239 @@ export class PdfService {
       .replace(/^#+\s+/gm, '')
       .replace(/~~(.+?)~~/g, '$1')
       .replace(/`(.+?)`/g, '$1')
+      // Remove special characters
+      .replace(/[•■□●○◆◇]/g, '') // Bullets
+      .replace(/[–—]/g, '-') // Em/en dashes to hyphen
+      .replace(/[""]/g, '"') // Smart quotes to regular
+      .replace(/['']/g, "'") // Smart apostrophes to regular
+      // Clean up whitespace
       .replace(/\s+/g, ' ')
       .trim();
+
+    return cleaned;
   }
 
   private cleanContent(content: string): string {
     if (!content) return '';
 
-    const paragraphs = content.split('\n\n');
+    let cleaned = content;
+
+    // Remove markdown formatting
+    cleaned = cleaned
+      .replace(/\*\*(.+?)\*\*/g, '$1') // Bold
+      .replace(/__(.+?)__/g, '$1') // Bold underscore
+      .replace(/\*(.+?)\*/g, '$1') // Italic
+      .replace(/_(.+?)_/g, '$1') // Italic underscore
+      .replace(/^#+\s+/gm, '') // Headers
+      .replace(/~~(.+?)~~/g, '$1') // Strikethrough
+      .replace(/`(.+?)`/g, '$1'); // Code
+
+    // Remove redundant chapter references
+    cleaned = this.removeRedundantChapterReferences(cleaned);
+
+    // Clean up paragraphs
+    const paragraphs = cleaned.split('\n\n');
     const cleanedParagraphs = paragraphs
       .map((para) => this.cleanText(para))
-      .filter((para) => para.length > 0);
+      .filter((para) => para.length > 0)
+      .filter((para) => !this.isRedundantLine(para));
 
     return cleanedParagraphs.join('\n\n');
+  }
+
+  // 2. NEW method to remove redundant chapter references
+  private removeRedundantChapterReferences(content: string): string {
+    // Remove lines that are just chapter headings repeated in content
+    const lines = content.split('\n');
+    const filtered = lines.filter((line, index) => {
+      const trimmed = line.trim();
+
+      // Skip empty lines
+      if (!trimmed) return true;
+
+      // Remove standalone "Chapter X" lines
+      if (/^Chapter\s+\d+$/i.test(trimmed)) return false;
+      if (/^Kapitel\s+\d+$/i.test(trimmed)) return false; // German
+      if (/^Chapitre\s+\d+$/i.test(trimmed)) return false; // French
+      if (/^Capitolo\s+\d+$/i.test(trimmed)) return false; // Italian
+      if (/^Capítulo\s+\d+$/i.test(trimmed)) return false; // Spanish
+
+      // Remove lines like "Chapter 1 Introduction: Title"
+      if (
+        /^Chapter\s+\d+\s+[A-Z]/i.test(trimmed) &&
+        trimmed.split(' ').length <= 10
+      ) {
+        return false;
+      }
+
+      // Remove lines that look like repeated chapter titles at start of content
+      if (
+        index < 5 &&
+        trimmed.length < 100 &&
+        !trimmed.includes('.') &&
+        trimmed.split(' ').length <= 15
+      ) {
+        // Likely a repeated title
+        return false;
+      }
+
+      return true;
+    });
+
+    return filtered.join('\n');
+  }
+
+  // 3. NEW method to identify redundant lines
+  private isRedundantLine(text: string): boolean {
+    const trimmed = text.trim();
+
+    // Empty or very short
+    if (trimmed.length < 3) return true;
+
+    // Just punctuation
+    if (/^[^\w\s]+$/.test(trimmed)) return true;
+
+    // Repeated markdown syntax leftovers
+    if (/^[\*_#`~-]+$/.test(trimmed)) return true;
+
+    // Lines with only numbers
+    if (/^\d+$/.test(trimmed)) return true;
+
+    // Common redundant phrases in multiple languages
+    const redundantPhrases = [
+      // English
+      'chapter',
+      'table of contents',
+      'introduction',
+      // German
+      'kapitel',
+      'inhaltsverzeichnis',
+      'einführung',
+      // French
+      'chapitre',
+      'sommaire',
+      'table des matières',
+      // Italian
+      'capitolo',
+      'sommario',
+      'introduzione',
+      // Spanish
+      'capítulo',
+      'índice',
+      'introducción',
+    ];
+
+    const lower = trimmed.toLowerCase();
+
+    // If it's ONLY a redundant phrase (nothing else)
+    if (redundantPhrases.some((phrase) => lower === phrase)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private cleanFrontMatterContent(content: string): string {
+    const cleaned = this.cleanContent(content);
+    const paragraphs = cleaned.split('\n\n').filter((p) => p.trim());
+
+    return paragraphs
+      .filter((para) => {
+        const trimmed = para.trim();
+        const lower = trimmed.toLowerCase();
+
+        // Skip the heading itself if it appears in content
+        const frontMatterHeadings = [
+          'about this book',
+          'about book',
+          'about the',
+          'über dieses buch',
+          'über das buch',
+          'à propos du livre',
+          'à propos',
+          'informazioni su',
+          'sul libro',
+          'copyright',
+          'urheberrecht',
+          "droit d'auteur",
+          "diritto d'autore",
+        ];
+
+        if (
+          frontMatterHeadings.some((heading) => lower.includes(heading)) &&
+          trimmed.length < 50
+        ) {
+          return false;
+        }
+
+        // Keep everything else
+        return trimmed.length > 0;
+      })
+      .join('\n\n');
+  }
+
+  private cleanTableOfContents(content: string): string {
+    let cleaned = this.cleanContent(content);
+
+    // Remove the heading itself if it appears multiple times
+    const lines = cleaned.split('\n');
+    const filtered = lines.filter((line, index) => {
+      const trimmed = line.trim();
+      const lower = trimmed.toLowerCase();
+
+      // Skip TOC heading duplicates (keep only if it's very first line)
+      const tocHeadings = [
+        'table of contents',
+        'inhaltsverzeichnis',
+        'table des matières',
+        'sommaire',
+        'tabella dei contenuti',
+        'índice',
+      ];
+
+      if (tocHeadings.some((heading) => lower.includes(heading))) {
+        // If it's short and looks like just the heading
+        if (trimmed.length < 50) {
+          return false; // Skip it, we add it ourselves
+        }
+      }
+
+      return true;
+    });
+
+    return filtered.join('\n');
+  }
+
+  // 4. NEW helper - is redundant TOC line?
+  private isRedundantTOCLine(line: string): boolean {
+    const lower = line.toLowerCase();
+
+    // Redundant TOC headings
+    const headings = [
+      'table of contents',
+      'inhaltsverzeichnis',
+      'table des matières',
+      'sommaire',
+      'tabella dei contenuti',
+      'índice',
+    ];
+
+    if (headings.some((h) => lower.includes(h)) && line.length < 50) {
+      return true;
+    }
+
+    // Other redundant patterns
+    if (line.length < 2) return true;
+    if (/^[^\w\s]+$/.test(line)) return true;
+    if (/^\d+$/.test(line)) return true;
+
+    return false;
+  }
+
+  // 5. NEW helper - is chapter heading?
+  private isChapterHeading(line: string): boolean {
+    // Match "Chapter 1", "Kapitel 1", "Chapitre 1", "Capitolo 1", "Capítulo 1"
+    return /^(Chapter|Kapitel|Chapitre|Capitolo|Capítulo)\s+\d+$/i.test(line);
   }
 
   private async downloadImageWithRetry(

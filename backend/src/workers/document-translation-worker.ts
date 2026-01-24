@@ -99,7 +99,7 @@ log.log('✅ Services initialized');
 // ✅ Helper: Identify front matter chapters by title
 function isFrontMatter(title: string): boolean {
   const frontMatterTitles = [
-    'title page',
+    // 'title page',
     'copyright',
     'about book',
     'table of contents',
