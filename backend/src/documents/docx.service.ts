@@ -691,7 +691,7 @@ export class DocxService {
         paragraphs.push(
           new Paragraph({
             children: [new TextRun({ text: trimmed, bold: true, size: 28 })],
-            spacing: { before: 300, after: 240 },
+            spacing: { before: 100, after: 100 },
             alignment: AlignmentType.LEFT,
           }),
         );
@@ -699,7 +699,7 @@ export class DocxService {
         paragraphs.push(
           new Paragraph({
             children: [new TextRun({ text: trimmed, size: 22 })],
-            spacing: { after: 200 },
+            spacing: { after: 100 },
             alignment: AlignmentType.LEFT,
           }),
         );
