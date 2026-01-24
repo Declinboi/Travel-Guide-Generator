@@ -383,6 +383,22 @@ export class BookGenerationProcessor extends WorkerHost {
 
         if (project) {
           this.logger.log(`[${projectId}] Project found in database`);
+
+          // ✅ CHECK: If project is already COMPLETED or FAILED, don't process again
+          if (project.status === ProjectStatus.COMPLETED) {
+            this.logger.log(
+              `[${projectId}] Project already completed. Skipping retry.`,
+            );
+            throw new Error(`Project ${projectId} already completed`);
+          }
+
+          if (project.status === ProjectStatus.FAILED) {
+            this.logger.log(
+              `[${projectId}] Project already failed. Skipping retry.`,
+            );
+            throw new Error(`Project ${projectId} already failed`);
+          }
+
           return;
         }
 

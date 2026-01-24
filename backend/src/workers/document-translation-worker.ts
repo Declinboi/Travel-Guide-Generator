@@ -1,4 +1,4 @@
-// src/workers/document-translation-worker.ts - FIXED DUPLICATE ISSUE
+// src/workers/document-translation-worker.ts - FIXED FOR ACTUAL TRANSLATION ENTITY
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -18,6 +18,7 @@ import {
   DocumentStatus,
   JobType,
   JobStatus,
+  TranslationStatus,
 } from '../DB/entities/index';
 
 import { PdfService } from '../documents/pdf.service';
@@ -95,6 +96,19 @@ const redisCache = new RedisCacheService(configService);
 
 log.log('✅ Services initialized');
 
+// ✅ Helper: Identify front matter chapters by title
+function isFrontMatter(title: string): boolean {
+  const frontMatterTitles = [
+    'title page',
+    'copyright',
+    'about book',
+    'table of contents',
+  ];
+  return frontMatterTitles.some((fm) =>
+    title.toLowerCase().includes(fm.toLowerCase()),
+  );
+}
+
 const worker = new Worker(
   'document-translation',
   async (job) => {
@@ -109,6 +123,7 @@ const worker = new Worker(
       const db = await initializeDatabase();
       const projectRepo = db.getRepository(Project);
       const chapterRepo = db.getRepository(Chapter);
+      const translationRepo = db.getRepository(Translation);
       const documentRepo = db.getRepository(Document);
       const jobRepo = db.getRepository(Job);
 
@@ -170,46 +185,157 @@ const worker = new Worker(
       // Get project data
       const project = await projectRepo.findOne({
         where: { id: projectId },
-        relations: ['chapters', 'images'],
+        relations: ['images'],
       });
 
       if (!project) {
         throw new Error(`Project ${projectId} not found`);
       }
 
-      log.log(`Found project with ${project.chapters.length} chapters`);
+      // ✅ Get ALL source chapters in correct order
+      log.log(`Fetching ALL chapters for project ${projectId}...`);
+
+      const allSourceChapters = await chapterRepo.find({
+        where: { projectId },
+        order: { order: 'ASC' },
+      });
+
+      if (!allSourceChapters || allSourceChapters.length === 0) {
+        throw new Error(`No chapters found for project ${projectId}`);
+      }
+
+      log.log(`Found ${allSourceChapters.length} total chapters to translate`);
+
+      // ✅ Log chapter types for clarity
+      allSourceChapters.forEach((ch) => {
+        const chapterType = isFrontMatter(ch.title)
+          ? '[FRONT MATTER]'
+          : '[CHAPTER]';
+        log.log(`  ${chapterType} Order ${ch.order}: ${ch.title}`);
+      });
 
       await job.updateProgress(20);
 
-      // Translate metadata
-      log.log(`Translating metadata to ${targetLanguage}...`);
+      // ✅ Translate project metadata (title, subtitle)
+      log.log(`Translating project metadata to ${targetLanguage}...`);
       const translatedMetadata = await translationService.translateMetadata(
         project.title,
         project.subtitle,
         targetLanguage,
       );
 
-      await job.updateProgress(30);
+      await job.updateProgress(25);
 
-      // Translate chapters
-      log.log(
-        `Translating ${project.chapters.length} chapters to ${targetLanguage}...`,
-      );
-
-      const sortedChapters = [...project.chapters].sort(
-        (a, b) => a.order - b.order,
-      );
-
-      const translatedChapters = await translationService.translateChapters(
-        sortedChapters,
-        targetLanguage,
-        (current, total) => {
-          const progress = 30 + Math.floor((current / total) * 40);
-          job.updateProgress(progress);
+      // ✅ Check if translation already exists for this project and language
+      let existingTranslation = await translationRepo.findOne({
+        where: {
+          projectId,
+          language: targetLanguage,
         },
-      );
+      });
 
-      await job.updateProgress(70);
+      let allTranslatedChapters: Array<{
+        title: string;
+        content: string;
+        order: number;
+        isFrontMatter?: boolean;
+      }>;
+
+      if (
+        existingTranslation &&
+        existingTranslation.status === TranslationStatus.COMPLETED &&
+        existingTranslation.content
+      ) {
+        // ✅ Reuse existing translation
+        log.log(
+          `✅ Reusing existing ${targetLanguage} translation from database`,
+        );
+
+        const cachedChapters = existingTranslation.content as Array<{
+          title: string;
+          content: string;
+          order: number;
+        }>;
+
+        allTranslatedChapters = cachedChapters.map((chapter, index) => ({
+          ...chapter,
+          isFrontMatter: isFrontMatter(
+            allSourceChapters.find((sc) => sc.order === chapter.order)?.title ||
+              '',
+          ),
+        }));
+
+        log.log(
+          `Loaded ${allTranslatedChapters.length} translated chapters from cache`,
+        );
+        await job.updateProgress(70);
+      } else {
+        // ✅ Translate ALL chapters fresh
+        log.log(
+          `Translating ALL ${allSourceChapters.length} chapters from ${sourceLanguage} to ${targetLanguage}...`,
+        );
+
+        const translatedChaptersRaw =
+          await translationService.translateChapters(
+            allSourceChapters,
+            targetLanguage,
+            (current, total) => {
+              const progress = 25 + Math.floor((current / total) * 45);
+              job.updateProgress(progress);
+              log.log(`  Progress: ${current}/${total} chapters translated`);
+            },
+          );
+
+        // ✅ Add isFrontMatter flag to each translated chapter
+        allTranslatedChapters = translatedChaptersRaw.map(
+          (translated, index) => ({
+            ...translated,
+            isFrontMatter: isFrontMatter(allSourceChapters[index].title),
+          }),
+        );
+
+        // ✅ Save translation to database for future reuse
+        log.log(`Saving ${targetLanguage} translation to database...`);
+
+        if (existingTranslation) {
+          // Update existing translation
+          existingTranslation.title = translatedMetadata.title;
+          existingTranslation.subtitle = translatedMetadata.subtitle;
+          existingTranslation.content = allTranslatedChapters;
+          existingTranslation.status = TranslationStatus.COMPLETED;
+          existingTranslation.completedAt = new Date();
+          await translationRepo.save(existingTranslation);
+        } else {
+          // Create new translation
+          const newTranslation = translationRepo.create({
+            projectId,
+            language: targetLanguage,
+            title: translatedMetadata.title,
+            subtitle: translatedMetadata.subtitle,
+            content: allTranslatedChapters,
+            status: TranslationStatus.COMPLETED,
+            completedAt: new Date(),
+          });
+          await translationRepo.save(newTranslation);
+        }
+
+        log.log(`Translation saved to database for ${targetLanguage}`);
+        await job.updateProgress(70);
+      }
+
+      // ✅ Verify we have the same number of chapters
+      if (allTranslatedChapters.length !== allSourceChapters.length) {
+        log.error(
+          `⚠️  Translation mismatch: Expected ${allSourceChapters.length} chapters, got ${allTranslatedChapters.length}`,
+        );
+        throw new Error(
+          `Translation incomplete: ${allTranslatedChapters.length}/${allSourceChapters.length} chapters`,
+        );
+      }
+
+      log.log(
+        `✅ All ${allTranslatedChapters.length} chapters ready for document generation`,
+      );
 
       // Generate translated document
       log.log(`Generating ${type} document in ${targetLanguage}...`);
@@ -221,7 +347,7 @@ const worker = new Worker(
           translatedMetadata.title,
           translatedMetadata.subtitle,
           project.author,
-          translatedChapters,
+          allTranslatedChapters,
           project.images,
           redisCache,
         );
@@ -230,7 +356,7 @@ const worker = new Worker(
           translatedMetadata.title,
           translatedMetadata.subtitle,
           project.author,
-          translatedChapters,
+          allTranslatedChapters,
           project.images,
           redisCache,
         );
@@ -308,6 +434,7 @@ const worker = new Worker(
         documentId: document.id,
         filename: result.filename,
         url: cloudinaryResult.url,
+        totalChapters: allTranslatedChapters.length,
       };
       await jobRepo.save(jobRecord);
 

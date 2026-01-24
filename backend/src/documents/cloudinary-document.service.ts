@@ -7,6 +7,8 @@ import { Readable } from 'stream';
 @Injectable()
 export class CloudinaryDocumentService {
   private readonly logger = new Logger(CloudinaryDocumentService.name);
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY_MS = 1000;
 
   constructor(private configService: ConfigService) {
     cloudinary.config({
@@ -24,6 +26,56 @@ export class CloudinaryDocumentService {
    * @returns Cloudinary upload result with secure URL
    */
   async uploadDocument(
+    buffer: Buffer,
+    filename: string,
+    resourceType: 'raw' = 'raw',
+  ): Promise<{
+    url: string;
+    publicId: string;
+    size: number;
+    format: string;
+  }> {
+    let lastError: Error | undefined;
+
+    for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
+      try {
+        this.logger.log(
+          `Upload attempt ${attempt}/${this.MAX_RETRIES} for ${filename}`,
+        );
+
+        const result = await this.performUpload(buffer, filename, resourceType);
+
+        if (attempt > 1) {
+          this.logger.log(
+            `Upload succeeded on attempt ${attempt} for ${filename}`,
+          );
+        }
+
+        return result;
+      } catch (error) {
+        lastError = error as Error;
+        this.logger.warn(
+          `Upload attempt ${attempt}/${this.MAX_RETRIES} failed for ${filename}: ${error.message}`,
+        );
+
+        if (attempt < this.MAX_RETRIES) {
+          const delay = this.RETRY_DELAY_MS * attempt; // Exponential backoff
+          this.logger.log(`Retrying in ${delay}ms...`);
+          await this.sleep(delay);
+        }
+      }
+    }
+
+    this.logger.error(
+      `All ${this.MAX_RETRIES} upload attempts failed for ${filename}`,
+    );
+    throw lastError || new Error('Upload failed after all retry attempts');
+  }
+
+  /**
+   * Perform the actual upload operation
+   */
+  private async performUpload(
     buffer: Buffer,
     filename: string,
     resourceType: 'raw' = 'raw',
@@ -67,6 +119,13 @@ export class CloudinaryDocumentService {
       const stream = Readable.from(buffer);
       stream.pipe(uploadStream);
     });
+  }
+
+  /**
+   * Sleep helper for retry delays
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

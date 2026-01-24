@@ -129,15 +129,15 @@ export class ContentService {
       await this.jobRepository.save(job);
 
       // STEP 2: Generate front matter (15% progress)
-      this.logger.log('Step 2: Generating front matter...');
+      // this.logger.log('Step 2: Generating front matter...');
 
-      const titlePage = await this.geminiService.generateFrontMatter(
-        generateDto.title,
-        generateDto.subtitle || '',
-        generateDto.author,
-      );
+      // const titlePage = await this.geminiService.generateFrontMatter(
+      //   generateDto.title,
+      //   generateDto.subtitle || '',
+      //   generateDto.author,
+      // );
 
-      await this.saveChapter(projectId, 'Title Page', 0, titlePage);
+      // await this.saveChapter(projectId, 'Title Page', 0, titlePage);
 
       const copyright = await this.geminiService.generateCopyright(
         generateDto.author,

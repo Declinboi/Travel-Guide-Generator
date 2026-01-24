@@ -471,22 +471,22 @@ Write the complete Conclusion chapter now:`;
     return toc;
   }
 
-  async generateFrontMatter(
-    title: string,
-    subtitle: string,
-    author: string,
-  ): Promise<string> {
-    return `${title}
-${subtitle}
+//   async generateFrontMatter(
+//     title: string,
+//     subtitle: string,
+//     author: string,
+//   ): Promise<string> {
+//     return `${title}
+// ${subtitle}
 
 
-(Including a map at the Last Page)
+// (Including a map at the Last Page)
 
 
 
-By
-${author}`;
-  }
+// By
+// ${author}`;
+//   }
 
   async generateCopyright(author: string, year: number): Promise<string> {
     return `Copyright © 2026 ${author}. All rights reserved.

@@ -100,12 +100,7 @@ export class PdfService {
 
         // MAIN CONTENT
         const mainChapters = chapters
-          .filter(
-            (c) =>
-              !['title', 'copyright', 'about', 'table'].some((keyword) =>
-                c.title.toLowerCase().includes(keyword),
-              ),
-          )
+          .filter((c) => !this.isFrontMatterChapter(c.title))
           .sort((a, b) => a.order - b.order);
 
         for (let i = 0; i < mainChapters.length; i++) {
@@ -114,7 +109,7 @@ export class PdfService {
 
           doc.addPage();
 
-          // Add chapter number and title
+          // ✅ Add chapter number and title ONLY for content chapters
           this.addChapterTitle(doc, chapter.title, chapterNumber);
 
           const chapterImages = images
@@ -142,10 +137,9 @@ export class PdfService {
         // Add Map
         const mapImage = images.find((img) => img.isMap);
         if (mapImage) {
-          // Check if we need a new page for the map
           const mapHeight = 421.2;
           const titleHeight = 50;
-          const totalMapSpace = mapHeight + titleHeight + 100; // Extra padding
+          const totalMapSpace = mapHeight + titleHeight + 100;
 
           if (
             doc.y + totalMapSpace >
@@ -166,7 +160,6 @@ export class PdfService {
           this.addPageNumber(doc, i + 1);
         }
 
-        // CRITICAL FIX: Finalize the document
         this.logger.log('Finalizing PDF document...');
         hasEnded = true;
         doc.end();
@@ -188,6 +181,19 @@ export class PdfService {
         reject(error);
       }
     });
+  }
+
+  // ✅ NEW: Helper to identify front matter
+  private isFrontMatterChapter(title: string): boolean {
+    const frontMatterTitles = [
+      'title page',
+      'copyright',
+      'about book',
+      'table of contents',
+    ];
+    return frontMatterTitles.some((fm) =>
+      title.toLowerCase().includes(fm.toLowerCase()),
+    );
   }
 
   private addTitlePage(

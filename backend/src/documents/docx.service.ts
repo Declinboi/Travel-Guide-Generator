@@ -220,32 +220,57 @@ export class DocxService {
     bookSubtitle?: string,
   ): Promise<Paragraph[]> {
     const sections: Paragraph[] = [];
-    const chapterNumber = chapter.order - 3;
-    const cleanTitle = this.cleanText(chapter.title);
+
+    // ✅ FIX: Check if this is front matter
+    const isFrontMatter = this.isFrontMatterChapter(chapter.title);
 
     sections.push(new Paragraph({ text: '', pageBreakBefore: true }));
 
-    sections.push(
-      new Paragraph({
-        text: `Chapter ${chapterNumber}`,
-        alignment: AlignmentType.CENTER,
-        spacing: { before: 240, after: 240 },
-        children: [new TextRun({ text: `Chapter ${chapterNumber}`, size: 40 })],
-      }),
-    );
+    if (isFrontMatter) {
+      // ✅ For front matter: Just show the title, NO "Chapter X"
+      const cleanTitle = this.cleanText(chapter.title);
 
-    sections.push(
-      new Paragraph({
-        text: cleanTitle,
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 600 },
-        children: [new TextRun({ text: cleanTitle, bold: true, size: 40 })],
-      }),
-    );
+      sections.push(
+        new Paragraph({
+          text: cleanTitle,
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 240, after: 600 },
+          children: [new TextRun({ text: cleanTitle, bold: true, size: 40 })],
+        }),
+      );
+    } else {
+      // ✅ For content chapters: Show "Chapter X" + Title
+      const chapterNumber = chapter.order - 3;
+      const cleanTitle = this.cleanText(chapter.title);
 
-    const chapterImages = images
-      .filter((img) => img.chapterNumber === chapterNumber && !img.isMap)
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
+      sections.push(
+        new Paragraph({
+          text: `Chapter ${chapterNumber}`,
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 240, after: 240 },
+          children: [
+            new TextRun({ text: `Chapter ${chapterNumber}`, size: 40 }),
+          ],
+        }),
+      );
+
+      sections.push(
+        new Paragraph({
+          text: cleanTitle,
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 600 },
+          children: [new TextRun({ text: cleanTitle, bold: true, size: 40 })],
+        }),
+      );
+    }
+
+    const chapterImages = isFrontMatter
+      ? []
+      : images
+          .filter(
+            (img) => img.chapterNumber === chapter.order - 3 && !img.isMap,
+          )
+          .sort((a, b) => (a.position || 0) - (b.position || 0));
 
     if (chapterImages.length > 0) {
       const contentSections = await this.createContentWithImages(
@@ -268,6 +293,19 @@ export class DocxService {
     }
 
     return sections;
+  }
+
+  // ✅ NEW: Helper to identify front matter
+  private isFrontMatterChapter(title: string): boolean {
+    const frontMatterTitles = [
+      'title page',
+      'copyright',
+      'about book',
+      'table of contents',
+    ];
+    return frontMatterTitles.some((fm) =>
+      title.toLowerCase().includes(fm.toLowerCase()),
+    );
   }
 
   private async createContentWithImages(

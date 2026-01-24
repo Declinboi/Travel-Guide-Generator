@@ -44,7 +44,7 @@ export class BookGenerationQueue {
           count: 100, // Keep last 100 completed jobs
         },
         removeOnFail: false, // Keep failed jobs for debugging
-        attempts: 3,
+        // attempts: 3,
         backoff: {
           type: 'exponential',
           delay: 5000,
