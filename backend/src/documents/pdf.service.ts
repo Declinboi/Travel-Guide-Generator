@@ -158,13 +158,7 @@ export class PdfService {
         for (let i = 0; i < totalPages; i++) {
           doc.switchToPage(i);
 
-          // Save the current Y position before adding page number
-          const savedY = doc.y;
-
           this.addPageNumber(doc, i + 1);
-
-          // Restore the Y position to prevent affecting page flow
-          doc.y = savedY;
         }
 
         this.logger.log('Finalizing PDF document...');
@@ -849,9 +843,12 @@ export class PdfService {
   }
 
   private addPageNumber(doc: PDFKit.PDFDocument, pageNumber: number): void {
-    const pageHeight = doc.page.height;
-    const pageWidth = doc.page.width;
-    const yPosition = pageHeight - 30; // Fixed positioning
+    const pageHeight = doc.page.height; // 648
+    const pageWidth = doc.page.width; // 432
+
+    // Place page number OUTSIDE the bottom margin (below content area)
+    // Position it between the content area and the physical page edge
+    const yPosition = pageHeight - 50; // 50 points from bottom edge (well outside the 79pt margin)
 
     // Save current state
     const currentY = doc.y;
@@ -863,12 +860,13 @@ export class PdfService {
       .text(pageNumber.toString(), 0, yPosition, {
         align: 'center',
         width: pageWidth,
-        lineBreak: false, // ADD THIS - prevents new page creation
+        lineBreak: false,
+        baseline: 'top', // Ensures text starts exactly at yPosition
       });
 
     doc.fillColor('#000000');
 
-    // Restore Y position so page number doesn't affect layout
+    // Restore Y position
     doc.y = currentY;
   }
 
