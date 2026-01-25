@@ -731,11 +731,18 @@ export class DocxService {
     bookSubtitle?: string,
   ): Paragraph[] {
     const paragraphs: Paragraph[] = [];
+    // Use aggressive cleaning
     const cleanedContent = this.cleanContent(content);
     const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
 
     sections.forEach((section) => {
-      const trimmed = section.trim();
+      let trimmed = section.trim();
+
+      // Additional cleaning pass
+      trimmed = trimmed.replace(/[*_~`#\[\]{}|^]/g, '');
+      trimmed = trimmed.replace(/  +/g, ' ');
+      trimmed = trimmed.trim();
+
       const lowerTrimmed = trimmed.toLowerCase();
 
       // Skip various redundant content
@@ -950,53 +957,250 @@ export class DocxService {
   private cleanText(text: string): string {
     if (!text) return '';
 
-    let cleaned = text
-      // Remove markdown
-      .replace(/\*\*(.+?)\*\*/g, '$1')
-      .replace(/__(.+?)__/g, '$1')
-      .replace(/\*(.+?)\*/g, '$1')
-      .replace(/_(.+?)_/g, '$1')
-      .replace(/^#+\s+/gm, '')
-      .replace(/~~(.+?)~~/g, '$1')
-      .replace(/`(.+?)`/g, '$1')
-      // Remove special characters
-      .replace(/[•■□●○◆◇]/g, '') // Bullets
-      .replace(/[–—]/g, '-') // Em/en dashes to hyphen
-      .replace(/[""]/g, '"') // Smart quotes to regular
-      .replace(/['']/g, "'") // Smart apostrophes to regular
-      // Clean up whitespace
-      .replace(/\s+/g, ' ')
-      .trim();
+    let cleaned = text;
+
+    // ==========================================
+    // STEP 1: Remove ALL Markdown Syntax
+    // ==========================================
+
+    // Bold: **text** or __text__
+    cleaned = cleaned.replace(/\*\*\*(.+?)\*\*\*/g, '$1'); // Triple asterisk (bold+italic)
+    cleaned = cleaned.replace(/\*\*(.+?)\*\*/g, '$1'); // Double asterisk (bold)
+    cleaned = cleaned.replace(/___(.+?)___/g, '$1'); // Triple underscore
+    cleaned = cleaned.replace(/__(.+?)__/g, '$1'); // Double underscore (bold)
+
+    // Italic: *text* or _text_
+    cleaned = cleaned.replace(/\*(.+?)\*/g, '$1'); // Single asterisk (italic)
+    cleaned = cleaned.replace(/_(.+?)_/g, '$1'); // Single underscore (italic)
+
+    // Strikethrough: ~~text~~
+    cleaned = cleaned.replace(/~~(.+?)~~/g, '$1');
+
+    // Code: `text` or ```text```
+    cleaned = cleaned.replace(/```[\s\S]*?```/g, ''); // Code blocks
+    cleaned = cleaned.replace(/`(.+?)`/g, '$1'); // Inline code
+
+    // Headers: # ## ### #### ##### ######
+    cleaned = cleaned.replace(/^#{1,6}\s+/gm, '');
+
+    // Links: [text](url) or [text][ref]
+    cleaned = cleaned.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1'); // [text](url)
+    cleaned = cleaned.replace(/\[([^\]]+)\]\[[^\]]+\]/g, '$1'); // [text][ref]
+
+    // Images: ![alt](url)
+    cleaned = cleaned.replace(/!\[([^\]]*)\]\([^\)]+\)/g, '');
+
+    // Horizontal rules: --- or *** or ___
+    cleaned = cleaned.replace(/^(\*{3,}|-{3,}|_{3,})$/gm, '');
+
+    // Blockquotes: > text
+    cleaned = cleaned.replace(/^>\s+/gm, '');
+
+    // Lists: - item or * item or + item or 1. item
+    cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // Unordered lists
+    cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Ordered lists
+
+    // ==========================================
+    // STEP 2: Remove Special Characters & Symbols
+    // ==========================================
+
+    // Remove leftover asterisks (not caught by regex)
+    cleaned = cleaned.replace(/\*+/g, '');
+
+    // Remove leftover underscores (not caught by regex)
+    cleaned = cleaned.replace(/_{2,}/g, '');
+
+    // Remove HTML tags if any
+    cleaned = cleaned.replace(/<[^>]*>/g, '');
+
+    // Remove bullet points and special list markers
+    cleaned = cleaned.replace(/[•●○◦■□▪▫]/g, '');
+
+    // Replace smart quotes with regular quotes
+    cleaned = cleaned.replace(/[""]/g, '"');
+    cleaned = cleaned.replace(/['']/g, "'");
+
+    // Replace em dashes and en dashes with regular hyphen
+    cleaned = cleaned.replace(/[–—]/g, '-');
+
+    // Remove ellipsis character
+    cleaned = cleaned.replace(/…/g, '...');
+
+    // Remove zero-width spaces and other invisible characters
+    cleaned = cleaned.replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+    // Remove multiple hyphens/dashes
+    cleaned = cleaned.replace(/-{2,}/g, '-');
+
+    // ==========================================
+    // STEP 3: Clean Up Whitespace
+    // ==========================================
+
+    // Replace multiple spaces with single space
+    cleaned = cleaned.replace(/  +/g, ' ');
+
+    // Replace multiple newlines with single newline
+    cleaned = cleaned.replace(/\n\n+/g, '\n\n');
+
+    // Remove spaces at start/end of lines
+    cleaned = cleaned.replace(/^[ \t]+|[ \t]+$/gm, '');
+
+    // Final trim
+    cleaned = cleaned.trim();
 
     return cleaned;
   }
 
+  /**
+   * AGGRESSIVE cleanContent - cleans entire content blocks
+   * Use this to replace the existing cleanContent method
+   */
   private cleanContent(content: string): string {
+    if (!content) return '';
+
+    // First pass - aggressive cleaning
+    let cleaned = content;
+
+    // ==========================================
+    // REMOVE ALL MARKDOWN FORMATTING
+    // ==========================================
+
+    // Bold variations
+    cleaned = cleaned.replace(/\*\*\*(.+?)\*\*\*/g, '$1');
+    cleaned = cleaned.replace(/\*\*(.+?)\*\*/g, '$1');
+    cleaned = cleaned.replace(/___(.+?)___/g, '$1');
+    cleaned = cleaned.replace(/__(.+?)__/g, '$1');
+
+    // Italic variations
+    cleaned = cleaned.replace(/\*(.+?)\*/g, '$1');
+    cleaned = cleaned.replace(/_(.+?)_/g, '$1');
+
+    // Other markdown
+    cleaned = cleaned.replace(/~~(.+?)~~/g, '$1'); // Strikethrough
+    cleaned = cleaned.replace(/`(.+?)`/g, '$1'); // Inline code
+    cleaned = cleaned.replace(/```[\s\S]*?```/g, ''); // Code blocks
+    cleaned = cleaned.replace(/^#{1,6}\s+/gm, ''); // Headers
+    cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // List items
+    cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Numbered lists
+    cleaned = cleaned.replace(/^>\s+/gm, ''); // Blockquotes
+
+    // Links and images
+    cleaned = cleaned.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+    cleaned = cleaned.replace(/!\[([^\]]*)\]\([^\)]+\)/g, '');
+
+    // ==========================================
+    // REMOVE LEFTOVER SYMBOLS
+    // ==========================================
+
+    // Remove any remaining asterisks
+    cleaned = cleaned.replace(/\*+/g, '');
+
+    // Remove any remaining underscores (but keep single underscores in words)
+    cleaned = cleaned.replace(/_{2,}/g, '');
+    cleaned = cleaned.replace(/\s_\s/g, ' ');
+    cleaned = cleaned.replace(/^_|_$/gm, '');
+
+    // Remove bullets and special characters
+    cleaned = cleaned.replace(/[•●○◦■□▪▫◆◇]/g, '');
+
+    // Replace smart quotes
+    cleaned = cleaned.replace(/[""]/g, '"');
+    cleaned = cleaned.replace(/['']/g, "'");
+
+    // Replace dashes
+    cleaned = cleaned.replace(/[–—]/g, '-');
+    cleaned = cleaned.replace(/-{2,}/g, '-');
+
+    // Remove HTML tags
+    cleaned = cleaned.replace(/<[^>]*>/g, '');
+
+    // ==========================================
+    // CLEAN UP CHAPTER REFERENCES
+    // ==========================================
+
+    cleaned = this.removeRedundantChapterReferences(cleaned);
+
+    // ==========================================
+    // PROCESS PARAGRAPHS
+    // ==========================================
+
+    const paragraphs = cleaned.split('\n\n');
+    const cleanedParagraphs = paragraphs
+      .map((para) => {
+        // Clean each paragraph individually
+        let cleanPara = this.cleanText(para);
+
+        // Additional aggressive cleaning for persistent symbols
+        cleanPara = cleanPara.replace(/[*_~`#]/g, ''); // Remove any remaining markdown chars
+        cleanPara = cleanPara.replace(/\[|\]/g, ''); // Remove brackets
+        cleanPara = cleanPara.replace(/\{|\}/g, ''); // Remove braces
+
+        return cleanPara;
+      })
+      .filter((para) => {
+        // Filter out empty or redundant paragraphs
+        const trimmed = para.trim();
+        if (!trimmed) return false;
+        if (trimmed.length < 3) return false;
+        if (this.isRedundantLine(trimmed)) return false;
+        return true;
+      });
+
+    return cleanedParagraphs.join('\n\n');
+  }
+
+  /**
+   * Special cleaning for last chapter or any problematic chapter
+   * Call this specifically for chapters that still have issues
+   */
+  private deepCleanChapterContent(content: string): string {
     if (!content) return '';
 
     let cleaned = content;
 
-    // Remove markdown formatting
-    cleaned = cleaned
-      .replace(/\*\*(.+?)\*\*/g, '$1') // Bold
-      .replace(/__(.+?)__/g, '$1') // Bold underscore
-      .replace(/\*(.+?)\*/g, '$1') // Italic
-      .replace(/_(.+?)_/g, '$1') // Italic underscore
-      .replace(/^#+\s+/gm, '') // Headers
-      .replace(/~~(.+?)~~/g, '$1') // Strikethrough
-      .replace(/`(.+?)`/g, '$1'); // Code
+    // ==========================================
+    // NUCLEAR OPTION - Remove ALL special chars
+    // ==========================================
 
-    // Remove redundant chapter references
-    cleaned = this.removeRedundantChapterReferences(cleaned);
+    // Step 1: Clean markdown aggressively
+    cleaned = this.cleanContent(cleaned);
 
-    // Clean up paragraphs
-    const paragraphs = cleaned.split('\n\n');
-    const cleanedParagraphs = paragraphs
-      .map((para) => this.cleanText(para))
-      .filter((para) => para.length > 0)
-      .filter((para) => !this.isRedundantLine(para));
+    // Step 2: Remove any remaining special characters
+    const lines = cleaned.split('\n');
+    const superCleanLines = lines.map((line) => {
+      let cleanLine = line;
 
-    return cleanedParagraphs.join('\n\n');
+      // Remove ALL asterisks
+      cleanLine = cleanLine.replace(/\*/g, '');
+
+      // Remove ALL underscores (except in middle of words)
+      cleanLine = cleanLine.replace(/(?<!\w)_|_(?!\w)/g, '');
+
+      // Remove ALL tildes
+      cleanLine = cleanLine.replace(/~/g, '');
+
+      // Remove ALL backticks
+      cleanLine = cleanLine.replace(/`/g, '');
+
+      // Remove ALL hashes (except in hashtags/numbers)
+      cleanLine = cleanLine.replace(/(?<!\w)#|#(?!\w)/g, '');
+
+      // Remove brackets and braces
+      cleanLine = cleanLine.replace(/[\[\]\{\}]/g, '');
+
+      // Remove pipes
+      cleanLine = cleanLine.replace(/\|/g, '');
+
+      // Remove carets
+      cleanLine = cleanLine.replace(/\^/g, '');
+
+      // Clean up multiple spaces
+      cleanLine = cleanLine.replace(/  +/g, ' ');
+
+      return cleanLine.trim();
+    });
+
+    return superCleanLines.filter((line) => line.length > 0).join('\n');
   }
 
   // 2. NEW method to remove redundant chapter references
