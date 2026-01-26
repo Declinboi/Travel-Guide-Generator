@@ -19,6 +19,10 @@ export class PdfService {
         'assets/fonts/PlayfairDisplay-Regular.ttf',
       ),
       bold: path.join(process.cwd(), 'assets/fonts/PlayfairDisplay-Bold.ttf'),
+      extrabold: path.join(
+        process.cwd(),
+        'assets/fonts/PlayfairDisplay-ExtraBold.ttf',
+      ),
     },
     body: {
       regular: path.join(process.cwd(), 'assets/fonts/Lora-Regular.ttf'),
@@ -69,6 +73,7 @@ export class PdfService {
         try {
           doc.registerFont('TitleRegular', this.FONTS.title.regular);
           doc.registerFont('TitleBold', this.FONTS.title.bold);
+          doc.registerFont('TitleExtraBold', this.FONTS.title.extrabold);
           doc.registerFont('BodyRegular', this.FONTS.body.regular);
           doc.registerFont('BodyBold', this.FONTS.body.bold);
           doc.registerFont('BodyItalic', this.FONTS.body.italic);
@@ -311,7 +316,7 @@ export class PdfService {
     // Use custom title font or fallback
     const titleFont = this.getFontOrFallback(
       doc,
-      'TitleBold',
+      'TitleExtraBold',
       'Helvetica-Bold',
     );
     const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
