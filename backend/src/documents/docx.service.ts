@@ -140,18 +140,16 @@ export class DocxService {
 
     // BATCH 2: Main Chapters (ONE AT A TIME)
     const mainChapters = chapters
-      .filter(
-        (c) =>
-          !['title', 'copyright', 'about', 'table'].some((k) =>
-            c.title.toLowerCase().includes(k),
-          ),
-      )
+      .filter((c) => !this.isFrontMatterChapter(c.title))
       .sort((a, b) => a.order - b.order);
 
     for (let i = 0; i < mainChapters.length; i++) {
       const chapter = mainChapters[i];
 
-      this.logger.log(`Building chapter ${i}...`);
+      // ✅ Calculate proper chapter number (starting from 1)
+      const chapterNumber = i + 1;
+
+      this.logger.log(`Building chapter ${chapterNumber}...`);
 
       const chapterSections = await this.buildChapterSections(
         chapter,
@@ -159,6 +157,7 @@ export class DocxService {
         redisCache,
         title, // ADD THIS
         subtitle, // ADD THIS
+        chapterNumber,
       );
       allSections.push(...chapterSections);
 
@@ -239,7 +238,7 @@ export class DocxService {
 
       sections.push(
         new Paragraph({
-          text: cleanTitle,
+          // text: cleanTitle,
           alignment: AlignmentType.CENTER,
           spacing: { before: 50, after: 100 },
           pageBreakBefore: true,
@@ -256,12 +255,12 @@ export class DocxService {
     } else {
       // For content chapters: Show "Chapter X" + Title
       // Use the passed chapterNumber parameter
-      const displayNumber = chapterNumber || 1;
+      const displayNumber = chapterNumber;
       const cleanTitle = this.cleanText(chapter.title);
 
       sections.push(
         new Paragraph({
-          text: `Chapter ${displayNumber}`,
+          // text: `Chapter ${displayNumber}`,
           alignment: AlignmentType.CENTER,
           spacing: { before: 50, after: 100 },
           pageBreakBefore: true,
@@ -270,6 +269,7 @@ export class DocxService {
               text: `Chapter ${displayNumber}`,
               size: 40,
               font: this.FONTS.heading,
+              bold: true,
             }),
           ],
         }),
@@ -277,7 +277,7 @@ export class DocxService {
 
       sections.push(
         new Paragraph({
-          text: cleanTitle,
+          // text: cleanTitle,
           alignment: AlignmentType.CENTER,
           spacing: { after: 100 },
           children: [
@@ -296,9 +296,8 @@ export class DocxService {
     const chapterImages = isFrontMatter
       ? []
       : images
-          .filter(
-            (img) => img.chapterNumber === chapter.order - 3 && !img.isMap,
-          )
+          .filter((img) => img.chapterNumber === chapterNumber && !img.isMap)
+
           .sort((a, b) => (a.position || 0) - (b.position || 0));
 
     if (chapterImages.length > 0) {
@@ -491,8 +490,17 @@ export class DocxService {
       }
 
       const imageType = this.getImageType(image.mimeType || image.url);
-      const widthInEMU = Math.round(3.98 * 914400);
-      const heightInEMU = Math.round(2.53 * 914400);
+
+      // Convert PDF points to inches
+      const widthInPoints = 286.56;
+      const heightInPoints = 182.16;
+
+      const widthInInches = widthInPoints / 72; // 3.98 inches
+      const heightInInches = heightInPoints / 72; // 2.53 inches
+
+      // Convert inches to EMU
+      const widthInEMU = Math.round(widthInInches * 914400); // 3,639,312 EMU
+      const heightInEMU = Math.round(heightInInches * 914400);
 
       paragraphs.push(
         new Paragraph({
@@ -528,10 +536,17 @@ export class DocxService {
       // paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
       paragraphs.push(
         new Paragraph({
-          text: 'Geographical Map',
-          heading: HeadingLevel.HEADING_1,
           alignment: AlignmentType.CENTER,
           spacing: { after: 100 },
+          pageBreakBefore: true,
+          children: [
+            new TextRun({
+              text: `Geographical Map`,
+              size: 40,
+              font: this.FONTS.heading,
+              bold: true,
+            }),
+          ],
         }),
       );
 
@@ -549,8 +564,15 @@ export class DocxService {
       }
 
       const imageType = this.getImageType(mapImage.mimeType || mapImage.url);
-      const widthInEMU = Math.round(3.97 * 914400);
-      const heightInEMU = Math.round(5.85 * 914400);
+
+      const widthInPoints = 285.84;
+      const heightInPoints = 421.2;
+
+      const widthInInches = widthInPoints / 72; // 3.97 inches
+      const heightInInches = heightInPoints / 72; // 5.85 inches
+
+      const widthInEMU = Math.round(widthInInches * 914400); // 3,629,136 EMU
+      const heightInEMU = Math.round(heightInInches * 914400); // 5,349,240 EMU
 
       paragraphs.push(
         new Paragraph({
@@ -581,7 +603,7 @@ export class DocxService {
   ): Paragraph[] {
     return [
       new Paragraph({
-        text: title.toUpperCase(),
+        // text: title.toUpperCase(),
         alignment: AlignmentType.CENTER,
         spacing: { before: 100, after: 800 },
         children: [
@@ -594,7 +616,7 @@ export class DocxService {
         ],
       }),
       new Paragraph({
-        text: subtitle,
+        // text: subtitle,
         alignment: AlignmentType.CENTER,
         spacing: { after: 600 },
         children: [
@@ -602,7 +624,7 @@ export class DocxService {
         ],
       }),
       new Paragraph({
-        text: 'By',
+        // text: 'By',
         alignment: AlignmentType.CENTER,
         spacing: { after: 600 },
         children: [
@@ -610,7 +632,7 @@ export class DocxService {
         ],
       }),
       new Paragraph({
-        text: author.toUpperCase(),
+        // text: author.toUpperCase(),
         alignment: AlignmentType.CENTER,
         spacing: { after: 200 },
         children: [
@@ -648,7 +670,7 @@ export class DocxService {
     // paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
     paragraphs.push(
       new Paragraph({
-        text: 'About Book',
+        // text: 'About Book',
         heading: HeadingLevel.HEADING_1,
         spacing: { after: 100 },
         pageBreakBefore: true,
@@ -692,7 +714,7 @@ export class DocxService {
     // paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
     paragraphs.push(
       new Paragraph({
-        text: 'Table of Contents',
+        // text: 'Table of Contents',
         heading: HeadingLevel.HEADING_1,
         alignment: AlignmentType.CENTER,
         spacing: { after: 100 },
@@ -1079,7 +1101,7 @@ export class DocxService {
 
     // Lists: - item or * item or + item or 1. item
     cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // Unordered lists
-    cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Ordered lists
+    // cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Ordered lists
 
     // ==========================================
     // STEP 2: Remove Special Characters & Symbols
@@ -1228,60 +1250,6 @@ export class DocxService {
       });
 
     return cleanedParagraphs.join('\n\n');
-  }
-
-  /**
-   * Special cleaning for last chapter or any problematic chapter
-   * Call this specifically for chapters that still have issues
-   */
-  private deepCleanChapterContent(content: string): string {
-    if (!content) return '';
-
-    let cleaned = content;
-
-    // ==========================================
-    // NUCLEAR OPTION - Remove ALL special chars
-    // ==========================================
-
-    // Step 1: Clean markdown aggressively
-    cleaned = this.cleanContent(cleaned);
-
-    // Step 2: Remove any remaining special characters
-    const lines = cleaned.split('\n');
-    const superCleanLines = lines.map((line) => {
-      let cleanLine = line;
-
-      // Remove ALL asterisks
-      cleanLine = cleanLine.replace(/\*/g, '');
-
-      // Remove ALL underscores (except in middle of words)
-      cleanLine = cleanLine.replace(/(?<!\w)_|_(?!\w)/g, '');
-
-      // Remove ALL tildes
-      cleanLine = cleanLine.replace(/~/g, '');
-
-      // Remove ALL backticks
-      cleanLine = cleanLine.replace(/`/g, '');
-
-      // Remove ALL hashes (except in hashtags/numbers)
-      cleanLine = cleanLine.replace(/(?<!\w)#|#(?!\w)/g, '');
-
-      // Remove brackets and braces
-      cleanLine = cleanLine.replace(/[\[\]\{\}]/g, '');
-
-      // Remove pipes
-      cleanLine = cleanLine.replace(/\|/g, '');
-
-      // Remove carets
-      cleanLine = cleanLine.replace(/\^/g, '');
-
-      // Clean up multiple spaces
-      cleanLine = cleanLine.replace(/  +/g, ' ');
-
-      return cleanLine.trim();
-    });
-
-    return superCleanLines.filter((line) => line.length > 0).join('\n');
   }
 
   // 2. NEW method to remove redundant chapter references

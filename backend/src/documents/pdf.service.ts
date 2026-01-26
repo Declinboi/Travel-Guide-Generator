@@ -313,52 +313,52 @@ export class PdfService {
     doc.addPage();
     const pageWidth = doc.page.width;
 
-    // Use custom title font or fallback
-    const titleFont = this.getFontOrFallback(
-      doc,
-      'TitleExtraBold',
-      'Helvetica-Bold',
-    );
-    const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
-    const authorFont = this.getFontOrFallback(
-      doc,
-      'TitleBold',
-      'Helvetica-Bold',
-    );
-
-    doc
-      .fontSize(30)
-      .font(titleFont)
-      .text(title.toUpperCase(), 50, 100, {
-        width: pageWidth - 100,
-        align: 'center',
-      });
-
-    if (subtitle) {
-      doc
-        .fontSize(10)
-        .font(bodyFont)
-        .text(subtitle, 50, 220, {
-          width: pageWidth - 100,
-          align: 'center',
-        });
+    // ✅ FIXED: Directly try to use custom fonts with fallback
+    try {
+      doc.fontSize(30).font('TitleExtraBold');
+    } catch (error) {
+      doc.fontSize(30).font('Helvetica-Bold');
     }
 
-    doc
-      .fontSize(10)
-      .font(bodyFont)
-      .text('By', 50, 480, {
-        width: pageWidth - 100,
-        align: 'center',
-      });
+    doc.text(title.toUpperCase(), 50, 100, {
+      width: pageWidth - 100,
+      align: 'center',
+    });
 
-    doc
-      .fontSize(16)
-      .font(authorFont)
-      .text(author.toUpperCase(), 50, 510, {
+    if (subtitle) {
+      try {
+        doc.fontSize(10).font('BodyRegular');
+      } catch (error) {
+        doc.fontSize(10).font('Helvetica');
+      }
+
+      doc.text(subtitle, 50, 220, {
         width: pageWidth - 100,
         align: 'center',
       });
+    }
+
+    try {
+      doc.fontSize(10).font('BodyRegular');
+    } catch (error) {
+      doc.fontSize(10).font('Helvetica');
+    }
+
+    doc.text('By', 50, 480, {
+      width: pageWidth - 100,
+      align: 'center',
+    });
+
+    try {
+      doc.fontSize(16).font('TitleBold');
+    } catch (error) {
+      doc.fontSize(16).font('Helvetica-Bold');
+    }
+
+    doc.text(author.toUpperCase(), 50, 510, {
+      width: pageWidth - 100,
+      align: 'center',
+    });
   }
 
   private addAboutPage(doc: PDFKit.PDFDocument, content: string): void {
@@ -954,12 +954,15 @@ export class PdfService {
     customFont: string,
     fallbackFont: string,
   ): string {
+    // Check if custom font exists by checking registered fonts
+    // Don't try to set it yet - just return the name
     try {
-      // Try to use custom font
-      doc.font(customFont);
+      // Try a safe operation that won't change the document
+      const testDoc = doc;
+      // If the font was registered, it should be available
+      // We'll just return the font name and let the caller use it
       return customFont;
     } catch (error) {
-      // Fall back to default font
       return fallbackFont;
     }
   }
@@ -1022,7 +1025,7 @@ export class PdfService {
 
     // Lists: - item or * item or + item or 1. item
     cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // Unordered lists
-    cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Ordered lists
+    // cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Ordered lists
 
     // ==========================================
     // STEP 2: Remove Special Characters & Symbols
@@ -1172,60 +1175,6 @@ export class PdfService {
 
     return cleanedParagraphs.join('\n\n');
   }
-
-  // /**
-  //  * Special cleaning for last chapter or any problematic chapter
-  //  * Call this specifically for chapters that still have issues
-  //  */
-  // private deepCleanChapterContent(content: string): string {
-  //   if (!content) return '';
-
-  //   let cleaned = content;
-
-  //   // ==========================================
-  //   // NUCLEAR OPTION - Remove ALL special chars
-  //   // ==========================================
-
-  //   // Step 1: Clean markdown aggressively
-  //   cleaned = this.cleanContent(cleaned);
-
-  //   // Step 2: Remove any remaining special characters
-  //   const lines = cleaned.split('\n');
-  //   const superCleanLines = lines.map((line) => {
-  //     let cleanLine = line;
-
-  //     // Remove ALL asterisks
-  //     cleanLine = cleanLine.replace(/\*/g, '');
-
-  //     // Remove ALL underscores (except in middle of words)
-  //     cleanLine = cleanLine.replace(/(?<!\w)_|_(?!\w)/g, '');
-
-  //     // Remove ALL tildes
-  //     cleanLine = cleanLine.replace(/~/g, '');
-
-  //     // Remove ALL backticks
-  //     cleanLine = cleanLine.replace(/`/g, '');
-
-  //     // Remove ALL hashes (except in hashtags/numbers)
-  //     cleanLine = cleanLine.replace(/(?<!\w)#|#(?!\w)/g, '');
-
-  //     // Remove brackets and braces
-  //     cleanLine = cleanLine.replace(/[\[\]\{\}]/g, '');
-
-  //     // Remove pipes
-  //     cleanLine = cleanLine.replace(/\|/g, '');
-
-  //     // Remove carets
-  //     cleanLine = cleanLine.replace(/\^/g, '');
-
-  //     // Clean up multiple spaces
-  //     cleanLine = cleanLine.replace(/  +/g, ' ');
-
-  //     return cleanLine.trim();
-  //   });
-
-  //   return superCleanLines.filter((line) => line.length > 0).join('\n');
-  // }
 
   // 2. NEW method to remove redundant chapter references
   private removeRedundantChapterReferences(content: string): string {

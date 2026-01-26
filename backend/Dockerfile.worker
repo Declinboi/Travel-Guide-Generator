@@ -12,6 +12,9 @@ RUN npm install -g pnpm@latest && \
 
 COPY . .
 
+# ✅ IMPORTANT: Explicitly copy fonts (if not already included)
+COPY assets/fonts ./assets/fonts
+
 RUN pnpm run build
 
 # Production stage for worker
@@ -31,6 +34,9 @@ RUN npm install -g pnpm@latest && \
     pnpm store prune
 
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
+
+# ✅ CRITICAL: Copy assets folder (fonts) to production stage
+COPY --from=builder --chown=nestjs:nodejs /app/assets ./assets
 
 USER nestjs
 
