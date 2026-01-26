@@ -434,10 +434,10 @@ export class PdfService {
           .fillColor('#2C3E50')
           .text(trimmed, leftMargin, doc.y, {
             continued: false,
-            align: 'center',
+            align: 'left',
           });
         doc.fillColor('#000000');
-        doc.moveDown(0.3);
+        doc.moveDown(1);
         return;
       }
 
@@ -450,7 +450,7 @@ export class PdfService {
           .text(trimmed, indent, doc.y, {
             continued: false,
             width: contentWidth - 20,
-            align: 'center',
+            align: 'left',
           });
         doc.moveDown(0.4);
         return;
@@ -460,13 +460,13 @@ export class PdfService {
       if (trimmed.match(/^\s{1,4}\S/)) {
         const indent = leftMargin + 40;
         doc
-          .fontSize(6)
+          .fontSize(8)
           .font(bodyFont)
           .fillColor('#34495E')
           .text(trimmed.trim(), indent, doc.y, {
             continued: false,
             width: contentWidth - 40,
-            align: 'center',
+            align: 'left',
           });
         doc.fillColor('#000000');
         doc.moveDown(0.3);
@@ -482,10 +482,10 @@ export class PdfService {
         .text(trimmed.trim(), indent, doc.y, {
           continued: false,
           width: contentWidth - 60,
-          align: 'center',
+          align: 'left',
         });
       doc.fillColor('#000000');
-      doc.moveDown(0.5);
+      doc.moveDown(2);
     });
   }
 
@@ -878,8 +878,14 @@ export class PdfService {
   ): Promise<void> {
     let imageBuffer: Buffer | null = null;
 
+    const titleFont = this.getFontOrFallback(
+      doc,
+      'TitleBold',
+      'Helvetica-Bold',
+    );
+
     try {
-      doc.fontSize(20).font('Helvetica-Bold').text('Geographical Map', {
+      doc.fontSize(30).font(titleFont).text('Geographical Map', {
         align: 'center',
       });
       doc.moveDown(0.5);

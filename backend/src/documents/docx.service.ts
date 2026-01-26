@@ -491,16 +491,13 @@ export class DocxService {
 
       const imageType = this.getImageType(image.mimeType || image.url);
 
-      // Convert PDF points to inches
-      const widthInPoints = 286.56;
-      const heightInPoints = 182.16;
+      const widthInInches = 4.5; // Slightly larger for better visibility
+      const heightInInches = 2.85; // Maintaining aspect ratio
 
-      const widthInInches = widthInPoints / 72; // 3.98 inches
-      const heightInInches = heightInPoints / 72; // 2.53 inches
-
-      // Convert inches to EMU
-      const widthInEMU = Math.round(widthInInches * 914400); // 3,639,312 EMU
-      const heightInEMU = Math.round(heightInInches * 914400);
+      // Convert inches to EMU (English Metric Units)
+      // 1 inch = 914,400 EMU
+      const widthInEMU = Math.round(widthInInches * 914400); // 4,114,800 EMU
+      const heightInEMU = Math.round(heightInInches * 914400); // 2,605,440 EMU
 
       paragraphs.push(
         new Paragraph({
@@ -512,7 +509,7 @@ export class DocxService {
               transformation: { width: widthInEMU, height: heightInEMU },
             }),
           ],
-          spacing: { before: 100, after: 100 },
+          spacing: { before: 200, after: 200 },
         }),
       );
     } catch (error) {
@@ -565,14 +562,12 @@ export class DocxService {
 
       const imageType = this.getImageType(mapImage.mimeType || mapImage.url);
 
-      const widthInPoints = 285.84;
-      const heightInPoints = 421.2;
+      const widthInInches = 5.0; // Good width for page
+      const heightInInches = 7.0; // Taller for map detail
 
-      const widthInInches = widthInPoints / 72; // 3.97 inches
-      const heightInInches = heightInPoints / 72; // 5.85 inches
-
-      const widthInEMU = Math.round(widthInInches * 914400); // 3,629,136 EMU
-      const heightInEMU = Math.round(heightInInches * 914400); // 5,349,240 EMU
+      // Convert to EMU
+      const widthInEMU = Math.round(widthInInches * 914400); // 4,572,000 EMU
+      const heightInEMU = Math.round(heightInInches * 914400);
 
       paragraphs.push(
         new Paragraph({
