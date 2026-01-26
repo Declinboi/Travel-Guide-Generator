@@ -20,6 +20,13 @@ import { RedisCacheService } from 'src/queues/cache/redis-cache.service';
 export class DocxService {
   private readonly logger = new Logger(DocxService.name);
 
+  // Define your preferred fonts
+  private readonly FONTS = {
+    title: 'Garamond', // Elegant serif for titles
+    body: 'Georgia', // Readable serif for body text
+    heading: 'Book Antiqua', // Classic for headings
+  };
+
   constructor(private configService: ConfigService) {}
 
   async generateDOCXBuffer(
@@ -70,6 +77,7 @@ export class DocxService {
                       new TextRun({
                         children: [PageNumber.CURRENT],
                         size: 20,
+                        font: this.FONTS.body,
                       }),
                     ],
                   }),
@@ -235,7 +243,14 @@ export class DocxService {
           alignment: AlignmentType.CENTER,
           spacing: { before: 50, after: 100 },
           pageBreakBefore: true,
-          children: [new TextRun({ text: cleanTitle, bold: true, size: 40 })],
+          children: [
+            new TextRun({
+              text: cleanTitle,
+              bold: true,
+              size: 40,
+              font: this.FONTS.heading,
+            }),
+          ],
         }),
       );
     } else {
@@ -251,7 +266,11 @@ export class DocxService {
           spacing: { before: 50, after: 100 },
           pageBreakBefore: true,
           children: [
-            new TextRun({ text: `Chapter ${displayNumber}`, size: 40 }),
+            new TextRun({
+              text: `Chapter ${displayNumber}`,
+              size: 40,
+              font: this.FONTS.heading,
+            }),
           ],
         }),
       );
@@ -261,7 +280,14 @@ export class DocxService {
           text: cleanTitle,
           alignment: AlignmentType.CENTER,
           spacing: { after: 100 },
-          children: [new TextRun({ text: cleanTitle, bold: true, size: 40 })],
+          children: [
+            new TextRun({
+              text: cleanTitle,
+              bold: true,
+              size: 40,
+              font: this.FONTS.title,
+            }),
+          ],
         }),
       );
     }
@@ -559,27 +585,41 @@ export class DocxService {
         alignment: AlignmentType.CENTER,
         spacing: { before: 100, after: 800 },
         children: [
-          new TextRun({ text: title.toUpperCase(), bold: true, size: 64 }),
+          new TextRun({
+            text: title.toUpperCase(),
+            bold: true,
+            size: 64,
+            font: this.FONTS.title,
+          }),
         ],
       }),
       new Paragraph({
         text: subtitle,
         alignment: AlignmentType.CENTER,
         spacing: { after: 600 },
-        children: [new TextRun({ text: subtitle, size: 20 })],
+        children: [
+          new TextRun({ text: subtitle, size: 20, font: this.FONTS.body }),
+        ],
       }),
       new Paragraph({
         text: 'By',
         alignment: AlignmentType.CENTER,
         spacing: { after: 600 },
-        children: [new TextRun({ text: 'By', size: 22 })],
+        children: [
+          new TextRun({ text: 'By', size: 22, font: this.FONTS.body }),
+        ],
       }),
       new Paragraph({
         text: author.toUpperCase(),
         alignment: AlignmentType.CENTER,
         spacing: { after: 200 },
         children: [
-          new TextRun({ text: author.toUpperCase(), bold: true, size: 32 }),
+          new TextRun({
+            text: author.toUpperCase(),
+            bold: true,
+            size: 32,
+            font: this.FONTS.title,
+          }),
         ],
       }),
     ];
@@ -590,7 +630,13 @@ export class DocxService {
     return [
       // new Paragraph({ text: '', pageBreakBefore: true }),
       new Paragraph({
-        children: [new TextRun({ text: cleanedContent, size: 18 })],
+        children: [
+          new TextRun({
+            text: cleanedContent,
+            size: 18,
+            font: this.FONTS.body,
+          }),
+        ],
         spacing: { after: 200 },
         pageBreakBefore: true,
       }),
@@ -606,6 +652,14 @@ export class DocxService {
         heading: HeadingLevel.HEADING_1,
         spacing: { after: 100 },
         pageBreakBefore: true,
+        children: [
+          new TextRun({
+            text: 'About Book',
+            bold: true,
+            size: 36,
+            font: this.FONTS.heading,
+          }),
+        ],
       }),
     );
 
@@ -615,7 +669,13 @@ export class DocxService {
     sections.forEach((section) => {
       paragraphs.push(
         new Paragraph({
-          children: [new TextRun({ text: section.trim(), size: 22 })],
+          children: [
+            new TextRun({
+              text: section.trim(),
+              size: 22,
+              font: this.FONTS.body,
+            }),
+          ],
           spacing: { after: 200 },
           alignment: AlignmentType.LEFT,
         }),
@@ -637,6 +697,14 @@ export class DocxService {
         alignment: AlignmentType.CENTER,
         spacing: { after: 100 },
         pageBreakBefore: true,
+        children: [
+          new TextRun({
+            text: 'Table of Contents',
+            bold: true,
+            size: 40,
+            font: this.FONTS.heading,
+          }),
+        ],
       }),
     );
 
@@ -661,6 +729,7 @@ export class DocxService {
                 bold: true,
                 size: 24,
                 color: '2C3E50',
+                font: this.FONTS.heading,
               }),
             ],
             spacing: { before: 300, after: 100 },
@@ -679,6 +748,7 @@ export class DocxService {
                 text: trimmed,
                 size: 22,
                 bold: false,
+                font: this.FONTS.body,
               }),
             ],
             spacing: { after: 120 },
@@ -697,6 +767,7 @@ export class DocxService {
                 text: trimmed.trim(),
                 size: 20,
                 color: '34495E',
+                font: this.FONTS.body,
               }),
             ],
             spacing: { after: 80 },
@@ -714,6 +785,7 @@ export class DocxService {
               text: trimmed.trim(),
               size: 18,
               color: '7F8C8D',
+              font: this.FONTS.body,
             }),
           ],
           spacing: { after: 60 },
@@ -757,7 +829,14 @@ export class DocxService {
       if (isHeader) {
         paragraphs.push(
           new Paragraph({
-            children: [new TextRun({ text: trimmed, bold: true, size: 28 })],
+            children: [
+              new TextRun({
+                text: trimmed,
+                bold: true,
+                size: 28,
+                font: this.FONTS.heading,
+              }),
+            ],
             spacing: { before: 100, after: 100 },
             alignment: AlignmentType.LEFT,
           }),
@@ -765,7 +844,9 @@ export class DocxService {
       } else {
         paragraphs.push(
           new Paragraph({
-            children: [new TextRun({ text: trimmed, size: 22 })],
+            children: [
+              new TextRun({ text: trimmed, size: 22, font: this.FONTS.body }),
+            ],
             spacing: { after: 100 },
             alignment: AlignmentType.LEFT,
           }),

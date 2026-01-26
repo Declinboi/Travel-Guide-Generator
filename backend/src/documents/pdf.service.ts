@@ -4,11 +4,29 @@ import PDFDocument from 'pdfkit';
 import axios from 'axios';
 import { RedisCacheService } from 'src/queues/queues.module';
 import { ConfigService } from '@nestjs/config';
+import * as path from 'path';
 
 @Injectable()
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
   constructor(private configService: ConfigService) {}
+
+  // Define font paths - place fonts in your project's assets/fonts folder
+  private readonly FONTS = {
+    title: {
+      regular: path.join(
+        process.cwd(),
+        'assets/fonts/PlayfairDisplay-Regular.ttf',
+      ),
+      bold: path.join(process.cwd(), 'assets/fonts/PlayfairDisplay-Bold.ttf'),
+    },
+    body: {
+      regular: path.join(process.cwd(), 'assets/fonts/Lora-Regular.ttf'),
+      bold: path.join(process.cwd(), 'assets/fonts/Lora-Bold.ttf'),
+      italic: path.join(process.cwd(), 'assets/fonts/Lora-Italic.ttf'),
+    },
+  };
+
   /**
    * Generate PDF and return as Buffer (for Cloudinary upload)
    */
@@ -46,6 +64,18 @@ export class PdfService {
           bufferPages: true,
           compress: true,
         });
+
+        // Register custom fonts
+        try {
+          doc.registerFont('TitleRegular', this.FONTS.title.regular);
+          doc.registerFont('TitleBold', this.FONTS.title.bold);
+          doc.registerFont('BodyRegular', this.FONTS.body.regular);
+          doc.registerFont('BodyBold', this.FONTS.body.bold);
+          doc.registerFont('BodyItalic', this.FONTS.body.italic);
+        } catch (fontError) {
+          this.logger.warn('Custom fonts not found, falling back to Helvetica');
+          // Will use default fonts if custom ones aren't available
+        }
 
         // Collect buffer chunks
         doc.on('data', (chunk) => chunks.push(chunk));
@@ -277,9 +307,23 @@ export class PdfService {
   ): void {
     doc.addPage();
     const pageWidth = doc.page.width;
+
+    // Use custom title font or fallback
+    const titleFont = this.getFontOrFallback(
+      doc,
+      'TitleBold',
+      'Helvetica-Bold',
+    );
+    const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
+    const authorFont = this.getFontOrFallback(
+      doc,
+      'TitleBold',
+      'Helvetica-Bold',
+    );
+
     doc
       .fontSize(30)
-      .font('Helvetica-Bold')
+      .font(titleFont)
       .text(title.toUpperCase(), 50, 100, {
         width: pageWidth - 100,
         align: 'center',
@@ -288,7 +332,7 @@ export class PdfService {
     if (subtitle) {
       doc
         .fontSize(10)
-        .font('Helvetica')
+        .font(bodyFont)
         .text(subtitle, 50, 220, {
           width: pageWidth - 100,
           align: 'center',
@@ -297,7 +341,7 @@ export class PdfService {
 
     doc
       .fontSize(10)
-      .font('Helvetica-Bold')
+      .font(bodyFont)
       .text('By', 50, 480, {
         width: pageWidth - 100,
         align: 'center',
@@ -305,7 +349,7 @@ export class PdfService {
 
     doc
       .fontSize(16)
-      .font('Helvetica-Bold')
+      .font(authorFont)
       .text(author.toUpperCase(), 50, 510, {
         width: pageWidth - 100,
         align: 'center',
@@ -313,7 +357,14 @@ export class PdfService {
   }
 
   private addAboutPage(doc: PDFKit.PDFDocument, content: string): void {
-    doc.fontSize(16).font('Helvetica-Bold').text('About Book', 50, 50);
+    const headerFont = this.getFontOrFallback(
+      doc,
+      'TitleBold',
+      'Helvetica-Bold',
+    );
+    const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
+
+    doc.fontSize(16).font(headerFont).text('About Book', 50, 50);
     doc.moveDown(1);
 
     const cleanedContent = this.cleanFrontMatterContent(content);
@@ -322,7 +373,7 @@ export class PdfService {
     paragraphs.forEach((para, index) => {
       doc
         .fontSize(11)
-        .font('Helvetica')
+        .font(bodyFont)
         .text(para.trim(), {
           width: doc.page.width - 100,
           align: 'left',
@@ -340,10 +391,17 @@ export class PdfService {
     const leftMargin = 50;
     const contentWidth = pageWidth - 100;
 
+    const headerFont = this.getFontOrFallback(
+      doc,
+      'TitleBold',
+      'Helvetica-Bold',
+    );
+    const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
+
     // Title
     doc
       .fontSize(18)
-      .font('Helvetica-Bold')
+      .font(headerFont)
       .text('Table of Contents', leftMargin, 50, {
         width: contentWidth,
         align: 'center',
@@ -367,7 +425,7 @@ export class PdfService {
         doc.moveDown(0.8);
         doc
           .fontSize(12)
-          .font('Helvetica-Bold')
+          .font(headerFont)
           .fillColor('#2C3E50')
           .text(trimmed, leftMargin, doc.y, {
             continued: false,
@@ -382,8 +440,8 @@ export class PdfService {
       if (!trimmed.startsWith(' ') && trimmed.length > 0) {
         const indent = leftMargin + 20;
         doc
-          .fontSize(11)
-          .font('Helvetica')
+          .fontSize(8)
+          .font(bodyFont)
           .text(trimmed, indent, doc.y, {
             continued: false,
             width: contentWidth - 20,
@@ -397,8 +455,8 @@ export class PdfService {
       if (trimmed.match(/^\s{1,4}\S/)) {
         const indent = leftMargin + 40;
         doc
-          .fontSize(10)
-          .font('Helvetica')
+          .fontSize(6)
+          .font(bodyFont)
           .fillColor('#34495E')
           .text(trimmed.trim(), indent, doc.y, {
             continued: false,
@@ -413,8 +471,8 @@ export class PdfService {
       // Sub-sub-sections (double indent)
       const indent = leftMargin + 60;
       doc
-        .fontSize(9)
-        .font('Helvetica')
+        .fontSize(6)
+        .font(bodyFont)
         .fillColor('#7F8C8D')
         .text(trimmed.trim(), indent, doc.y, {
           continued: false,
@@ -432,17 +490,22 @@ export class PdfService {
     chapterNumber: number,
   ): void {
     const cleanTitle = this.cleanText(title);
+    const titleFont = this.getFontOrFallback(
+      doc,
+      'TitleBold',
+      'Helvetica-Bold',
+    );
 
     // Only show "Chapter X" for actual content chapters (chapterNumber > 0)
     if (chapterNumber > 0) {
-      doc.fontSize(20).font('Helvetica-Bold').text(`Chapter ${chapterNumber}`, {
+      doc.fontSize(20).font(titleFont).text(`Chapter ${chapterNumber}`, {
         align: 'center',
       });
       doc.moveDown(1);
     }
 
     // Always show the chapter title
-    doc.fontSize(20).font('Helvetica-Bold').text(cleanTitle, {
+    doc.fontSize(20).font(titleFont).text(cleanTitle, {
       align: 'center',
     });
     doc.moveDown(1);
@@ -457,6 +520,13 @@ export class PdfService {
     // Use aggressive cleaning
     const cleanedContent = this.cleanContent(content);
     const sections = cleanedContent.split('\n\n').filter((p) => p.trim());
+
+    const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
+    const headerFont = this.getFontOrFallback(
+      doc,
+      'BodyBold',
+      'Helvetica-Bold',
+    );
 
     sections.forEach((section, index) => {
       let trimmed = section.trim();
@@ -478,13 +548,13 @@ export class PdfService {
       const isHeader = this.isHeaderSection(trimmed);
 
       if (isHeader) {
-        doc.fontSize(14).font('Helvetica-Bold').text(trimmed, {
+        doc.fontSize(14).font(headerFont).text(trimmed, {
           align: 'left',
           lineGap: 5,
         });
         doc.moveDown(0.5);
       } else {
-        doc.fontSize(11).font('Helvetica').text(trimmed, {
+        doc.fontSize(11).font(bodyFont).text(trimmed, {
           align: 'left',
           lineGap: 5,
         });
@@ -606,9 +676,11 @@ export class PdfService {
   private addCopyrightPage(doc: PDFKit.PDFDocument, content: string): void {
     const cleanedContent = this.cleanFrontMatterContent(content);
 
+    const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
+
     doc
       .fontSize(11)
-      .font('Helvetica')
+      .font(bodyFont)
       .text(cleanedContent, 50, 100, {
         width: doc.page.width - 100,
         align: 'left',
@@ -846,16 +918,18 @@ export class PdfService {
     const pageHeight = doc.page.height; // 648
     const pageWidth = doc.page.width; // 432
 
-    // Place page number OUTSIDE the bottom margin (below content area)
-    // Position it between the content area and the physical page edge
-    const yPosition = pageHeight - 50; // 50 points from bottom edge (well outside the 79pt margin)
+    const yPosition = pageHeight - 50;
 
-    // Save current state
-    const currentY = doc.y;
+    doc.save();
+
+    // Reset margins temporarily to allow absolute positioning
+    doc.page.margins = { top: 0, bottom: 0, left: 0, right: 0 };
+
+    const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
 
     doc
       .fontSize(10)
-      .font('Helvetica')
+      .font(bodyFont)
       .fillColor('#666666')
       .text(pageNumber.toString(), 0, yPosition, {
         align: 'center',
@@ -864,10 +938,25 @@ export class PdfService {
         baseline: 'top', // Ensures text starts exactly at yPosition
       });
 
-    doc.fillColor('#000000');
+    doc.restore();
 
-    // Restore Y position
-    doc.y = currentY;
+    doc.fillColor('#000000');
+  }
+
+  // Helper method to get font or fallback
+  private getFontOrFallback(
+    doc: PDFKit.PDFDocument,
+    customFont: string,
+    fallbackFont: string,
+  ): string {
+    try {
+      // Try to use custom font
+      doc.font(customFont);
+      return customFont;
+    } catch (error) {
+      // Fall back to default font
+      return fallbackFont;
+    }
   }
 
   private sanitizeFilename(filename: string): string {
