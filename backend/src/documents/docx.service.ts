@@ -491,13 +491,17 @@ export class DocxService {
 
       const imageType = this.getImageType(image.mimeType || image.url);
 
-      const widthInInches = 4.5; // Slightly larger for better visibility
-      const heightInInches = 2.85; // Maintaining aspect ratio
+      const availableWidthInches = 4.0; // Content area width
+      const imageWidthInches = availableWidthInches * 0.9; // 3.6 inches (90% of content width)
+
+      // Maintain aspect ratio from PDF: 286.56 width / 182.16 height = 1.573
+      const aspectRatio = 1.573;
+      const imageHeightInches = imageWidthInches / aspectRatio; // ~2.29 inches
 
       // Convert inches to EMU (English Metric Units)
       // 1 inch = 914,400 EMU
-      const widthInEMU = Math.round(widthInInches * 914400); // 4,114,800 EMU
-      const heightInEMU = Math.round(heightInInches * 914400); // 2,605,440 EMU
+      const widthInEMU = Math.round(imageWidthInches * 914400); // 3,291,840 EMU
+      const heightInEMU = Math.round(imageHeightInches * 914400); // 2,093,856 EMU
 
       paragraphs.push(
         new Paragraph({
@@ -562,12 +566,16 @@ export class DocxService {
 
       const imageType = this.getImageType(mapImage.mimeType || mapImage.url);
 
-      const widthInInches = 5.0; // Good width for page
-      const heightInInches = 7.0; // Taller for map detail
+      const availableWidthInches = 4.0;
+      const mapWidthInches = availableWidthInches * 0.9; // 3.4 inches
+
+      // Maintain aspect ratio from PDF: 285.84 width / 421.2 height = 0.6787
+      const aspectRatio = 0.6787; // width/height (map is portrait)
+      const mapHeightInches = mapWidthInches / aspectRatio; // ~5.01 inches
 
       // Convert to EMU
-      const widthInEMU = Math.round(widthInInches * 914400); // 4,572,000 EMU
-      const heightInEMU = Math.round(heightInInches * 914400);
+      const widthInEMU = Math.round(mapWidthInches * 914400); // 3,108,960 EMU
+      const heightInEMU = Math.round(mapHeightInches * 914400); // 4,581,144 EMU
 
       paragraphs.push(
         new Paragraph({
