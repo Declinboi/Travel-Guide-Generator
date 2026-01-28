@@ -429,7 +429,7 @@ export class PdfService {
       if (this.isChapterHeading(trimmed)) {
         doc.moveDown(0.8);
         doc
-          .fontSize(16)
+          .fontSize(11)
           .font(headerFont)
           .fillColor('#2C3E50')
           .text(trimmed, leftMargin, doc.y, {
@@ -445,8 +445,8 @@ export class PdfService {
       if (!trimmed.startsWith(' ') && trimmed.length > 0) {
         const indent = leftMargin + 20;
         doc
-          .fontSize(16)
-          .font(bodyFont)
+          .fontSize(11)
+          .font(headerFont)
           .text(trimmed, indent, doc.y, {
             continued: false,
             width: contentWidth - 20,
@@ -460,7 +460,7 @@ export class PdfService {
       if (trimmed.match(/^\s{1,4}\S/)) {
         const indent = leftMargin + 40;
         doc
-          .fontSize(16)
+          .fontSize(11)
           .font(bodyFont)
           .fillColor('#34495E')
           .text(trimmed.trim(), indent, doc.y, {
@@ -476,7 +476,7 @@ export class PdfService {
       // Sub-sub-sections (double indent)
       const indent = leftMargin + 60;
       doc
-        .fontSize(10)
+        .fontSize(11)
         .font(bodyFont)
         .fillColor('#7F8C8D')
         .text(trimmed.trim(), indent, doc.y, {
@@ -905,7 +905,7 @@ export class PdfService {
       }
 
       const mapWidth = 285.84;
-      const mapHeight = 421.2;
+      const mapHeight = 430;
       const xPosition = (doc.page.width - mapWidth) / 2;
 
       doc.image(imageBuffer, xPosition, doc.y, {

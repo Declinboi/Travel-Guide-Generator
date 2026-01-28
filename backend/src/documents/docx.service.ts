@@ -36,7 +36,7 @@ export class DocxService {
     },
     map: {
       widthIn: 4,
-      heightIn: 6.5,
+      heightIn: 6,
     },
   };
 
@@ -556,7 +556,7 @@ export class DocxService {
               text: 'Geographical Map',
               size: 40,
               bold: true,
-              font: this.FONTS.heading,
+              font: this.FONTS.title,
             }),
           ],
         }),
