@@ -378,7 +378,7 @@ TONE:
 - Encouraging and exciting about the destination
 - Patient and understanding of different travel styles
 
-LENGTH: Write approximately 1,000-1,100 words covering all sections and subsections from the outline.
+LENGTH: Write approximately 1,300-1,500 words covering all sections and subsections from the outline.
 
 Write the complete chapter now:`;
 
