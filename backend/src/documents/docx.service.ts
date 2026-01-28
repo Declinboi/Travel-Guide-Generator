@@ -27,6 +27,19 @@ export class DocxService {
     heading: 'Book Antiqua', // Classic for headings
   };
 
+  private readonly DPI = 96;
+
+  private readonly IMAGE_SIZES = {
+    normal: {
+      widthIn: 4,
+      heightIn: 2.5,
+    },
+    map: {
+      widthIn: 4,
+      heightIn: 6.5,
+    },
+  };
+
   constructor(private configService: ConfigService) {}
 
   async generateDOCXBuffer(
@@ -268,8 +281,8 @@ export class DocxService {
             new TextRun({
               text: `Chapter ${displayNumber}`,
               size: 40,
-              font: this.FONTS.heading,
               bold: true,
+              font: this.FONTS.heading,
             }),
           ],
         }),
@@ -488,20 +501,15 @@ export class DocxService {
           `✓ Retrieved from Redis: ${image.url.substring(image.url.lastIndexOf('/') + 1)}`,
         );
       }
-
       const imageType = this.getImageType(image.mimeType || image.url);
 
-      const availableWidthInches = 4.0; // Content area width
-      const imageWidthInches = availableWidthInches * 0.9; // 3.6 inches (90% of content width)
+      this.logger.log(`✓ Using image type: ${imageType} (Cloudinary standard)`);
 
-      // Maintain aspect ratio from PDF: 286.56 width / 182.16 height = 1.573
-      const aspectRatio = 1.573;
-      const imageHeightInches = imageWidthInches / aspectRatio; // ~2.29 inches
+      // const widthPixels = 300; // Adjust this!
+      // const heightPixels = 200; // Adjust this!
 
-      // Convert inches to EMU (English Metric Units)
-      // 1 inch = 914,400 EMU
-      const widthInEMU = Math.round(imageWidthInches * 914400); // 3,291,840 EMU
-      const heightInEMU = Math.round(imageHeightInches * 914400); // 2,093,856 EMU
+      const widthInEMU = this.inchesToPx(this.IMAGE_SIZES.normal.widthIn);
+      const heightInEMU = this.inchesToPx(this.IMAGE_SIZES.normal.heightIn);
 
       paragraphs.push(
         new Paragraph({
@@ -510,10 +518,13 @@ export class DocxService {
             new ImageRun({
               data: imageBuffer,
               type: imageType,
-              transformation: { width: widthInEMU, height: heightInEMU },
+              transformation: {
+                width: this.capWidth(widthInEMU),
+                height: heightInEMU,
+              },
             }),
           ],
-          spacing: { before: 200, after: 200 },
+          spacing: { before: 100, after: 100 },
         }),
       );
     } catch (error) {
@@ -542,10 +553,10 @@ export class DocxService {
           pageBreakBefore: true,
           children: [
             new TextRun({
-              text: `Geographical Map`,
+              text: 'Geographical Map',
               size: 40,
-              font: this.FONTS.heading,
               bold: true,
+              font: this.FONTS.heading,
             }),
           ],
         }),
@@ -566,16 +577,15 @@ export class DocxService {
 
       const imageType = this.getImageType(mapImage.mimeType || mapImage.url);
 
-      const availableWidthInches = 4.0;
-      const mapWidthInches = availableWidthInches * 0.9; // 3.4 inches
+      // ✅ FIX: Cloudinary serves JPG for maps too
 
-      // Maintain aspect ratio from PDF: 285.84 width / 421.2 height = 0.6787
-      const aspectRatio = 0.6787; // width/height (map is portrait)
-      const mapHeightInches = mapWidthInches / aspectRatio; // ~5.01 inches
+      this.logger.log(`✓ Using map type: ${imageType} (Cloudinary standard)`);
 
-      // Convert to EMU
-      const widthInEMU = Math.round(mapWidthInches * 914400); // 3,108,960 EMU
-      const heightInEMU = Math.round(mapHeightInches * 914400); // 4,581,144 EMU
+      // const widthPixels = 300; // Adjust this!
+      // const heightPixels = 500; // Adjust this!
+
+      const widthInEMU = this.inchesToPx(this.IMAGE_SIZES.map.widthIn);
+      const heightInEMU = this.inchesToPx(this.IMAGE_SIZES.map.heightIn);
 
       paragraphs.push(
         new Paragraph({
@@ -584,7 +594,10 @@ export class DocxService {
             new ImageRun({
               data: imageBuffer,
               type: imageType,
-              transformation: { width: widthInEMU, height: heightInEMU },
+              transformation: {
+                width: this.capWidth(widthInEMU),
+                height: heightInEMU,
+              },
             }),
           ],
         }),
@@ -597,6 +610,15 @@ export class DocxService {
     }
 
     return paragraphs;
+  }
+
+  private inchesToPx(inches: number): number {
+    return Math.round(inches * this.DPI);
+  }
+
+  private capWidth(widthPx: number): number {
+    const maxWidthPx = this.inchesToPx(4); // page-safe width
+    return Math.min(widthPx, maxWidthPx);
   }
 
   private createTitlePage(
