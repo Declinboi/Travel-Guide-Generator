@@ -1107,7 +1107,7 @@ export class LibreTranslationService {
         for: 'für',
       },
       [Language.ITALIAN]: {
-        Travel: 'Viaggio',
+        Travel: 'Turistica',
         Guide: 'Guida',
         Guidebook: 'Guida',
         Book: 'Libro',
