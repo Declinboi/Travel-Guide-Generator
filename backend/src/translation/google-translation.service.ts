@@ -774,15 +774,27 @@ export class LibreTranslationService {
             : Promise.resolve(''),
         ]);
 
-        // CRITICAL CHECK: If title came back 100% identical, use fallback
+        // CRITICAL CHECK: If title translation is below 80%, use fallback
         let finalTitle = translatedTitle;
-        if (
-          title.toLowerCase().trim() === translatedTitle.toLowerCase().trim()
-        ) {
+        const { percentage, unchangedWords } = this.getTranslationPercentage(
+          title,
+          translatedTitle,
+        );
+
+        this.logger.log(
+          `Title translation percentage: ${percentage.toFixed(0)}% (unchanged: ${unchangedWords.join(', ') || 'none'})`,
+        );
+
+        if (percentage < 80) {
           this.logger.warn(
-            `Title returned identical - using fallback translation`,
+            `Title translation below 80% (${percentage.toFixed(0)}%) - merging with fallback`,
           );
-          finalTitle = await this.fallbackTranslateTitle(title, targetLanguage);
+          // Merge: keep what LibreTranslate translated, fill in the rest with fallback
+          finalTitle = this.mergeWithFallback(
+            title,
+            translatedTitle,
+            targetLanguage,
+          );
         }
 
         // Validate that title was translated
@@ -920,6 +932,152 @@ export class LibreTranslationService {
     return { title, subtitle };
   }
 
+  /**
+   * Get fallback word translation from dictionary
+   */
+  private getFallbackWord(
+    word: string,
+    targetLanguage: Language,
+  ): string | null {
+    const titleWordTranslations: Record<Language, Record<string, string>> = {
+      [Language.SPANISH]: {
+        travel: 'de Viaje',
+        guide: 'Guía',
+        guidebook: 'Guía',
+        book: 'Libro',
+        complete: 'Completa',
+        ultimate: 'Definitiva',
+        essential: 'Esencial',
+        the: 'La',
+        a: 'Una',
+        to: 'a',
+        and: 'y',
+        in: 'en',
+        for: 'para',
+      },
+      [Language.FRENCH]: {
+        travel: 'de Voyage',
+        guide: 'Guide',
+        guidebook: 'Guide',
+        book: 'Livre',
+        complete: 'Complet',
+        ultimate: 'Ultime',
+        essential: 'Essentiel',
+        the: 'Le',
+        a: 'Un',
+        to: 'à',
+        and: 'et',
+        in: 'en',
+        for: 'pour',
+      },
+      [Language.GERMAN]: {
+        travel: 'Reise',
+        guide: 'Führer',
+        guidebook: 'Reiseführer',
+        book: 'Buch',
+        complete: 'Vollständige',
+        ultimate: 'Ultimate',
+        essential: 'Wesentliche',
+        the: 'Der',
+        a: 'Ein',
+        to: 'zu',
+        and: 'und',
+        in: 'in',
+        for: 'für',
+      },
+      [Language.ITALIAN]: {
+        travel: 'Turistica',
+        guide: 'Guida',
+        guidebook: 'Guida',
+        book: 'Libro',
+        complete: 'Completa',
+        ultimate: 'Definitiva',
+        essential: 'Essenziale',
+        the: 'La',
+        a: 'Una',
+        to: 'a',
+        and: 'e',
+        in: 'in',
+        for: 'per',
+      },
+      [Language.ENGLISH]: {},
+    };
+
+    const translations = titleWordTranslations[targetLanguage] || {};
+    return translations[word.toLowerCase()] || null;
+  }
+
+  /**
+   * Merge LibreTranslate result with fallback for untranslated words
+   */
+  private mergeWithFallback(
+    original: string,
+    libreTranslated: string,
+    targetLanguage: Language,
+  ): string {
+    const origWords = original.split(/\s+/);
+    let result = libreTranslated;
+
+    this.logger.debug(
+      `Merging translations - Original: "${original}", LibreTranslate: "${libreTranslated}"`,
+    );
+
+    for (const origWord of origWords) {
+      // Skip numbers and very short words
+      if (/^\d+$/.test(origWord) || origWord.length <= 2) continue;
+
+      // Check if this word appears unchanged in the translation (case-insensitive)
+      const wordRegex = new RegExp(`\\b${origWord}\\b`, 'i');
+      if (wordRegex.test(result)) {
+        // This word wasn't translated - get fallback
+        const fallbackWord = this.getFallbackWord(origWord, targetLanguage);
+        if (
+          fallbackWord &&
+          fallbackWord.toLowerCase() !== origWord.toLowerCase()
+        ) {
+          // Replace the unchanged word with fallback
+          result = result.replace(wordRegex, fallbackWord);
+          this.logger.debug(`  Replaced "${origWord}" with "${fallbackWord}"`);
+        }
+      }
+    }
+
+    this.logger.log(`Merged result: "${result}"`);
+    return result;
+  }
+
+  /**
+   * Check translation percentage and return details
+   */
+  private getTranslationPercentage(
+    original: string,
+    translated: string,
+  ): { percentage: number; unchangedWords: string[] } {
+    const getTranslatableWords = (text: string): string[] => {
+      return text.split(/\s+/).filter((w) => w.length > 2 && !/^\d+$/.test(w));
+    };
+
+    const origWords = getTranslatableWords(original);
+    const transWordsLower = getTranslatableWords(translated).map((w) =>
+      w.toLowerCase(),
+    );
+
+    if (origWords.length === 0) {
+      return { percentage: 100, unchangedWords: [] };
+    }
+
+    const unchangedWords: string[] = [];
+    for (const word of origWords) {
+      if (transWordsLower.includes(word.toLowerCase())) {
+        unchangedWords.push(word);
+      }
+    }
+
+    const translatedCount = origWords.length - unchangedWords.length;
+    const percentage = (translatedCount / origWords.length) * 100;
+
+    return { percentage, unchangedWords };
+  }
   /**
    * Validate metadata translation - IMPROVED LOGIC for proper nouns
    *
@@ -1062,7 +1220,7 @@ export class LibreTranslationService {
     // Known translations for common title words
     const titleWordTranslations: Record<Language, Record<string, string>> = {
       [Language.SPANISH]: {
-        Travel: 'Viaje',
+        Travel: 'de Viaje',
         Guide: 'Guía',
         Guidebook: 'Guía',
         Book: 'Libro',
@@ -1077,7 +1235,7 @@ export class LibreTranslationService {
         for: 'para',
       },
       [Language.FRENCH]: {
-        Travel: 'Voyage',
+        Travel: 'de Voyage',
         Guide: 'Guide',
         Guidebook: 'Guide',
         Book: 'Livre',
