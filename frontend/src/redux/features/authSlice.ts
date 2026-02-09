@@ -1,5 +1,4 @@
-// src/redux/features/authSlice.ts
-import { createSlice, type PayloadAction,  } from "@reduxjs/toolkit";
+import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
 interface User {
   id: string;
@@ -12,11 +11,31 @@ interface AuthState {
   token: string | null;
 }
 
+// Helper to safely get token
+const getStoredToken = (): string | null => {
+  const token = localStorage.getItem("token");
+  if (token && token !== "null" && token !== "undefined") {
+    return token;
+  }
+  return null;
+};
+
+// Helper to safely get user
+const getStoredUser = (): User | null => {
+  try {
+    const userInfo = localStorage.getItem("userInfo");
+    if (userInfo && userInfo !== "null" && userInfo !== "undefined") {
+      return JSON.parse(userInfo);
+    }
+  } catch {
+    localStorage.removeItem("userInfo");
+  }
+  return null;
+};
+
 const initialState: AuthState = {
-  user: localStorage.getItem("userInfo")
-    ? JSON.parse(localStorage.getItem("userInfo")!)
-    : null,
-  token: localStorage.getItem("token") || null,
+  user: getStoredUser(),
+  token: getStoredToken(),
 };
 
 const authSlice = createSlice({
@@ -25,7 +44,7 @@ const authSlice = createSlice({
   reducers: {
     setCredentials: (
       state,
-      action: PayloadAction<{ user: User; token: string }>
+      action: PayloadAction<{ user: User; token: string }>,
     ) => {
       state.user = action.payload.user;
       state.token = action.payload.token;

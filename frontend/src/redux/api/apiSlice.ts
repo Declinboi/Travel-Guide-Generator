@@ -1,52 +1,50 @@
-// // src/redux/api/apiSlice.ts
-// import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
-// import type { RootState } from "../store";
-
-// const baseQuery = fetchBaseQuery({
-//   baseUrl: "http://localhost:4000/api",
-//   //   credentials: "include",
-//   //   withCredentials: true,
-//   prepareHeaders: (headers, { getState }) => {
-//     const token = (getState() as RootState).auth.token;
-//     if (token) {
-//       headers.set("authorization", `Bearer ${token}`);
-//     }
-//     return headers;
-//   },
-// });
-
-// export const apiSlice = createApi({
-//   baseQuery,
-//   tagTypes: ["User", "Project"],
-//   endpoints: (_builder) => ({}),
-// });
-// src/redux/api/apiSlice.ts
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
+import type { BaseQueryFn } from "@reduxjs/toolkit/query";
 import type { RootState } from "../store";
 
 const baseQuery = fetchBaseQuery({
   baseUrl: "http://localhost:4000/api",
-  credentials: "include", // Enable credentials for CORS
+  credentials: "include",
   prepareHeaders: (headers, { getState }) => {
-    const token = (getState() as RootState).auth.token;
-    if (token) {
-      headers.set("authorization", `Bearer ${token}`);
+    // Try Redux state first, fallback to localStorage
+    const token =
+      (getState() as RootState).auth.token || localStorage.getItem("token");
+
+    // Validate token is not null/undefined string
+    if (token && token !== "null" && token !== "undefined") {
+      headers.set("Authorization", `Bearer ${token}`); // ← FIXED: backticks were missing
     }
-    // 🔥 Prevent caching at HTTP level
+
     headers.set("Cache-Control", "no-cache");
     headers.set("Pragma", "no-cache");
     return headers;
   },
 });
 
+// Wrapper to handle 401 errors
+const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
+  const result = await baseQuery(args, api, extraOptions);
+
+  if (result.error && result.error.status === 401) {
+    // Clear invalid auth data
+    localStorage.removeItem("token");
+    localStorage.removeItem("userInfo");
+
+    // Dispatch logout action
+    api.dispatch({ type: "auth/logout" });
+
+    // Redirect to login
+    window.location.href = "/login";
+  }
+
+  return result;
+};
+
 export const apiSlice = createApi({
-  baseQuery,
+  baseQuery: baseQueryWithReauth, // ← Use the wrapper
   tagTypes: ["User", "Project"],
-  // 🔥 Disable all caching globally
   keepUnusedDataFor: 0,
-  // Refetch on window focus
   refetchOnFocus: true,
-  // Refetch on network reconnect  
   refetchOnReconnect: true,
   endpoints: (_builder) => ({}),
 });
