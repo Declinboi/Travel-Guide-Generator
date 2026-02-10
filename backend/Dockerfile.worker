@@ -20,7 +20,7 @@ RUN pnpm run build
 # Production stage for worker
 FROM node:24-alpine AS production
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init ghostscript
 
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nestjs -u 1001

@@ -246,7 +246,7 @@ export class ContentService {
       });
 
       // We should have: 4 front matter + numberOfChapters content chapters
-      const expectedTotal = 4 + numberOfChapters;
+      const expectedTotal = 3 + numberOfChapters;
 
       this.logger.log(
         `Saved ${savedChapters} chapters (expected ${expectedTotal})`,

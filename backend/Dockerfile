@@ -26,7 +26,7 @@ RUN pnpm run build
 FROM node:24-alpine AS production
 
 # Install runtime dependencies
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init ghostscript
 
 # Create app user
 RUN addgroup -g 1001 -S nodejs && \
