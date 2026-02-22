@@ -944,6 +944,7 @@ export class LibreTranslationService {
         travel: 'de Viaje',
         guide: 'Guía',
         guidebook: 'Guía',
+        farming: 'de Agricultura',
         book: 'Libro',
         complete: 'Completa',
         ultimate: 'Definitiva',
@@ -959,6 +960,7 @@ export class LibreTranslationService {
         travel: 'de Voyage',
         guide: 'Guide',
         guidebook: 'Guide',
+        farming: "d'elevage",
         book: 'Livre',
         complete: 'Complet',
         ultimate: 'Ultime',
@@ -974,6 +976,7 @@ export class LibreTranslationService {
         travel: 'Reise',
         guide: 'Führer',
         guidebook: 'Reiseführer',
+        farming: 'Landwirtschafts',
         book: 'Buch',
         complete: 'Vollständige',
         ultimate: 'Ultimate',
@@ -989,6 +992,7 @@ export class LibreTranslationService {
         travel: 'Turistica',
         guide: 'Guida',
         guidebook: 'Guida',
+        farming: 'di Agricoltura',
         book: 'Libro',
         complete: 'Completa',
         ultimate: 'Definitiva',
@@ -1017,9 +1021,10 @@ export class LibreTranslationService {
   ): string {
     const origWords = original.split(/\s+/);
     let result = libreTranslated;
+    const isFarming = this.isFarmingContext(original);
 
     this.logger.debug(
-      `Merging translations - Original: "${original}", LibreTranslate: "${libreTranslated}"`,
+      `Merging translations - Original: "${original}", LibreTranslate: "${libreTranslated}", FarmingContext: ${isFarming}`,
     );
 
     for (const origWord of origWords) {
@@ -1029,13 +1034,22 @@ export class LibreTranslationService {
       // Check if this word appears unchanged in the translation (case-insensitive)
       const wordRegex = new RegExp(`\\b${origWord}\\b`, 'i');
       if (wordRegex.test(result)) {
-        // This word wasn't translated - get fallback
-        const fallbackWord = this.getFallbackWord(origWord, targetLanguage);
+        // Try animal translation first (only in farming context)
+        let fallbackWord = this.getAnimalTranslation(
+          origWord,
+          targetLanguage,
+          isFarming,
+        );
+
+        // If no animal translation, try regular fallback
+        if (!fallbackWord) {
+          fallbackWord = this.getFallbackWord(origWord, targetLanguage);
+        }
+
         if (
           fallbackWord &&
           fallbackWord.toLowerCase() !== origWord.toLowerCase()
         ) {
-          // Replace the unchanged word with fallback
           result = result.replace(wordRegex, fallbackWord);
           this.logger.debug(`  Replaced "${origWord}" with "${fallbackWord}"`);
         }
@@ -1213,6 +1227,9 @@ export class LibreTranslationService {
   ): Promise<string> {
     this.logger.log(`Attempting fallback translation for: "${title}"`);
 
+    const isFarming = this.isFarmingContext(title);
+    this.logger.debug(`Farming context detected: ${isFarming}`);
+
     // Split into words
     const words = title.split(/\s+/);
     const translatedWords: string[] = [];
@@ -1223,6 +1240,7 @@ export class LibreTranslationService {
         Travel: 'de Viaje',
         Guide: 'Guía',
         Guidebook: 'Guía',
+        Farming: 'de Agricultura',
         Book: 'Libro',
         Complete: 'Completa',
         Ultimate: 'Definitiva',
@@ -1238,6 +1256,7 @@ export class LibreTranslationService {
         Travel: 'de Voyage',
         Guide: 'Guide',
         Guidebook: 'Guide',
+        Farming: "d'elevage",
         Book: 'Livre',
         Complete: 'Complet',
         Ultimate: 'Ultime',
@@ -1253,6 +1272,7 @@ export class LibreTranslationService {
         Travel: 'Reise',
         Guide: 'Führer',
         Guidebook: 'Reiseführer',
+        Farming: 'Landwirtschafts',
         Book: 'Buch',
         Complete: 'Vollständige',
         Ultimate: 'Ultimate',
@@ -1268,6 +1288,7 @@ export class LibreTranslationService {
         Travel: 'Turistica',
         Guide: 'Guida',
         Guidebook: 'Guida',
+        Farming: "all'allevamento di",
         Book: 'Libro',
         Complete: 'Completa',
         Ultimate: 'Definitiva',
@@ -1291,9 +1312,20 @@ export class LibreTranslationService {
         continue;
       }
 
-      // Is it a proper noun (capitalized)? Keep it
+      // Check for animal translation first (only in farming context)
+      const animalTranslation = this.getAnimalTranslation(
+        word,
+        targetLanguage,
+        isFarming,
+      );
+      if (animalTranslation) {
+        translatedWords.push(animalTranslation);
+        continue;
+      }
+
+      // Is it a proper noun (capitalized)?
       if (/^[A-Z][a-z]+$/.test(word) && word.length > 2) {
-        // Check if it's in our dictionary (like "Travel")
+        // Check if it's in our dictionary (like "Travel", "Farming")
         if (translations[word]) {
           translatedWords.push(translations[word]);
         } else {
@@ -1325,6 +1357,149 @@ export class LibreTranslationService {
     this.logger.log(`Fallback result: "${title}" → "${result}"`);
 
     return result;
+  }
+
+  /**
+   * Check if title is farming-related context
+   */
+  private isFarmingContext(title: string): boolean {
+    const farmingKeywords = [
+      'farm',
+      'farming',
+      'agriculture',
+      'agricultural',
+      'crop',
+      'crops',
+      'harvest',
+      'livestock',
+      'poultry',
+      'raising',
+      'breeding',
+      'husbandry',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return farmingKeywords.some((keyword) => lowerTitle.includes(keyword));
+  }
+
+  /**
+   * Get animal translation (only for farming context)
+   */
+  private getAnimalTranslation(
+    word: string,
+    targetLanguage: Language,
+    isFarmingContext: boolean,
+  ): string | null {
+    // Only translate animals in farming context
+    if (!isFarmingContext) {
+      return null;
+    }
+
+    const animalTranslations: Record<Language, Record<string, string>> = {
+      [Language.SPANISH]: {
+        Chicken: 'Pollo',
+        Chickens: 'Pollos',
+        Cow: 'Vaca',
+        Cows: 'Vacas',
+        Cattle: 'Ganado',
+        Pig: 'Cerdo',
+        Pigs: 'Cerdos',
+        Sheep: 'Oveja',
+        Goat: 'Cabra',
+        Goats: 'Cabras',
+        Horse: 'Caballo',
+        Horses: 'Caballos',
+        Duck: 'Pato',
+        Ducks: 'Patos',
+        Turkey: 'Pavo',
+        Turkeys: 'Pavos',
+        Rabbit: 'Conejo',
+        Rabbits: 'Conejos',
+        Bee: 'Abeja',
+        Bees: 'Abejas',
+        Fish: 'Pez',
+        Poultry: 'Aves de Corral',
+        Livestock: 'Ganado',
+      },
+      [Language.FRENCH]: {
+        Chicken: 'Poulet',
+        Chickens: 'Poulets',
+        Cow: 'Vache',
+        Cows: 'Vaches',
+        Cattle: 'Bétail',
+        Pig: 'Cochon',
+        Pigs: 'Cochons',
+        Sheep: 'Mouton',
+        Goat: 'Chèvre',
+        Goats: 'Chèvres',
+        Horse: 'Cheval',
+        Horses: 'Chevaux',
+        Duck: 'Canard',
+        Ducks: 'Canards',
+        Turkey: 'Dinde',
+        Turkeys: 'Dindes',
+        Rabbit: 'Lapin',
+        Rabbits: 'Lapins',
+        Bee: 'Abeille',
+        Bees: 'Abeilles',
+        Fish: 'Poisson',
+        Poultry: 'Volaille',
+        Livestock: 'Bétail',
+      },
+      [Language.GERMAN]: {
+        Chicken: 'Huhn',
+        Chickens: 'Hühner',
+        Cow: 'Kuh',
+        Cows: 'Kühe',
+        Cattle: 'Rinder',
+        Pig: 'Schwein',
+        Pigs: 'Schweine',
+        Sheep: 'Schaf',
+        Goat: 'Ziege',
+        Goats: 'Ziegen',
+        Horse: 'Pferd',
+        Horses: 'Pferde',
+        Duck: 'Ente',
+        Ducks: 'Enten',
+        Turkey: 'Truthahn',
+        Turkeys: 'Truthähne',
+        Rabbit: 'Kaninchen',
+        Rabbits: 'Kaninchen',
+        Bee: 'Biene',
+        Bees: 'Bienen',
+        Fish: 'Fisch',
+        Poultry: 'Geflügel',
+        Livestock: 'Vieh',
+      },
+      [Language.ITALIAN]: {
+        Chicken: 'Pollo',
+        Chickens: 'Polli',
+        Cow: 'Mucca',
+        Cows: 'Mucche',
+        Cattle: 'Bestiame',
+        Pig: 'Maiale',
+        Pigs: 'Maiali',
+        Sheep: 'Pecora',
+        Goat: 'Capra',
+        Goats: 'Capre',
+        Horse: 'Cavallo',
+        Horses: 'Cavalli',
+        Duck: 'Anatra',
+        Ducks: 'Anatre',
+        Turkey: 'Tacchino',
+        Turkeys: 'Tacchini',
+        Rabbit: 'Coniglio',
+        Rabbits: 'Conigli',
+        Bee: 'Ape',
+        Bees: 'Api',
+        Fish: 'Pesce',
+        Poultry: 'Pollame',
+        Livestock: 'Bestiame',
+      },
+      [Language.ENGLISH]: {},
+    };
+
+    const translations = animalTranslations[targetLanguage] || {};
+    return translations[word] || translations[word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()] || null;
   }
 
   /**

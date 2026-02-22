@@ -313,7 +313,7 @@ IMPORTANT: Generate ALL ${numberOfChapters} chapters. Do not stop early. Return 
       throw new Error('Introduction chapter not found in outline');
     }
 
-    const prompt = `You are a professional travel guide book writer. Write the complete Introduction chapter for this travel guide:
+    const prompt = `You are a professional travel guide book writer. Write the complete Introduction chapter for this guide:
 
 Title: "${title}"
 Subtitle: "${subtitle}"
@@ -347,7 +347,7 @@ Write the complete Introduction chapter now:`;
     bookTitle: string,
     bookSubtitle: string,
   ): Promise<string> {
-    const prompt = `You are a professional travel guide book writer. Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the travel guide "${bookTitle}: ${bookSubtitle}".
+    const prompt = `You are a professional travel guide book writer. Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the guide "${bookTitle}: ${bookSubtitle}".
 
 Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
@@ -357,7 +357,7 @@ WRITING STYLE:
 - Write in second person ("you") to connect with readers
 - Use short paragraphs (3-5 sentences maximum)
 - Include personal stories, anecdotes, and examples to make information personal
-- Share travel experiences: "I once..." or "A traveler told me..."
+- Share experiences: "I once..." or "A traveler told me..."
 - Make it warm and inviting, not stiff or academic
 - Focus on practical advice readers can actually use
 - NO lists or bullet points in the main content - write in flowing prose
@@ -375,7 +375,7 @@ CONTENT APPROACH:
 TONE:
 - Friendly and helpful, like a knowledgeable friend sharing secrets
 - Honest and authentic - mention both positives and challenges
-- Encouraging and exciting about the destination
+- Encouraging and exciting about the guide or destination
 - Patient and understanding of different travel styles
 
 LENGTH: Write approximately 1,300-1,500 words covering all sections and subsections from the outline.
@@ -398,7 +398,18 @@ Write the complete chapter now:`;
       throw new Error('Conclusion chapter not found in outline');
     }
 
-    const prompt = `You are a professional travel guide book writer. Write the Conclusion chapter for this travel guide:
+    // Auto-detect content type from title
+    const isFarming = this.isFarmingContext(title);
+
+    const emergencyContactsSection = isFarming
+      ? ''
+      : '5. Emergency Contacts: Clear list with phone numbers';
+
+    const emergencyContactsInstruction = isFarming
+      ? ''
+      : '- End with emergency contacts in a clear list format';
+
+    const prompt = `You are a professional travel guide book writer. Write the Conclusion chapter for this guide:
 
 Title: "${title}"
 Subtitle: "${subtitle}"
@@ -410,20 +421,49 @@ WRITING STYLE FOR CONCLUSION:
 - Start with a warm, reflective paragraph summarizing the journey
 - For practical sections, you CAN use lists and bullet points
 - Keep it encouraging and inspiring
-- End with emergency contacts in a clear list format
+${emergencyContactsInstruction}
 
 STRUCTURE:
-1. Opening paragraph: Reflective, warm prose about the trip experience
+1. Opening paragraph: Reflective, warm prose about the experience
 2. Key Takeaways: Use bullet points for clarity
 3. Practical Tips: Use lists for easy reference
 4. Final Encouragement: Return to prose, inspiring and warm
-5. Emergency Contacts: Clear list with phone numbers
+${emergencyContactsSection}
 
 LENGTH: Write approximately 600-650 words.
 
 Write the complete Conclusion chapter now:`;
 
     return await this.generateText(prompt);
+  }
+
+  /**
+   * Check if title indicates farming-related content
+   */
+  private isFarmingContext(title: string): boolean {
+    const farmingKeywords = [
+      'farm',
+      'farming',
+      'agriculture',
+      'agricultural',
+      'crop',
+      'crops',
+      'harvest',
+      'livestock',
+      'poultry',
+      'raising',
+      'breeding',
+      'husbandry',
+      'chicken',
+      'cattle',
+      'pig',
+      'sheep',
+      'goat',
+      'bee',
+      'aquaculture',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return farmingKeywords.some((keyword) => lowerTitle.includes(keyword));
   }
 
   // FIXED: Add null checks and validation
@@ -471,23 +511,6 @@ Write the complete Conclusion chapter now:`;
     return toc;
   }
 
-//   async generateFrontMatter(
-//     title: string,
-//     subtitle: string,
-//     author: string,
-//   ): Promise<string> {
-//     return `${title}
-// ${subtitle}
-
-
-// (Including a map at the Last Page)
-
-
-
-// By
-// ${author}`;
-//   }
-
   async generateCopyright(author: string, year: number): Promise<string> {
     return `Copyright © 2026 ${author}. All rights reserved.
 
@@ -498,7 +521,7 @@ No part of this book may be reproduced, stored in a research system, or transmit
     const prompt = `Write an "About Book" section for a travel guide titled "${title}". 
 
 This should be 2-3 paragraphs explaining:
-- What makes this guide different from typical travel guides
+- What makes this guide different from typical guides
 - Who this guide is for (solo travelers, couples, families, etc.)
 - The practical approach and flexibility built into the guide
 - How it helps readers create their own path

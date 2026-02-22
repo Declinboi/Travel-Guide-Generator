@@ -184,18 +184,49 @@ export class DocxService {
       await this.delay(200);
     }
 
-    // BATCH 3: Map Page
-    const mapImage = images.find((img) => img.isMap);
-    if (mapImage) {
-      this.logger.log('Building map page...');
-      const mapSections = await this.createMapPage(mapImage, redisCache);
-      allSections.push(...mapSections);
-      mapSections.length = 0;
-      this.forceGC();
-      this.logMemory('After Map');
+    // BATCH 3: Map Page (only for travel-related content)
+    const isFarming = this.isFarmingContext(title);
+
+    if (!isFarming) {
+      const mapImage = images.find((img) => img.isMap);
+      if (mapImage) {
+        this.logger.log('Building map page...');
+        const mapSections = await this.createMapPage(mapImage, redisCache);
+        allSections.push(...mapSections);
+        mapSections.length = 0;
+        this.forceGC();
+        this.logMemory('After Map');
+      }
     }
 
     return allSections;
+  }
+
+  /**
+   * Check if title indicates farming-related content
+   */
+  private isFarmingContext(title: string): boolean {
+    const farmingKeywords = [
+      'farm',
+      'farming',
+      'de agricultura',
+      "d'agriculture",
+      'landwirtschafts',
+      "all'allevamento di",
+      "d'elevage",
+      'agricultura',
+      'breeding',
+      'husbandry',
+      'chicken',
+      'cattle',
+      'pig',
+      'sheep',
+      'goat',
+      'bee',
+      'aquaculture',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return farmingKeywords.some((keyword) => lowerTitle.includes(keyword));
   }
 
   private buildFrontMatter(

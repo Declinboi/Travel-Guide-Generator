@@ -25,6 +25,13 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## YOU MUST RUN IT FROM DOCKER WiTH THIS COMMANDS
+
+docker compose up -d --build
+./docker-scripts.sh start
+./docker-scripts.sh restart
+./docker-scripts.sh logs
+
 ## Project setup
 
 ```bash

@@ -169,21 +169,25 @@ export class PdfService {
           }
         }
 
-        // Add Map
-        const mapImage = images.find((img) => img.isMap);
-        if (mapImage) {
-          const mapHeight = 421.2;
-          const titleHeight = 50;
-          const totalMapSpace = mapHeight + titleHeight + 100;
+        // Add Map (only for travel-related content)
+        const isFarming = this.isFarmingContext(title);
 
-          if (
-            doc.y + totalMapSpace >
-            doc.page.height - doc.page.margins.bottom
-          ) {
-            doc.addPage();
+        if (!isFarming) {
+          const mapImage = images.find((img) => img.isMap);
+          if (mapImage) {
+            const mapHeight = 421.2;
+            const titleHeight = 50;
+            const totalMapSpace = mapHeight + titleHeight + 100;
+
+            if (
+              doc.y + totalMapSpace >
+              doc.page.height - doc.page.margins.bottom
+            ) {
+              doc.addPage();
+            }
+
+            await this.addMapPage(doc, mapImage, redisCache);
           }
-
-          await this.addMapPage(doc, mapImage, redisCache);
         }
 
         // Add page numbers to ALL pages
@@ -217,6 +221,33 @@ export class PdfService {
         reject(error);
       }
     });
+  }
+
+  /**
+   * Check if title indicates farming-related content
+   */
+  private isFarmingContext(title: string): boolean {
+    const farmingKeywords = [
+      'farm',
+      'farming',
+      'de agricultura',
+      "d'agriculture",
+      'landwirtschafts',
+      "all'allevamento di",
+      "d'elevage",
+      'agricultura',
+      'breeding',
+      'husbandry',
+      'chicken',
+      'cattle',
+      'pig',
+      'sheep',
+      'goat',
+      'bee',
+      'aquaculture',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return farmingKeywords.some((keyword) => lowerTitle.includes(keyword));
   }
 
   private isCopyrightChapter(title: string): boolean {
