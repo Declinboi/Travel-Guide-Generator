@@ -1,7 +1,7 @@
 // src/queues/book-generation.processor.ts - UPDATED WORKFLOW
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import { Job } from 'bullmq';
+import { Job, UnrecoverableError } from 'bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { BookGenerationJobData } from './book-generation.queue';
@@ -327,7 +327,7 @@ export class BookGenerationProcessor extends WorkerHost {
     type: DocumentType,
     language: Language,
   ): Promise<void> {
-    const maxWaitTime = 900000; // 10 minutes
+    const maxWaitTime = 2400000; // 40 minutes
     const checkInterval = 2000;
     let elapsedTime = 0;
 
@@ -386,17 +386,13 @@ export class BookGenerationProcessor extends WorkerHost {
 
           // ✅ CHECK: If project is already COMPLETED or FAILED, don't process again
           if (project.status === ProjectStatus.COMPLETED) {
-            this.logger.log(
-              `[${projectId}] Project already completed. Skipping retry.`,
+            throw new UnrecoverableError(
+              `Project ${projectId} already completed`,
             );
-            throw new Error(`Project ${projectId} already completed`);
           }
 
           if (project.status === ProjectStatus.FAILED) {
-            this.logger.log(
-              `[${projectId}] Project already failed. Skipping retry.`,
-            );
-            throw new Error(`Project ${projectId} already failed`);
+            throw new UnrecoverableError(`Project ${projectId} already failed`);
           }
 
           return;

@@ -209,8 +209,9 @@ export class DocxService {
     const farmingKeywords = [
       'farm',
       'farming',
-      'de agricultura',
+      'la agricultura',
       "d'agriculture",
+      'de cría',
       'landwirtschafts',
       "all'allevamento di",
       "d'elevage",
@@ -674,7 +675,7 @@ export class DocxService {
       new Paragraph({
         // text: subtitle,
         alignment: AlignmentType.CENTER,
-        spacing: { after: 600 },
+        spacing: { after: 1200 },
         children: [
           new TextRun({ text: subtitle, size: 20, font: this.FONTS.body }),
         ],
@@ -732,7 +733,7 @@ export class DocxService {
         pageBreakBefore: true,
         children: [
           new TextRun({
-            text: 'About Book',
+            text: 'About This Book',
             bold: true,
             size: 36,
             font: this.FONTS.heading,
@@ -1156,7 +1157,7 @@ export class DocxService {
     cleaned = cleaned.replace(/^>\s+/gm, '');
 
     // Lists: - item or * item or + item or 1. item
-    cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // Unordered lists
+    // cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // Unordered lists
     // cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Ordered lists
 
     // ==========================================

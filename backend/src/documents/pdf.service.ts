@@ -230,10 +230,11 @@ export class PdfService {
     const farmingKeywords = [
       'farm',
       'farming',
-      'de agricultura',
+      'la agricultura',
       "d'agriculture",
       'landwirtschafts',
       "all'allevamento di",
+      'de cría',
       "d'elevage",
       'agricultura',
       'breeding',
@@ -363,7 +364,7 @@ export class PdfService {
         doc.fontSize(10).font('Helvetica');
       }
 
-      doc.text(subtitle, 50, 220, {
+      doc.text(subtitle, 50, 250, {
         width: pageWidth - 100,
         align: 'center',
       });
@@ -400,7 +401,7 @@ export class PdfService {
     );
     const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
 
-    doc.fontSize(16).font(headerFont).text('About Book', 50, 50);
+    doc.fontSize(16).font(headerFont).text('About This Book', 50, 50);
     doc.moveDown(1);
 
     const cleanedContent = this.cleanFrontMatterContent(content);
@@ -1061,7 +1062,7 @@ export class PdfService {
     cleaned = cleaned.replace(/^>\s+/gm, '');
 
     // Lists: - item or * item or + item or 1. item
-    cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // Unordered lists
+    // cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // Unordered lists
     // cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Ordered lists
 
     // ==========================================
