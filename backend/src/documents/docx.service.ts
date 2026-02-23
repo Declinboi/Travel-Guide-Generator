@@ -662,12 +662,12 @@ export class DocxService {
       new Paragraph({
         // text: title.toUpperCase(),
         alignment: AlignmentType.CENTER,
-        spacing: { before: 100, after: 800 },
+        spacing: { before: 100, after: 700 },
         children: [
           new TextRun({
             text: title.toUpperCase(),
             bold: true,
-            size: 64,
+            size: 50,
             font: this.FONTS.title,
           }),
         ],
@@ -696,7 +696,7 @@ export class DocxService {
           new TextRun({
             text: author.toUpperCase(),
             bold: true,
-            size: 32,
+            size: 28,
             font: this.FONTS.title,
           }),
         ],

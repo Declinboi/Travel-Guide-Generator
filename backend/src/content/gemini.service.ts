@@ -360,7 +360,7 @@ WRITING STYLE:
 - Share experiences: "I once..." or "A traveler told me..."
 - Make it warm and inviting, not stiff or academic
 - Focus on practical advice readers can actually use
-- NO lists or bullet points in the main content - write in flowing prose
+- There MUST be bullet points in the main content - write in flowing prose
 - Paint pictures with words - help readers visualize the experience
 
 CONTENT APPROACH:
