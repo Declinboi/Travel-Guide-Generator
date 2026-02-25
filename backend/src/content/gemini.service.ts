@@ -196,7 +196,7 @@ export class GeminiService {
     subtitle: string,
     numberOfChapters: number,
   ): Promise<BookOutlineDto> {
-    const prompt = `You are a professional travel guide book writer. Create a detailed ${numberOfChapters}-chapter outline for a travel guide book.
+    const prompt = `You are a professional guide book writer. Create a detailed ${numberOfChapters}-chapter outline for a guide book.
 
 Book Title: "${title}"
 Subtitle: "${subtitle}"
@@ -313,7 +313,7 @@ IMPORTANT: Generate ALL ${numberOfChapters} chapters. Do not stop early. Return 
       throw new Error('Introduction chapter not found in outline');
     }
 
-    const prompt = `You are a professional travel guide book writer. Write the complete Introduction chapter for this guide:
+    const prompt = `You are a professional guide book writer. Write the complete Introduction chapter for this guide:
 
 Title: "${title}"
 Subtitle: "${subtitle}"
@@ -347,7 +347,7 @@ Write the complete Introduction chapter now:`;
     bookTitle: string,
     bookSubtitle: string,
   ): Promise<string> {
-    const prompt = `You are a professional travel guide book writer. Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the guide "${bookTitle}: ${bookSubtitle}".
+    const prompt = `You are a professional guide book writer. Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the guide "${bookTitle}: ${bookSubtitle}".
 
 Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
@@ -357,7 +357,7 @@ WRITING STYLE:
 - Write in second person ("you") to connect with readers
 - Use short paragraphs (3-5 sentences maximum)
 - Include personal stories, anecdotes, and examples to make information personal
-- Share experiences: "I once..." or "A traveler told me..."
+- Share experiences: "I once..." or "A traveler told me..." or "A farmer told me..."
 - Make it warm and inviting, not stiff or academic
 - Focus on practical advice readers can actually use
 - There MUST be bullet points in the main content - write in flowing prose
@@ -376,7 +376,7 @@ TONE:
 - Friendly and helpful, like a knowledgeable friend sharing secrets
 - Honest and authentic - mention both positives and challenges
 - Encouraging and exciting about the guide or destination
-- Patient and understanding of different travel styles
+- Patient and understanding of different styles
 
 LENGTH: Write approximately 1,300-1,500 words covering all sections and subsections from the outline.
 
@@ -409,7 +409,7 @@ Write the complete chapter now:`;
       ? ''
       : '- End with emergency contacts in a clear list format';
 
-    const prompt = `You are a professional travel guide book writer. Write the Conclusion chapter for this guide:
+    const prompt = `You are a professional guide book writer. Write the Conclusion chapter for this guide:
 
 Title: "${title}"
 Subtitle: "${subtitle}"
@@ -518,7 +518,7 @@ No part of this book may be reproduced, stored in a research system, or transmit
   }
 
   async generateAboutBook(title: string): Promise<string> {
-    const prompt = `Write an "About Book" section for a travel guide titled "${title}". 
+    const prompt = `Write an "About Book" section for a guide titled "${title}". 
 
 This should be 2-3 paragraphs explaining:
 - What makes this guide different from typical guides

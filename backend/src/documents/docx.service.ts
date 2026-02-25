@@ -191,7 +191,13 @@ export class DocxService {
       const mapImage = images.find((img) => img.isMap);
       if (mapImage) {
         this.logger.log('Building map page...');
-        const mapSections = await this.createMapPage(mapImage, redisCache);
+        // Pass the map title from the image metadata or use a translated default
+        const mapTitle = this.getLocalizedTitles(title).map;
+        const mapSections = await this.createMapPage(
+          mapImage,
+          redisCache,
+          mapTitle,
+        );
         allSections.push(...mapSections);
         mapSections.length = 0;
         this.forceGC();
@@ -211,6 +217,7 @@ export class DocxService {
       'farming',
       'la agricultura',
       "d'agriculture",
+      "de cultivo",
       'de cría',
       'landwirtschafts',
       "all'allevamento di",
@@ -238,6 +245,7 @@ export class DocxService {
   ): Paragraph[] {
     const sections: Paragraph[] = [];
 
+    const localizedTitles = this.getLocalizedTitles(title);
     sections.push(...this.createTitlePage(title, subtitle, author));
 
     const copyrightChapter = chapters.find((c) =>
@@ -249,14 +257,20 @@ export class DocxService {
 
     const aboutChapter = chapters.find((c) => this.isAboutChapter(c.title));
     if (aboutChapter) {
-      sections.push(...this.createAboutPage(aboutChapter.content));
+      // Pass the chapter title instead of hardcoding
+      sections.push(
+        ...this.createAboutPage(aboutChapter.content, localizedTitles.about),
+      );
     }
 
     const tocChapter = chapters.find((c) =>
       this.isTableOfContentsChapter(c.title),
     );
     if (tocChapter) {
-      sections.push(...this.createTableOfContents(tocChapter.content));
+      // Pass the chapter title instead of hardcoding
+      sections.push(
+        ...this.createTableOfContents(tocChapter.content, localizedTitles.toc),
+      );
     }
 
     return sections;
@@ -300,6 +314,9 @@ export class DocxService {
     } else {
       // For content chapters: Show "Chapter X" + Title
       // Use the passed chapterNumber parameter
+
+      // Get chapter prefix based on book title language
+      const chapterPrefix = this.getLocalizedTitles(bookTitle || '').chapter;
       const displayNumber = chapterNumber;
       const cleanTitle = this.cleanText(chapter.title);
 
@@ -311,7 +328,7 @@ export class DocxService {
           pageBreakBefore: true,
           children: [
             new TextRun({
-              text: `Chapter ${displayNumber}`,
+              text: `${chapterPrefix} ${displayNumber}`,
               size: 40,
               bold: true,
               font: this.FONTS.heading,
@@ -572,6 +589,7 @@ export class DocxService {
   private async createMapPage(
     mapImage: any,
     redisCache: RedisCacheService,
+    mapTitle: string, // Default
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     let imageBuffer: Buffer | null = null;
@@ -585,7 +603,7 @@ export class DocxService {
           pageBreakBefore: true,
           children: [
             new TextRun({
-              text: 'Geographical Map',
+              text: mapTitle,
               size: 40,
               bold: true,
               font: this.FONTS.title,
@@ -722,8 +740,9 @@ export class DocxService {
     ];
   }
 
-  private createAboutPage(content: string): Paragraph[] {
+  private createAboutPage(content: string, chapterTitle: string): Paragraph[] {
     const paragraphs: Paragraph[] = [];
+
     // paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
     paragraphs.push(
       new Paragraph({
@@ -733,7 +752,7 @@ export class DocxService {
         pageBreakBefore: true,
         children: [
           new TextRun({
-            text: 'About This Book',
+            text: chapterTitle,
             bold: true,
             size: 36,
             font: this.FONTS.heading,
@@ -764,7 +783,10 @@ export class DocxService {
     return paragraphs;
   }
 
-  private createTableOfContents(content: string): Paragraph[] {
+  private createTableOfContents(
+    content: string,
+    chapterTitle: string,
+  ): Paragraph[] {
     const paragraphs: Paragraph[] = [];
 
     // Page break and title
@@ -778,7 +800,7 @@ export class DocxService {
         pageBreakBefore: true,
         children: [
           new TextRun({
-            text: 'Table of Contents',
+            text: chapterTitle,
             bold: true,
             size: 40,
             font: this.FONTS.heading,
@@ -1240,8 +1262,8 @@ export class DocxService {
     cleaned = cleaned.replace(/`(.+?)`/g, '$1'); // Inline code
     cleaned = cleaned.replace(/```[\s\S]*?```/g, ''); // Code blocks
     cleaned = cleaned.replace(/^#{1,6}\s+/gm, ''); // Headers
-    cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // List items
-    cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Numbered lists
+    // cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // List items
+    // cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Numbered lists
     cleaned = cleaned.replace(/^>\s+/gm, ''); // Blockquotes
 
     // Links and images
@@ -1502,6 +1524,93 @@ export class DocxService {
   private isChapterHeading(line: string): boolean {
     // Match "Chapter 1", "Kapitel 1", "Chapitre 1", "Capitolo 1", "Capítulo 1"
     return /^(Chapter|Kapitel|Chapitre|Capitolo|Capítulo)\s+\d+$/i.test(line);
+  }
+
+  private getLocalizedTitles(bookTitle: string): {
+    chapter: string;
+    map: string;
+    about: string;
+    toc: string;
+  } {
+    const lowerTitle = bookTitle.toLowerCase();
+
+    // German detection
+    if (
+      lowerTitle.includes('reiseführer') ||
+      lowerTitle.includes('reisefuhrer') ||
+      lowerTitle.includes('reisehandbuch') ||
+      lowerTitle.includes('stadtführer') ||
+      lowerTitle.includes('urlaubsführer') ||
+      lowerTitle.includes('landwirtschafts') ||
+      lowerTitle.includes('handbuch')
+    ) {
+      return {
+        chapter: 'Kapitel',
+        map: 'Geografische Karte',
+        about: 'Über dieses Buch',
+        toc: 'Inhaltsverzeichnis',
+      };
+    }
+
+    // French detection
+    if (
+      lowerTitle.includes('guide de voyage') ||
+      lowerTitle.includes('guide touristique') ||
+      lowerTitle.includes('guide du voyageur') ||
+      lowerTitle.includes('carnet de voyage') ||
+      lowerTitle.includes("d'agriculture") ||
+      lowerTitle.includes("d'elevage")
+    ) {
+      return {
+        chapter: 'Chapitre',
+        map: 'Carte Géographique',
+        about: 'À Propos de ce Livre',
+        toc: 'Table des Matières',
+      };
+    }
+
+    // Spanish detection 
+    if (
+      lowerTitle.includes('guía de viaje') ||
+      lowerTitle.includes('guia de viaje') ||
+      lowerTitle.includes('guía turística') ||
+      lowerTitle.includes('guia turistica') ||
+      lowerTitle.includes('guía del viajero') ||
+      lowerTitle.includes('la agricultura') ||
+      lowerTitle.includes('de cultivo') ||
+      lowerTitle.includes('de cría')
+    ) {
+      return {
+        chapter: 'Capítulo',
+        map: 'Mapa Geográfico',
+        about: 'Acerca de Este Libro',
+        toc: 'Tabla de Contenidos',
+      };
+    }
+
+    // Italian detection
+    if (
+      lowerTitle.includes('guida turistica') ||
+      lowerTitle.includes('guida di viaggio') ||
+      lowerTitle.includes('guida del viaggiatore') ||
+      lowerTitle.includes('turistica') ||
+      lowerTitle.includes("all'allevamento")
+    ) {
+      return {
+        chapter: 'Capitolo',
+        map: 'Mappa Geografica',
+        about: 'Informazioni su Questo Libro',
+        toc: 'Indice',
+      };
+    }
+
+    // Default: English
+    return {
+      chapter: 'Chapter',
+      map: 'Geographical Map',
+      about: 'About This Book',
+      toc: 'Table of Contents',
+    };
   }
 
   private async downloadImageWithRetry(

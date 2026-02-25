@@ -117,10 +117,11 @@ export class PdfService {
           this.addCopyrightPage(doc, copyrightChapter.content);
         }
 
+        const localizedTitles = this.getLocalizedTitles(title);
         const aboutChapter = chapters.find((c) => this.isAboutChapter(c.title));
         if (aboutChapter) {
           doc.addPage();
-          this.addAboutPage(doc, aboutChapter.content);
+          this.addAboutPage(doc, aboutChapter.content, localizedTitles.about); // Pass title
         }
 
         const tocChapter = chapters.find((c) =>
@@ -128,7 +129,7 @@ export class PdfService {
         );
         if (tocChapter) {
           doc.addPage();
-          this.addTableOfContents(doc, tocChapter.content);
+          this.addTableOfContents(doc, tocChapter.content, localizedTitles.toc); // Pass title
         }
 
         // MAIN CONTENT
@@ -145,7 +146,7 @@ export class PdfService {
           doc.addPage();
 
           // Add chapter number and title for content chapters
-          this.addChapterTitle(doc, chapter.title, chapterNumber);
+          this.addChapterTitle(doc, chapter.title, chapterNumber, title);
 
           const chapterImages = images
             .filter((img) => img.chapterNumber === chapterNumber && !img.isMap)
@@ -186,7 +187,9 @@ export class PdfService {
               doc.addPage();
             }
 
-            await this.addMapPage(doc, mapImage, redisCache);
+            // Get map title from image or detect from chapters
+            const mapTitle = this.getLocalizedTitles(title).map;
+            await this.addMapPage(doc, mapImage, redisCache, mapTitle);
           }
         }
 
@@ -234,6 +237,7 @@ export class PdfService {
       "d'agriculture",
       'landwirtschafts',
       "all'allevamento di",
+      "de cultivo",
       'de cría',
       "d'elevage",
       'agricultura',
@@ -393,7 +397,11 @@ export class PdfService {
     });
   }
 
-  private addAboutPage(doc: PDFKit.PDFDocument, content: string): void {
+  private addAboutPage(
+    doc: PDFKit.PDFDocument,
+    content: string,
+    chapterTitle: string,
+  ): void {
     const headerFont = this.getFontOrFallback(
       doc,
       'TitleBold',
@@ -401,7 +409,7 @@ export class PdfService {
     );
     const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
 
-    doc.fontSize(16).font(headerFont).text('About This Book', 50, 50);
+    doc.fontSize(16).font(headerFont).text(chapterTitle, 50, 50);
     doc.moveDown(1);
 
     const cleanedContent = this.cleanFrontMatterContent(content);
@@ -423,7 +431,11 @@ export class PdfService {
     });
   }
 
-  private addTableOfContents(doc: PDFKit.PDFDocument, content: string): void {
+  private addTableOfContents(
+    doc: PDFKit.PDFDocument,
+    content: string,
+    chapterTitle: string,
+  ): void {
     const pageWidth = doc.page.width;
     const leftMargin = 50;
     const contentWidth = pageWidth - 100;
@@ -436,13 +448,10 @@ export class PdfService {
     const bodyFont = this.getFontOrFallback(doc, 'BodyRegular', 'Helvetica');
 
     // Title
-    doc
-      .fontSize(18)
-      .font(headerFont)
-      .text('Table of Contents', leftMargin, 50, {
-        width: contentWidth,
-        align: 'center',
-      });
+    doc.fontSize(18).font(headerFont).text(chapterTitle, leftMargin, 50, {
+      width: contentWidth,
+      align: 'center',
+    });
 
     doc.moveDown(1);
 
@@ -525,6 +534,7 @@ export class PdfService {
     doc: PDFKit.PDFDocument,
     title: string,
     chapterNumber: number,
+    bookTitle: string,
   ): void {
     const cleanTitle = this.cleanText(title);
     const titleFont = this.getFontOrFallback(
@@ -533,11 +543,16 @@ export class PdfService {
       'Helvetica-Bold',
     );
 
+    const chapterPrefix = this.getLocalizedTitles(bookTitle).chapter;
+
     // Only show "Chapter X" for actual content chapters (chapterNumber > 0)
     if (chapterNumber > 0) {
-      doc.fontSize(20).font(titleFont).text(`Chapter ${chapterNumber}`, {
-        align: 'center',
-      });
+      doc
+        .fontSize(20)
+        .font(titleFont)
+        .text(`${chapterPrefix} ${chapterNumber}`, {
+          align: 'center',
+        });
       doc.moveDown(1);
     }
 
@@ -907,6 +922,7 @@ export class PdfService {
     doc: PDFKit.PDFDocument,
     mapImage: any,
     redisCache: RedisCacheService,
+    mapTitle: string,
   ): Promise<void> {
     let imageBuffer: Buffer | null = null;
 
@@ -917,7 +933,7 @@ export class PdfService {
     );
 
     try {
-      doc.fontSize(30).font(titleFont).text('Geographical Map', {
+      doc.fontSize(30).font(titleFont).text(mapTitle, {
         align: 'center',
       });
       doc.moveDown(0.5);
@@ -1145,8 +1161,8 @@ export class PdfService {
     cleaned = cleaned.replace(/`(.+?)`/g, '$1'); // Inline code
     cleaned = cleaned.replace(/```[\s\S]*?```/g, ''); // Code blocks
     cleaned = cleaned.replace(/^#{1,6}\s+/gm, ''); // Headers
-    cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // List items
-    cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Numbered lists
+    // cleaned = cleaned.replace(/^[\*\-\+]\s+/gm, ''); // List items
+    // cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // Numbered lists
     cleaned = cleaned.replace(/^>\s+/gm, ''); // Blockquotes
 
     // Links and images
@@ -1407,6 +1423,93 @@ export class PdfService {
   private isChapterHeading(line: string): boolean {
     // Match "Chapter 1", "Kapitel 1", "Chapitre 1", "Capitolo 1", "Capítulo 1"
     return /^(Chapter|Kapitel|Chapitre|Capitolo|Capítulo)\s+\d+$/i.test(line);
+  }
+
+  private getLocalizedTitles(bookTitle: string): {
+    chapter: string;
+    map: string;
+    about: string;
+    toc: string;
+  } {
+    const lowerTitle = bookTitle.toLowerCase();
+
+    // German detection
+    if (
+      lowerTitle.includes('reiseführer') ||
+      lowerTitle.includes('reisefuhrer') ||
+      lowerTitle.includes('reisehandbuch') ||
+      lowerTitle.includes('stadtführer') ||
+      lowerTitle.includes('urlaubsführer') ||
+      lowerTitle.includes('landwirtschafts') ||
+      lowerTitle.includes('handbuch')
+    ) {
+      return {
+        chapter: 'Kapitel',
+        map: 'Geografische Karte',
+        about: 'Über dieses Buch',
+        toc: 'Inhaltsverzeichnis',
+      };
+    }
+
+    // French detection
+    if (
+      lowerTitle.includes('guide de voyage') ||
+      lowerTitle.includes('guide touristique') ||
+      lowerTitle.includes('guide du voyageur') ||
+      lowerTitle.includes('carnet de voyage') ||
+      lowerTitle.includes("d'agriculture") ||
+      lowerTitle.includes("d'elevage")
+    ) {
+      return {
+        chapter: 'Chapitre',
+        map: 'Carte Géographique',
+        about: 'À Propos de ce Livre',
+        toc: 'Table des Matières',
+      };
+    }
+
+    // Spanish detection de cultivo
+    if (
+      lowerTitle.includes('guía de viaje') ||
+      lowerTitle.includes('guia de viaje') ||
+      lowerTitle.includes('guía turística') ||
+      lowerTitle.includes('guia turistica') ||
+      lowerTitle.includes('guía del viajero') ||
+      lowerTitle.includes('la agricultura') ||
+      lowerTitle.includes('de cultivo') ||
+      lowerTitle.includes('de cría')
+    ) {
+      return {
+        chapter: 'Capítulo',
+        map: 'Mapa Geográfico',
+        about: 'Acerca de Este Libro',
+        toc: 'Tabla de Contenidos',
+      };
+    }
+
+    // Italian detection
+    if (
+      lowerTitle.includes('guida turistica') ||
+      lowerTitle.includes('guida di viaggio') ||
+      lowerTitle.includes('guida del viaggiatore') ||
+      lowerTitle.includes('turistica') ||
+      lowerTitle.includes("all'allevamento")
+    ) {
+      return {
+        chapter: 'Capitolo',
+        map: 'Mappa Geografica',
+        about: 'Informazioni su Questo Libro',
+        toc: 'Indice',
+      };
+    }
+
+    // Default: English
+    return {
+      chapter: 'Chapter',
+      map: 'Geographical Map',
+      about: 'About This Book',
+      toc: 'Table of Contents',
+    };
   }
 
   private async downloadImageWithRetry(
