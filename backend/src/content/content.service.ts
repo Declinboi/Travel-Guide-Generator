@@ -12,6 +12,8 @@ import { Chapter } from 'src/DB/entities/chapter.entity';
 @Injectable()
 export class ContentService {
   private readonly logger = new Logger(ContentService.name);
+  private readonly API_CALL_COOLDOWN_MS = 3000; // 3s between light calls
+  private readonly CHAPTER_COOLDOWN_MS = 5000; // 5s between heavy chapter calls
 
   constructor(
     @InjectRepository(Chapter)
@@ -23,6 +25,12 @@ export class ContentService {
     private readonly geminiService: GeminiService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  private async cooldown(ms?: number): Promise<void> {
+    const delay = ms || this.API_CALL_COOLDOWN_MS;
+    this.logger.debug(`Cooling down for ${delay}ms before next API call...`);
+    return new Promise((resolve) => setTimeout(resolve, delay));
+  }
 
   async generateTravelGuideBook(
     projectId: string,
@@ -128,16 +136,8 @@ export class ContentService {
       job.result = { outline };
       await this.jobRepository.save(job);
 
-      // STEP 2: Generate front matter (15% progress)
-      // this.logger.log('Step 2: Generating front matter...');
-
-      // const titlePage = await this.geminiService.generateFrontMatter(
-      //   generateDto.title,
-      //   generateDto.subtitle || '',
-      //   generateDto.author,
-      // );
-
-      // await this.saveChapter(projectId, 'Title Page', 0, titlePage);
+      // ── Cooldown after outline generation ───────────────────
+      await this.cooldown();
 
       const copyright = await this.geminiService.generateCopyright(
         generateDto.author,
@@ -146,11 +146,17 @@ export class ContentService {
 
       await this.saveChapter(projectId, 'Copyright', 1, copyright);
 
+      // ── Cooldown after copyright generation ───────────────────
+      await this.cooldown();
+
       const aboutBook = await this.geminiService.generateAboutBook(
         generateDto.title,
       );
 
       await this.saveChapter(projectId, 'About Book', 2, aboutBook);
+
+      // ── Cooldown after about book generation ───────────────────
+      await this.cooldown();
 
       const tableOfContents =
         await this.geminiService.generateTableOfContents(outline);
@@ -163,6 +169,9 @@ export class ContentService {
 
       job.progress = 15;
       await this.jobRepository.save(job);
+
+      // ── Cooldown after table of contents generation ───────────────────
+      await this.cooldown();
 
       // STEP 3: Generate Introduction (25% progress)
       this.logger.log('Step 3: Writing introduction...');
@@ -192,6 +201,11 @@ export class ContentService {
       const progressPerChapter = 60 / mainChapters.length;
 
       for (let i = 0; i < mainChapters.length; i++) {
+        // ── Cooldown before each chapter ──────────────────────
+        // Longer cooldown for chapters since they are heavier
+        // API calls (refine = 2 API calls per chapter)
+        await this.cooldown(this.CHAPTER_COOLDOWN_MS);
+
         const chapterOutline = mainChapters[i];
         this.logger.log(
           `Writing Chapter ${chapterOutline.chapterNumber}: ${chapterOutline.chapterTitle} (${i + 1}/${mainChapters.length})`,
@@ -220,6 +234,10 @@ export class ContentService {
         });
       }
 
+
+       // ── Cooldown before conclusion ──────────────────────────
+      await this.cooldown(this.CHAPTER_COOLDOWN_MS);
+      
       // STEP 5: Generate conclusion (95% progress)
       this.logger.log('Step 5: Writing conclusion...');
 
