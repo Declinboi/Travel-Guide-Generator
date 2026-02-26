@@ -217,11 +217,17 @@ export class DocxService {
       'farming',
       'la agricultura',
       "d'agriculture",
-      "de cultivo",
+      'de cultivo',
       'de cría',
       'landwirtschafts',
       "all'allevamento di",
+      "all'agricoltura",
+      "l'élevage",
+      'leitfaden',
       "d'elevage",
+      'de élevage',
+      'di agricoltura',
+      'di allevamento',
       'agricultura',
       'breeding',
       'husbandry',
@@ -1542,6 +1548,7 @@ export class DocxService {
       lowerTitle.includes('stadtführer') ||
       lowerTitle.includes('urlaubsführer') ||
       lowerTitle.includes('landwirtschafts') ||
+      lowerTitle.includes('leitfaden') ||
       lowerTitle.includes('handbuch')
     ) {
       return {
@@ -1559,6 +1566,7 @@ export class DocxService {
       lowerTitle.includes('guide du voyageur') ||
       lowerTitle.includes('carnet de voyage') ||
       lowerTitle.includes("d'agriculture") ||
+      lowerTitle.includes("l'élevage") ||
       lowerTitle.includes("d'elevage")
     ) {
       return {
@@ -1569,7 +1577,7 @@ export class DocxService {
       };
     }
 
-    // Spanish detection 
+    // Spanish detection
     if (
       lowerTitle.includes('guía de viaje') ||
       lowerTitle.includes('guia de viaje') ||
@@ -1588,12 +1596,15 @@ export class DocxService {
       };
     }
 
-    // Italian detection
+    // Italian detection all'agricoltura, all'allevamento, di agricoltura, di allevamento
     if (
       lowerTitle.includes('guida turistica') ||
       lowerTitle.includes('guida di viaggio') ||
       lowerTitle.includes('guida del viaggiatore') ||
       lowerTitle.includes('turistica') ||
+      lowerTitle.includes("all'agricoltura") ||
+      lowerTitle.includes('di agricoltura') ||
+      lowerTitle.includes('di allevamento') ||
       lowerTitle.includes("all'allevamento")
     ) {
       return {

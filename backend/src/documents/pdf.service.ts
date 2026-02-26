@@ -235,11 +235,17 @@ export class PdfService {
       'farming',
       'la agricultura',
       "d'agriculture",
+      'de cultivo',
+      'de cría',
       'landwirtschafts',
       "all'allevamento di",
-      "de cultivo",
-      'de cría',
+      "all'agricoltura",
+      "l'élevage",
+      'leitfaden',
       "d'elevage",
+      'de élevage',
+      'di agricoltura',
+      'di allevamento',
       'agricultura',
       'breeding',
       'husbandry',
@@ -1441,6 +1447,7 @@ export class PdfService {
       lowerTitle.includes('stadtführer') ||
       lowerTitle.includes('urlaubsführer') ||
       lowerTitle.includes('landwirtschafts') ||
+      lowerTitle.includes('leitfaden') ||
       lowerTitle.includes('handbuch')
     ) {
       return {
@@ -1458,6 +1465,7 @@ export class PdfService {
       lowerTitle.includes('guide du voyageur') ||
       lowerTitle.includes('carnet de voyage') ||
       lowerTitle.includes("d'agriculture") ||
+      lowerTitle.includes("l'élevage") ||
       lowerTitle.includes("d'elevage")
     ) {
       return {
@@ -1468,7 +1476,7 @@ export class PdfService {
       };
     }
 
-    // Spanish detection de cultivo
+    // Spanish detection
     if (
       lowerTitle.includes('guía de viaje') ||
       lowerTitle.includes('guia de viaje') ||
@@ -1487,12 +1495,15 @@ export class PdfService {
       };
     }
 
-    // Italian detection
+    // Italian detection all'agricoltura, all'allevamento, di agricoltura, di allevamento
     if (
       lowerTitle.includes('guida turistica') ||
       lowerTitle.includes('guida di viaggio') ||
       lowerTitle.includes('guida del viaggiatore') ||
       lowerTitle.includes('turistica') ||
+      lowerTitle.includes("all'agricoltura") ||
+      lowerTitle.includes('di agricoltura') ||
+      lowerTitle.includes('di allevamento') ||
       lowerTitle.includes("all'allevamento")
     ) {
       return {
