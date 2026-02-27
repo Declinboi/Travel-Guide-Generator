@@ -898,7 +898,7 @@ ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
 STRUCTURE:
-- Write 20-25 paragraphs covering all sections and subsections
+- Write 23-25 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a specific moment, scene, or anecdote
 - Weave practical info into stories — don't just list facts
@@ -956,7 +956,7 @@ ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
 STRUCTURE:
-- Write 20-25 paragraphs covering all sections and subsections
+- Write 23-25 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a real-world scenario or hands-on moment
 - Weave technical information into practical narrative — don't lecture
@@ -1033,7 +1033,7 @@ Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
 STRUCTURE:
-- 12-18 paragraphs total
+- 15-18 paragraphs total
 - Open with a specific memory or moment from the journey, not a summary statement
 - Practical takeaways CAN use short bullet points (this is the one place lists are okay)
 - End with emergency contacts in a clear list format
@@ -1072,7 +1072,7 @@ Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
 STRUCTURE:
-- 12-18 paragraphs total
+- 15-18 paragraphs total
 - Open with a specific seasonal moment or end-of-day scene on the farm, not a summary statement
 - Practical takeaways CAN use short bullet points (this is the one place lists are okay)
 - Close with a single short paragraph — something the reader will remember
@@ -1107,7 +1107,7 @@ Write the complete Conclusion chapter now:`;
       contentType === 'travel'
         ? `Write an "About This Book" blurb for a travel guide titled "${title}".
 
-2-3 short paragraphs. NO generic phrases like "comprehensive guide" or "everything you need to know."
+4-6 short paragraphs. NO generic phrases like "comprehensive guide" or "everything you need to know."
 
 Instead, be specific about:
 - The angle this guide takes (what it covers that other travel books skip)
@@ -1118,7 +1118,7 @@ Instead, be specific about:
 Tone: confident, direct, slightly informal. Like a back-cover blurb written by the author, not a marketer.`
         : `Write an "About This Book" blurb for a farming guide titled "${title}".
 
-2-3 short paragraphs. NO generic phrases like "comprehensive guide" or "everything you need to know."
+4-6 short paragraphs. NO generic phrases like "comprehensive guide" or "everything you need to know."
 
 Instead, be specific about:
 - The angle this guide takes (hands-on and practical, not academic theory)
