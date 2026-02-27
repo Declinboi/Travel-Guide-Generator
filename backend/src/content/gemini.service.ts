@@ -1033,7 +1033,7 @@ Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
 STRUCTURE:
-- 12-15 paragraphs total
+- 12-18 paragraphs total
 - Open with a specific memory or moment from the journey, not a summary statement
 - Practical takeaways CAN use short bullet points (this is the one place lists are okay)
 - End with emergency contacts in a clear list format
@@ -1072,7 +1072,7 @@ Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
 STRUCTURE:
-- 12-15 paragraphs total
+- 12-18 paragraphs total
 - Open with a specific seasonal moment or end-of-day scene on the farm, not a summary statement
 - Practical takeaways CAN use short bullet points (this is the one place lists are okay)
 - Close with a single short paragraph — something the reader will remember
