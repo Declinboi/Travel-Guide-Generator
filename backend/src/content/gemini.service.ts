@@ -751,7 +751,7 @@ Chapter Structure:
 ${JSON.stringify(introChapter, null, 2)}
 
 STRUCTURE:
-- Write 10-12 paragraphs covering all sections and subsections from the outline
+- Write 15-20 paragraphs covering all sections and subsections from the outline
 - Vary paragraph length: some short (2 sentences), some longer (4-5 sentences)
 - Open with a specific moment or scene from arriving at the destination, not a generic welcome
 - Close the chapter with forward momentum — make readers want to turn the page
@@ -795,7 +795,7 @@ Chapter Structure:
 ${JSON.stringify(introChapter, null, 2)}
 
 STRUCTURE:
-- Write 10-12 paragraphs covering all sections and subsections from the outline
+- Write 15-20 paragraphs covering all sections and subsections from the outline
 - Vary paragraph length: some short (2 sentences), some longer (4-5 sentences)
 - Open with a specific moment on the farm — early morning chores, first harvest, a mistake that taught you something — not a generic "welcome to farming"
 - Close with what the reader will be able to do after reading this book
@@ -898,7 +898,7 @@ ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
 STRUCTURE:
-- Write 23-25 paragraphs covering all sections and subsections
+- Write 25-28 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a specific moment, scene, or anecdote
 - Weave practical info into stories — don't just list facts
@@ -956,7 +956,7 @@ ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
 STRUCTURE:
-- Write 23-25 paragraphs covering all sections and subsections
+- Write 25-28 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a real-world scenario or hands-on moment
 - Weave technical information into practical narrative — don't lecture
@@ -1033,7 +1033,7 @@ Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
 STRUCTURE:
-- 15-18 paragraphs total
+- 18-20 paragraphs total
 - Open with a specific memory or moment from the journey, not a summary statement
 - Practical takeaways CAN use short bullet points (this is the one place lists are okay)
 - End with emergency contacts in a clear list format
@@ -1072,7 +1072,7 @@ Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
 STRUCTURE:
-- 15-18 paragraphs total
+- 18-20 paragraphs total
 - Open with a specific seasonal moment or end-of-day scene on the farm, not a summary statement
 - Practical takeaways CAN use short bullet points (this is the one place lists are okay)
 - Close with a single short paragraph — something the reader will remember
