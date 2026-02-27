@@ -392,11 +392,7 @@ export class GeminiService {
         // After waiting, try with the soonest provider directly
         try {
           soonest.rateLimitedUntil = 0; // Reset its lockout
-          return await this.generateWithProvider(
-            soonest,
-            prompt,
-            systemPrompt,
-          );
+          return await this.generateWithProvider(soonest, prompt, systemPrompt);
         } catch (error) {
           lastError = error;
           throw error;
@@ -419,8 +415,7 @@ export class GeminiService {
 
         if (isRateLimitError) {
           // ── Lock out this provider for 60 seconds ───────────
-          provider.rateLimitedUntil =
-            Date.now() + this.RATE_LIMIT_LOCKOUT_MS;
+          provider.rateLimitedUntil = Date.now() + this.RATE_LIMIT_LOCKOUT_MS;
           this.logger.warn(
             `${provider.type} provider #${this.apiProviders.indexOf(provider) + 1} rate limited, locked out for ${this.RATE_LIMIT_LOCKOUT_MS / 1000}s`,
           );
@@ -756,7 +751,7 @@ Chapter Structure:
 ${JSON.stringify(introChapter, null, 2)}
 
 STRUCTURE:
-- Write 6-8 paragraphs covering all sections and subsections from the outline
+- Write 10-12 paragraphs covering all sections and subsections from the outline
 - Vary paragraph length: some short (2 sentences), some longer (4-5 sentences)
 - Open with a specific moment or scene from arriving at the destination, not a generic welcome
 - Close the chapter with forward momentum — make readers want to turn the page
@@ -800,7 +795,7 @@ Chapter Structure:
 ${JSON.stringify(introChapter, null, 2)}
 
 STRUCTURE:
-- Write 6-8 paragraphs covering all sections and subsections from the outline
+- Write 10-12 paragraphs covering all sections and subsections from the outline
 - Vary paragraph length: some short (2 sentences), some longer (4-5 sentences)
 - Open with a specific moment on the farm — early morning chores, first harvest, a mistake that taught you something — not a generic "welcome to farming"
 - Close with what the reader will be able to do after reading this book
@@ -903,7 +898,7 @@ ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
 STRUCTURE:
-- Write 10-14 paragraphs covering all sections and subsections
+- Write 20-25 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a specific moment, scene, or anecdote
 - Weave practical info into stories — don't just list facts
@@ -961,7 +956,7 @@ ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
 STRUCTURE:
-- Write 10-14 paragraphs covering all sections and subsections
+- Write 20-25 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a real-world scenario or hands-on moment
 - Weave technical information into practical narrative — don't lecture
@@ -1038,7 +1033,7 @@ Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
 STRUCTURE:
-- 5-7 paragraphs total
+- 12-15 paragraphs total
 - Open with a specific memory or moment from the journey, not a summary statement
 - Practical takeaways CAN use short bullet points (this is the one place lists are okay)
 - End with emergency contacts in a clear list format
@@ -1077,7 +1072,7 @@ Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
 STRUCTURE:
-- 5-7 paragraphs total
+- 12-15 paragraphs total
 - Open with a specific seasonal moment or end-of-day scene on the farm, not a summary statement
 - Practical takeaways CAN use short bullet points (this is the one place lists are okay)
 - Close with a single short paragraph — something the reader will remember
