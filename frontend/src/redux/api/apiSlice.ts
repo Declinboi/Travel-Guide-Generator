@@ -3,7 +3,7 @@ import type { BaseQueryFn } from "@reduxjs/toolkit/query";
 import type { RootState } from "../store";
 
 const baseQuery = fetchBaseQuery({
-  baseUrl: "http://localhost:4000/api",
+  baseUrl: "https://theodora-faraway-homily.ngrok-free.dev/api", //  http://localhost:4000/api
   credentials: "include",
   prepareHeaders: (headers, { getState }) => {
     // Try Redux state first, fallback to localStorage
