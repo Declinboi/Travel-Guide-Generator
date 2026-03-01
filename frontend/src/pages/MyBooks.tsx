@@ -37,29 +37,67 @@ const ProjectCard = ({ project, onDelete, isDeleting, deleteId }: any) => {
       >
         {isDeleting && deleteId === project.id ? (
           <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+              fill="none"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
           </svg>
         ) : (
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          <svg
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+            />
           </svg>
         )}
       </button>
 
       <div className="p-6">
         <h3 className="text-xl font-semibold mb-2 pr-8">{project.title}</h3>
-        <p className="text-gray-600 mb-4 line-clamp-2">{project.subtitle || "No subtitle"}</p>
+        <p className="text-gray-600 mb-4 line-clamp-2">
+          {project.subtitle || "No subtitle"}
+        </p>
 
         <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
-          <span className="flex items-center">📅 {new Date(project.createdAt).toLocaleDateString()}</span>
-          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-            currentStatus === "COMPLETED" ? "bg-green-100 text-green-800" :
-            currentStatus === "IN_PROGRESS" || currentStatus === "GENERATING_CONTENT" || currentStatus === "TRANSLATING" || currentStatus === "GENERATING_DOCUMENTS" ? "bg-blue-100 text-blue-800" :
-            currentStatus === "FAILED" ? "bg-red-100 text-red-800" :
-            currentStatus === "DRAFT" ? "bg-yellow-100 text-yellow-800" : "bg-gray-100 text-gray-800"
-          }`}>
-            {shouldPoll && <span className="inline-block w-2 h-2 bg-blue-600 rounded-full mr-1 animate-pulse"></span>}
+          <span className="flex items-center">
+            📅 {new Date(project.createdAt).toLocaleDateString()}
+          </span>
+          <span
+            className={`px-3 py-1 rounded-full text-xs font-medium ${
+              currentStatus === "COMPLETED"
+                ? "bg-green-100 text-green-800"
+                : currentStatus === "IN_PROGRESS" ||
+                    currentStatus === "GENERATING_CONTENT" ||
+                    currentStatus === "TRANSLATING" ||
+                    currentStatus === "GENERATING_DOCUMENTS"
+                  ? "bg-blue-100 text-blue-800"
+                  : currentStatus === "FAILED"
+                    ? "bg-red-100 text-red-800"
+                    : currentStatus === "DRAFT"
+                      ? "bg-yellow-100 text-yellow-800"
+                      : "bg-gray-100 text-gray-800"
+            }`}
+          >
+            {shouldPoll && (
+              <span className="inline-block w-2 h-2 bg-blue-600 rounded-full mr-1 animate-pulse"></span>
+            )}
             {currentStatus.replace(/_/g, " ")}
           </span>
         </div>
@@ -71,29 +109,46 @@ const ProjectCard = ({ project, onDelete, isDeleting, deleteId }: any) => {
               <span>{progress}%</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
-              <div className="bg-blue-600 h-2 rounded-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              ></div>
             </div>
             {liveStatus.estimatedCompletion && (
-              <p className="text-xs text-gray-500 mt-1">Est. {liveStatus.estimatedCompletion}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Est. {liveStatus.estimatedCompletion}
+              </p>
             )}
           </div>
         )}
 
         <div className="flex gap-3">
           {currentStatus === "COMPLETED" ? (
-            <Link to={`/downloads/${project.id}`} className="flex-1 bg-green-600 text-white text-center py-2 px-4 rounded-lg font-medium hover:bg-green-700 transition">
+            <Link
+              to={`/downloads/${project.id}`}
+              className="flex-1 bg-green-600 text-white text-center py-2 px-4 rounded-lg font-medium hover:bg-green-700 transition"
+            >
               📥 Download
             </Link>
           ) : shouldPoll ? (
-            <Link to={`/status/${project.id}`} className="flex-1 bg-blue-600 text-white text-center py-2 px-4 rounded-lg font-medium hover:bg-blue-700 transition">
+            <Link
+              to={`/status/${project.id}`}
+              className="flex-1 bg-blue-600 text-white text-center py-2 px-4 rounded-lg font-medium hover:bg-blue-700 transition"
+            >
               ⏳ View Progress
             </Link>
           ) : currentStatus === "FAILED" ? (
-            <Link to={`/status/${project.id}`} className="flex-1 bg-red-600 text-white text-center py-2 px-4 rounded-lg font-medium hover:bg-red-700 transition">
+            <Link
+              to={`/status/${project.id}`}
+              className="flex-1 bg-red-600 text-white text-center py-2 px-4 rounded-lg font-medium hover:bg-red-700 transition"
+            >
               ❌ View Error
             </Link>
           ) : (
-            <Link to={`/status/${project.id}`} className="flex-1 bg-gray-600 text-white text-center py-2 px-4 rounded-lg font-medium hover:bg-gray-700 transition">
+            <Link
+              to={`/status/${project.id}`}
+              className="flex-1 bg-gray-600 text-white text-center py-2 px-4 rounded-lg font-medium hover:bg-gray-700 transition"
+            >
               👁️ View Details
             </Link>
           )}
@@ -107,7 +162,8 @@ const MyBooks = () => {
   const { user } = useSelector((state: RootState) => state.auth);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const hasValidUser = user?.id && typeof user.id === "string" && user.id.length > 0;
+  const hasValidUser =
+    user?.id && typeof user.id === "string" && user.id.length > 0;
 
   const {
     data: projects = [],
@@ -115,17 +171,14 @@ const MyBooks = () => {
     isError,
     error,
     refetch,
-  } = useGetProjectsQuery(
-    hasValidUser ? { userId: user.id } : undefined,
-    {
-      skip: !hasValidUser,
-      pollingInterval: 10000,
-      refetchOnMountOrArgChange: true,
-      // CRITICAL FIX: Force refetch to bypass cache
-      refetchOnFocus: true,
-      refetchOnReconnect: true,
-    }
-  );
+  } = useGetProjectsQuery(hasValidUser ? { userId: user.id } : undefined, {
+    skip: !hasValidUser,
+    pollingInterval: 10000,
+    refetchOnMountOrArgChange: true,
+    // CRITICAL FIX: Force refetch to bypass cache
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
 
   // Force initial refetch when component mounts
   useEffect(() => {
@@ -174,9 +227,14 @@ const MyBooks = () => {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md">
-          <p className="text-red-600 text-xl mb-4">⚠️ Authentication Required</p>
+          <p className="text-red-600 text-xl mb-4">
+            ⚠️ Authentication Required
+          </p>
           <p className="text-gray-600 mb-6">Please log in to view your books</p>
-          <Link to="/login" className="block w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition text-center">
+          <Link
+            to="/login"
+            className="block w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition text-center"
+          >
             Go to Login
           </Link>
         </div>
@@ -190,11 +248,14 @@ const MyBooks = () => {
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md">
           <p className="text-red-600 text-xl mb-4">❌ Error loading books</p>
           <p className="text-gray-600 mb-6">
-            {error && "data" in error
-              ? (error.data as any)?.message || "Something went wrong"
+            {typeof error === "object" && error !== null && "data" in error
+              ? (error as any).data?.message || "Something went wrong"
               : "Please try again later"}
           </p>
-          <button onClick={() => refetch()} className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition">
+          <button
+            onClick={() => refetch()}
+            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+          >
             Try Again
           </button>
         </div>
@@ -203,8 +264,11 @@ const MyBooks = () => {
   }
 
   const hasInProgressProjects = projects.some(
-    (p) => p.status === "IN_PROGRESS" || p.status === "GENERATING_CONTENT" || 
-           p.status === "TRANSLATING" || p.status === "GENERATING_DOCUMENTS"
+    (p) =>
+      p.status === "IN_PROGRESS" ||
+      p.status === "GENERATING_CONTENT" ||
+      p.status === "TRANSLATING" ||
+      p.status === "GENERATING_DOCUMENTS",
   );
 
   return (
@@ -228,12 +292,25 @@ const MyBooks = () => {
             className="bg-gray-600 text-white px-4 py-3 rounded-lg font-semibold hover:bg-gray-700 transition flex items-center gap-2"
             title="Refresh projects list"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
             </svg>
             Refresh
           </button>
-          <Link to="/create" className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition">
+          <Link
+            to="/create"
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+          >
             + Create New Book
           </Link>
         </div>
@@ -243,8 +320,13 @@ const MyBooks = () => {
         <div className="bg-white rounded-lg shadow-md p-12 text-center">
           <div className="max-w-md mx-auto">
             <h2 className="text-2xl font-semibold mb-4">No books yet</h2>
-            <p className="text-gray-600 mb-8">You haven't created any books yet.</p>
-            <Link to="/create" className="bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition inline-block">
+            <p className="text-gray-600 mb-8">
+              You haven't created any books yet.
+            </p>
+            <Link
+              to="/create"
+              className="bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition inline-block"
+            >
               Create Your First Book
             </Link>
           </div>
@@ -252,7 +334,13 @@ const MyBooks = () => {
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} onDelete={handleDelete} isDeleting={isDeleting} deleteId={deleteId} />
+            <ProjectCard
+              key={project.id}
+              project={project}
+              onDelete={handleDelete}
+              isDeleting={isDeleting}
+              deleteId={deleteId}
+            />
           ))}
         </div>
       )}
