@@ -12,13 +12,6 @@ interface Document {
   createdAt: string;
 }
 
-// interface DownloadsData {
-//   projectId: string;
-//   title: string;
-//   totalDocuments: number;
-//   documents: Document[];
-// }
-
 const Downloads = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
@@ -42,7 +35,7 @@ const Downloads = () => {
         acc[doc.language].push(doc);
         return acc;
       },
-      {}
+      {},
     );
   }, [downloads?.documents]);
 
@@ -166,55 +159,3 @@ const Downloads = () => {
 };
 
 export default Downloads;
-
-// // ============================================
-// // ALTERNATIVE: Simpler Download (Direct Link)
-// // ============================================
-
-// // If you prefer simpler approach, just use direct links:
-
-// const Downloads = () => {
-//   // ... same setup code ...
-
-//   return (
-//     <div className="max-w-6xl mx-auto px-4 py-12">
-//       <h1 className="text-3xl font-bold mb-8">
-//         📚 {downloads.title || 'Your Books Are Ready!'}
-//       </h1>
-
-//       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-//         {Object.entries(groupedDocuments).map(([language, docs]) => (
-//           <div key={language} className="bg-white rounded-lg shadow-md p-6">
-//             <h3 className="text-xl font-semibold mb-4">
-//               🌍 {language}
-//             </h3>
-
-//             <div className="space-y-3">
-//               {(docs as Document[]).map((doc: Document) => (
-//                 <a
-//                   key={doc.id}
-//                   href={doc.url}
-//                   download={doc.filename}
-//                   target="_blank"
-//                   rel="noopener noreferrer"
-//                   className="flex items-center justify-between p-3 bg-gray-50 rounded hover:bg-blue-50 transition"
-//                 >
-//                   <div className="flex items-center">
-//                     <span className="text-2xl mr-3">
-//                       {doc.type === "PDF" ? "📕" : "📘"}
-//                     </span>
-//                     <div>
-//                       <p className="font-medium">{doc.type}</p>
-//                       <p className="text-sm text-gray-600">{doc.size}</p>
-//                     </div>
-//                   </div>
-//                   <span className="text-blue-600">⬇️</span>
-//                 </a>
-//               ))}
-//             </div>
-//           </div>
-//         ))}
-//       </div>
-//     </div>
-//   );
-// };
