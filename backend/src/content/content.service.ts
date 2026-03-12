@@ -12,7 +12,7 @@ import { Chapter } from 'src/DB/entities/chapter.entity';
 @Injectable()
 export class ContentService {
   private readonly logger = new Logger(ContentService.name);
-  private readonly API_CALL_COOLDOWN_MS = 3000; // 3s between light calls
+  private readonly API_CALL_COOLDOWN_MS = 6000; // 6s between light calls
   private readonly CHAPTER_COOLDOWN_MS = 5000; // 5s between heavy chapter calls
 
   constructor(

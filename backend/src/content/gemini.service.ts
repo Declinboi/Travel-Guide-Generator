@@ -15,6 +15,11 @@ interface APIProvider {
 
   lastUsedAt: number; // timestamp of last API call
   rateLimitedUntil: number; // when rate limit expires (0 = not limited)
+
+  // ── NEW: Track consecutive errors per provider ──
+  consecutiveErrors: number;
+  lastErrorAt: number;
+  lastErrorType: string | null;
 }
 
 type ContentType = 'travel' | 'farming';
@@ -166,8 +171,13 @@ export class GeminiService {
   private readonly INITIAL_RETRY_DELAY = 6000;
 
   // ── Per-provider cooldown settings ──────────────────────────
-  private readonly PROVIDER_COOLDOWN_MS = 2000; // Min 2s between calls to same key
+  private readonly PROVIDER_COOLDOWN_MS = 5000; // Min 5s between calls to same key
   private readonly RATE_LIMIT_LOCKOUT_MS = 60000; // Lock out for 60s after 429
+
+  private readonly REQUEST_TIMEOUT_MS = 45000; // 45s timeout per request
+  private readonly PROVIDER_SWITCH_DELAY_MS = 4000; // 4s delay when switching after failure
+  private readonly MAX_CONSECUTIVE_ERRORS = 5; // Max errors before extended lockout
+  private readonly EXTENDED_LOCKOUT_MS = 300000; // 5 min lockout after too many errors
 
   constructor(private configService: ConfigService) {
     this.initializeProviders();
@@ -210,6 +220,9 @@ export class GeminiService {
         model: 'gemini-2.5-flash-lite',
         lastUsedAt: 0,
         rateLimitedUntil: 0,
+        consecutiveErrors: 0,
+        lastErrorAt: 0,
+        lastErrorType: null,
       });
     });
 
@@ -222,21 +235,43 @@ export class GeminiService {
         model: 'gpt-4.1-nano',
         lastUsedAt: 0,
         rateLimitedUntil: 0,
+        consecutiveErrors: 0,
+        lastErrorAt: 0,
+        lastErrorType: null,
       });
     }
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // FIXED: Improved provider selection with error tracking
+  // ══════════════════════════════════════════════════════════════
   private getNextProvider(): APIProvider | null {
     const now = Date.now();
-    const available = this.apiProviders.filter(
-      (p) => now >= p.rateLimitedUntil,
-    );
+
+    // Filter out rate-limited and error-locked providers
+    const available = this.apiProviders.filter((p) => {
+      if (now < p.rateLimitedUntil) return false;
+      // Skip providers with too many consecutive errors (extended lockout)
+      if (p.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
+        const timeSinceError = now - p.lastErrorAt;
+        if (timeSinceError < this.EXTENDED_LOCKOUT_MS) {
+          return false;
+        }
+        // Reset if lockout period passed
+        p.consecutiveErrors = 0;
+      }
+      return true;
+    });
     if (available.length === 0) return null;
-    // Pick the one that has been idle the longest
-    available.sort((a, b) => a.lastUsedAt - b.lastUsedAt);
+    // Prefer providers with fewer errors, then pick the one idle longest
+    available.sort((a, b) => {
+      if (a.consecutiveErrors !== b.consecutiveErrors) {
+        return a.consecutiveErrors - b.consecutiveErrors;
+      }
+      return a.lastUsedAt - b.lastUsedAt;
+    });
     return available[0];
   }
-
   private async waitForProviderCooldown(provider: APIProvider): Promise<void> {
     const now = Date.now();
     const timeSinceLastUse = now - provider.lastUsedAt;
@@ -250,6 +285,66 @@ export class GeminiService {
       );
       await this.sleep(waitTime);
     }
+  }
+  // ══════════════════════════════════════════════════════════════
+  // NEW: Network error detection
+  // ══════════════════════════════════════════════════════════════
+  private isNetworkError(error: any): boolean {
+    const message = error?.message?.toLowerCase() || '';
+    const code = error?.code?.toLowerCase() || '';
+
+    return (
+      message.includes('fetch failed') ||
+      message.includes('econnreset') ||
+      message.includes('etimedout') ||
+      message.includes('econnrefused') ||
+      message.includes('socket hang up') ||
+      message.includes('network') ||
+      message.includes('dns') ||
+      message.includes('getaddrinfo') ||
+      message.includes('enotfound') ||
+      message.includes('enetunreach') ||
+      message.includes('ehostunreach') ||
+      code === 'econnreset' ||
+      code === 'etimedout' ||
+      code === 'econnrefused' ||
+      code === 'enotfound' ||
+      error?.name === 'AbortError' ||
+      error?.name === 'TimeoutError'
+    );
+  }
+  private isRateLimitError(error: any): boolean {
+    return (
+      error?.status === 429 ||
+      error?.message?.includes('rate limit') ||
+      error?.message?.includes('quota') ||
+      error?.message?.includes('too many requests') ||
+      error?.message?.includes('Resource has been exhausted')
+    );
+  }
+  private isOverloadError(error: any): boolean {
+    return (
+      error?.status === 503 ||
+      error?.status === 502 ||
+      error?.status === 500 ||
+      error?.message?.includes('overloaded') ||
+      error?.message?.includes('unavailable') ||
+      error?.message?.includes('capacity')
+    );
+  }
+  private isRetryableError(error: any): boolean {
+    return (
+      this.isNetworkError(error) ||
+      this.isRateLimitError(error) ||
+      this.isOverloadError(error)
+    );
+  }
+  // ══════════════════════════════════════════════════════════════
+  // NEW: Add jitter to prevent thundering herd
+  // ══════════════════════════════════════════════════════════════
+  private addJitter(baseMs: number, jitterPercent: number = 0.3): number {
+    const jitter = baseMs * jitterPercent * (Math.random() - 0.5) * 2;
+    return Math.max(100, Math.floor(baseMs + jitter));
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -321,9 +416,9 @@ export class GeminiService {
     return [...SHARED_AI_TELL_PATTERNS, ...domainPatterns];
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // Provider calls with system prompt + generation config
-  // ═══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════
+  // FIXED: Provider calls with timeout using AbortController
+  // ══════════════════════════════════════════════════════════════
   private async generateWithProvider(
     provider: APIProvider,
     prompt: string,
@@ -331,107 +426,208 @@ export class GeminiService {
   ): Promise<string> {
     await this.waitForProviderCooldown(provider);
     provider.lastUsedAt = Date.now();
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, this.REQUEST_TIMEOUT_MS);
+    try {
+      if (provider.type === 'gemini') {
+        const model = (
+          provider.client as GoogleGenerativeAI
+        ).getGenerativeModel({
+          model: provider.model,
+          generationConfig: {
+            temperature: 1.0,
+            topP: 0.92,
+            topK: 50,
+            maxOutputTokens: 8192,
+          },
+          systemInstruction: systemPrompt,
+        });
+        // Pass abort signal to the request
+        const result = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        });
+        clearTimeout(timeoutId);
+        const response = await result.response;
 
-    if (provider.type === 'gemini') {
-      const model = (provider.client as GoogleGenerativeAI).getGenerativeModel({
-        model: provider.model,
-        generationConfig: {
-          temperature: 1.0,
-          topP: 0.92,
-          topK: 50,
-          maxOutputTokens: 8192,
-        },
-        systemInstruction: systemPrompt,
-      });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      return response.text();
-    } else {
-      const completion = await (
-        provider.client as OpenAI
-      ).chat.completions.create({
-        model: provider.model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.9,
-        frequency_penalty: 0.4,
-        presence_penalty: 0.3,
-      });
-      return completion.choices[0]?.message?.content || '';
+        // Reset error count on success
+        provider.consecutiveErrors = 0;
+
+        return response.text();
+      } else {
+        const completion = await (
+          provider.client as OpenAI
+        ).chat.completions.create(
+          {
+            model: provider.model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.9,
+            frequency_penalty: 0.4,
+            presence_penalty: 0.3,
+          },
+          {
+            signal: controller.signal,
+          },
+        );
+        clearTimeout(timeoutId);
+
+        // Reset error count on success
+        provider.consecutiveErrors = 0;
+
+        return completion.choices[0]?.message?.content || '';
+      }
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+
+      // Track the error
+      provider.consecutiveErrors++;
+      provider.lastErrorAt = Date.now();
+      provider.lastErrorType = error?.name || error?.code || 'unknown';
+
+      // Convert abort to timeout error for clearer logging
+      if (error?.name === 'AbortError') {
+        const timeoutError = new Error(
+          `Request timeout after ${this.REQUEST_TIMEOUT_MS}ms`,
+        );
+        (timeoutError as any).name = 'TimeoutError';
+        (timeoutError as any).originalError = error;
+        throw timeoutError;
+      }
+
+      throw error;
     }
   }
-
+  // ══════════════════════════════════════════════════════════════
+  // FIXED: Provider rotation with network error handling and delays
+  // ══════════════════════════════════════════════════════════════
   private async generateWithProviderRotation(
     prompt: string,
     systemPrompt?: string,
   ): Promise<string> {
-    const providersToTry = this.apiProviders.length;
+    const maxAttempts = this.apiProviders.length * 2; // Allow cycling through twice
     let lastError: any;
+    let attemptCount = 0;
+    while (attemptCount < maxAttempts) {
+      attemptCount++;
 
-    for (let attempt = 0; attempt < providersToTry; attempt++) {
-      // ── Use smart selection instead of blind round-robin ────
+      // Get next available provider
       const provider = this.getNextProvider();
-
-      // ── Handle null: all providers are rate-limited ─────────
+      // Handle case where all providers are locked out
       if (!provider) {
-        // Find the provider whose rate limit expires soonest
-        const soonest = this.apiProviders.reduce((a, b) =>
-          a.rateLimitedUntil < b.rateLimitedUntil ? a : b,
-        );
-        const waitTime = Math.max(0, soonest.rateLimitedUntil - Date.now());
+        // Find the provider that will be available soonest
+        const now = Date.now();
+        let soonest: APIProvider | null = null;
+        let shortestWait = Infinity;
+        for (const p of this.apiProviders) {
+          let waitTime = 0;
 
-        if (waitTime > 0) {
-          this.logger.warn(
-            `All providers rate-limited. Waiting ${waitTime}ms for ${soonest.type}...`,
-          );
-          await this.sleep(waitTime);
+          if (p.rateLimitedUntil > now) {
+            waitTime = p.rateLimitedUntil - now;
+          } else if (p.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
+            const timeSinceError = now - p.lastErrorAt;
+            waitTime = Math.max(0, this.EXTENDED_LOCKOUT_MS - timeSinceError);
+          }
+          if (waitTime < shortestWait) {
+            shortestWait = waitTime;
+            soonest = p;
+          }
         }
-
-        // After waiting, try with the soonest provider directly
-        try {
-          soonest.rateLimitedUntil = 0; // Reset its lockout
-          return await this.generateWithProvider(soonest, prompt, systemPrompt);
-        } catch (error) {
-          lastError = error;
-          throw error;
-        }
-      }
-
-      // ── provider is guaranteed non-null from here ───────────
-      try {
-        const providerIdx = this.apiProviders.indexOf(provider) + 1;
-        this.logger.log(
-          `Attempting with ${provider.type} provider #${providerIdx} (attempt ${attempt + 1}/${providersToTry})...`,
-        );
-        return await this.generateWithProvider(provider, prompt, systemPrompt);
-      } catch (error: any) {
-        lastError = error;
-        const isRateLimitError =
-          error?.status === 429 ||
-          error?.message?.includes('rate limit') ||
-          error?.message?.includes('quota');
-
-        if (isRateLimitError) {
-          // ── Lock out this provider for 60 seconds ───────────
-          provider.rateLimitedUntil = Date.now() + this.RATE_LIMIT_LOCKOUT_MS;
+        if (soonest && shortestWait > 0) {
+          // Cap wait time at 60 seconds
+          const cappedWait = Math.min(shortestWait, 60000);
           this.logger.warn(
-            `${provider.type} provider #${this.apiProviders.indexOf(provider) + 1} rate limited, locked out for ${this.RATE_LIMIT_LOCKOUT_MS / 1000}s`,
+            `All providers locked out. Waiting ${Math.round(cappedWait / 1000)}s for ${soonest.type} provider...`,
           );
+          await this.sleep(cappedWait);
 
-          if (attempt < providersToTry - 1) {
-            continue;
+          // Reset the soonest provider and try it
+          soonest.rateLimitedUntil = 0;
+          if (soonest.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
+            soonest.consecutiveErrors = Math.floor(
+              this.MAX_CONSECUTIVE_ERRORS / 2,
+            );
           }
         }
 
-        throw error;
+        continue;
+      }
+      const providerIdx = this.apiProviders.indexOf(provider) + 1;
+
+      try {
+        this.logger.log(
+          `Attempting with ${provider.type} provider #${providerIdx} (attempt ${attemptCount}/${maxAttempts})...`,
+        );
+
+        const result = await this.generateWithProvider(
+          provider,
+          prompt,
+          systemPrompt,
+        );
+        return result;
+      } catch (error: any) {
+        lastError = error;
+
+        const errorType = this.isRateLimitError(error)
+          ? 'rate_limit'
+          : this.isNetworkError(error)
+            ? 'network'
+            : this.isOverloadError(error)
+              ? 'overload'
+              : 'other';
+        this.logger.warn(
+          `${provider.type} provider #${providerIdx} failed (${errorType}): ${error?.message?.substring(0, 100)}`,
+        );
+        // Handle based on error type
+        if (this.isRateLimitError(error)) {
+          // Lock out for rate limit
+          provider.rateLimitedUntil = Date.now() + this.RATE_LIMIT_LOCKOUT_MS;
+          this.logger.warn(
+            `Provider #${providerIdx} rate limited, locked out for ${this.RATE_LIMIT_LOCKOUT_MS / 1000}s`,
+          );
+        } else if (this.isNetworkError(error)) {
+          // Network errors: short lockout, then retry
+          const lockoutMs = this.addJitter(5000); // ~5s lockout
+          provider.rateLimitedUntil = Date.now() + lockoutMs;
+          this.logger.warn(
+            `Provider #${providerIdx} network error, brief lockout for ${Math.round(lockoutMs / 1000)}s`,
+          );
+        } else if (this.isOverloadError(error)) {
+          // Overload: medium lockout
+          const lockoutMs = this.addJitter(30000); // ~30s lockout
+          provider.rateLimitedUntil = Date.now() + lockoutMs;
+          this.logger.warn(
+            `Provider #${providerIdx} overloaded, locked out for ${Math.round(lockoutMs / 1000)}s`,
+          );
+        }
+        // Check if we should continue trying
+        if (this.isRetryableError(error) && attemptCount < maxAttempts) {
+          // Add delay before trying next provider (with jitter)
+          const switchDelay = this.addJitter(this.PROVIDER_SWITCH_DELAY_MS);
+          this.logger.debug(
+            `Waiting ${switchDelay}ms before trying next provider...`,
+          );
+          await this.sleep(switchDelay);
+          continue;
+        }
+        // Non-retryable error or exhausted attempts
+        if (!this.isRetryableError(error)) {
+          this.logger.error(
+            `Non-retryable error from provider #${providerIdx}:`,
+            error,
+          );
+          throw error;
+        }
       }
     }
-
-    throw lastError;
+    // All attempts exhausted
+    this.logger.error(`All ${maxAttempts} provider attempts failed`);
+    throw lastError || new Error('All providers failed');
   }
-
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
