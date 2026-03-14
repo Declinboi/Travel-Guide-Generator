@@ -1231,15 +1231,15 @@ ${JSON.stringify(conclusionChapter, null, 2)}
 STRUCTURE:
 - 18-20 paragraphs total
 - Open with a specific memory or moment from the journey, not a summary statement
-- Practical takeaways CAN use short bullet points (this is the one place lists are okay)
-- End with emergency contacts in a clear list format
+- Practical takeaways CAN use short bullet points or list format style 
+- End with emergency contacts in a clear list format style
 - Close with a single short paragraph — something the reader will remember
 
 TRAVEL CONCLUSION SPECIFICS:
 - Reference a specific place or person from earlier in the book
-- Include practical last-minute reminders (what to pack, what to download, what to photocopy)
-- Emergency contacts section with real phone numbers format
-- A "things I wish I'd known" mini-list
+- Include practical last-minute reminders (what to pack, what to photocopy)
+- Emergency contacts section in list format style with real phone numbers
+- A "things I wish I'd known" in a list format style
 - Final paragraph should make the reader want to book a flight
 
 WHAT TO AVOID:
@@ -1270,16 +1270,16 @@ ${JSON.stringify(conclusionChapter, null, 2)}
 STRUCTURE:
 - 18-20 paragraphs total
 - Open with a specific seasonal moment or end-of-day scene on the farm, not a summary statement
-- Practical takeaways CAN use short bullet points (this is the one place lists are okay)
+- Practical takeaways CAN use short bullet points or a list format style 
 - Close with a single short paragraph — something the reader will remember
 
 FARMING CONCLUSION SPECIFICS:
 - Reference a specific technique or lesson from earlier in the book
-- Include a "first year timeline" or "start here" priority list
+- Include a "first year timeline" or "start here" priority in a list format style
 - Seasonal planning reminders
 - Cost reality check: realistic startup costs and when to expect returns
-- A "mistakes everyone makes" mini-list with solutions
-- Resource list: where to buy supplies, useful websites, local extension offices
+- A "mistakes everyone makes" in a list format style with solutions
+- Resource list: where to buy supplies, local extension offices
 
 WHAT TO AVOID:
 - Don't open with "In conclusion" or "As we come to the end"
