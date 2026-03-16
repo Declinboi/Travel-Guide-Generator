@@ -1293,6 +1293,7 @@ SENTENCE RHYTHM:
 Write the complete Conclusion chapter now:`;
   }
 
+  
   // ═══════════════════════════════════════════════════════════════
   // ABOUT BOOK — Domain-aware
   // ═══════════════════════════════════════════════════════════════

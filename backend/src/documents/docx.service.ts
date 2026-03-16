@@ -1543,6 +1543,7 @@ export class DocxService {
     // German detection
     if (
       lowerTitle.includes('reiseführer') ||
+      lowerTitle.includes('führer') ||
       lowerTitle.includes('reisefuhrer') ||
       lowerTitle.includes('reisehandbuch') ||
       lowerTitle.includes('stadtführer') ||
@@ -1566,6 +1567,7 @@ export class DocxService {
       lowerTitle.includes('guide du voyageur') ||
       lowerTitle.includes('carnet de voyage') ||
       lowerTitle.includes("d'agriculture") ||
+      lowerTitle.includes("l'agriculture") ||
       lowerTitle.includes("l'élevage") ||
       lowerTitle.includes("d'elevage")
     ) {
@@ -1585,6 +1587,7 @@ export class DocxService {
       lowerTitle.includes('guia turistica') ||
       lowerTitle.includes('guía del viajero') ||
       lowerTitle.includes('la agricultura') ||
+      lowerTitle.includes('agricultura') ||
       lowerTitle.includes('de cultivo') ||
       lowerTitle.includes('de cría')
     ) {
