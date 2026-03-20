@@ -946,32 +946,55 @@ Subtitle: "${subtitle}"
 Chapter Structure:
 ${JSON.stringify(introChapter, null, 2)}
 
+PURPOSE: This introduction should orient readers and set expectations. Establish your credibility quickly, explain what this guide covers (and doesn't), and help readers understand how to use it. This is the setup for a practical guide, not the opening of a memoir.
+
 STRUCTURE:
 - Write 15-20 paragraphs covering all sections and subsections from the outline
 - Vary paragraph length: some short (2 sentences), some longer (4-5 sentences)
-- Open with a specific moment or scene from arriving at the destination, not a generic welcome
-- Close the chapter with forward momentum — make readers want to turn the page
+- Open with a brief grounding moment (3-4 sentences max) that establishes you've been there, then move to useful orientation
+- Close with what readers can expect from the chapters ahead — practical setup, not inspirational sendoff
+
+MUST COVER (weave naturally into the structure):
+1. YOUR CREDIBILITY: How many times you've been, how long total, what you've actually done there — brief, factual, not boastful
+2. WHAT THIS GUIDE IS: The specific angle or approach — budget? off-the-beaten-path? food-focused? first-timers? Be clear.
+3. WHAT THIS GUIDE ISN'T: One honest sentence about what readers should look elsewhere for
+4. WHO THIS IS FOR: The type of traveler who'll get the most value — be specific
+5. HOW TO USE THIS BOOK: Quick guidance — read straight through? Jump to relevant chapters? Use as reference on the ground?
+6. QUICK DESTINATION ORIENTATION: Geography basics, climate in brief, general vibe — help readers form a mental picture
+7. HONEST EXPECTATIONS: What surprises most first-timers (good and bad), common misconceptions to correct
+8. BEST TIME TO VISIT: Condensed, practical guidance with trade-offs for different seasons
 
 SENTENCE RHYTHM (critical for sounding human):
 - Mix short sentences (4-8 words) with medium (12-18 words) and occasional long (20-25 words)
 - Never start 3+ consecutive sentences the same way
 - Use fragments occasionally. Like this. They feel natural.
-- Throw in a one-word sentence now and then. Seriously.
+- One-word sentences work too. Rarely.
 
-TRAVEL-SPECIFIC DETAILS TO INCLUDE:
-- A specific arrival memory (airport, train station, border crossing)
-- First sensory impression of the place (smell, sound, heat, light)
-- A brief interaction with a local person (name them)
-- One honest warning or reality check
-- What makes this destination different from every other "top 10" list
+TONE:
+- Confident expert who respects the reader's time
+- Practical over poetic — save extended descriptions for the destination chapters
+- Personal touches establish trust, not tell your story
+- Direct about limitations and trade-offs
 
-EXAMPLE of the voice and rhythm we want (DO NOT copy this content, just match the style):
+WHAT TO AVOID:
+- Don't spend more than one paragraph on your personal arrival story
+- Don't use "embark on a journey" or "discover the magic" or "this guide will be your companion"
+- Don't promise the book has "everything you need to know" — be specific about what it covers
+- Don't list what every chapter contains (that's what the table of contents is for)
+- Don't use "whether you're a budget backpacker or luxury traveler" — pick your audience
+- Don't end with "let's begin" or "turn the page to start your adventure"
+
+EXAMPLE of introduction voice (match practical tone, not content):
 """
-I first landed in Chiang Mai on a Tuesday. The airport smelled like diesel and jasmine — an odd combination that somehow works. My guesthouse host, a retired teacher named Khun Sompong, picked me up in a truck that had seen better decades. He drove with one hand and pointed out temples with the other, narrating a city he clearly loved.
+I've spent eleven months total in Vietnam over six years — five extended trips, plus two where I was supposedly "just passing through" and stayed two extra weeks. I keep coming back because the food is extraordinary, the costs are low, and I still haven't run out of places that surprise me.
 
-That was six years ago. I've been back eleven times since.
+This guide is for independent travelers on a moderate budget — not backpacker hostels, not luxury resorts, but the comfortable middle where most people actually travel. If you want five-star spa recommendations, that's a different book. If you want a $6/night dorm guide, also a different book.
 
-This isn't the guide that tells you to "experience the magic." There is no magic. There's heat, and traffic, and the best $1.50 noodle soup you'll ever eat at a stall with no name on a street you can't pronounce. That's better than magic. That's real.
+Here's what most first-timers get wrong: they try to cover too much ground. Vietnam is long and thin, and the 1,000-mile bus ride from Hanoi to Ho Chi Minh City is not the scenic adventure the brochures suggest. This guide is organized to help you pick a region and go deep rather than skim the whole country and see nothing properly.
+
+Climate matters more than people expect. The north and south have completely different weather patterns, and "dry season" in one region is "wet season" in another. Chapter 2 breaks this down with month-by-month specifics for each region, because I got this wrong my first trip and spent a week in sideways rain.
+
+Use this book however it helps. Read it straight through for trip planning, or jump to specific chapters once you've chosen your destinations. The practical details — prices, hours, transport options — are current as of late 2024, but Vietnam changes fast. Assume a 10-15% price increase on anything over a year old.
 """
 
 Write the complete Introduction chapter now:`;
@@ -990,32 +1013,63 @@ Subtitle: "${subtitle}"
 Chapter Structure:
 ${JSON.stringify(introChapter, null, 2)}
 
+PURPOSE: This introduction should orient readers and set expectations. Establish your credibility quickly, explain what this guide covers (and doesn't), and help readers understand how to use it. This is the setup for a practical working guide, not a farming memoir.
+
 STRUCTURE:
 - Write 15-20 paragraphs covering all sections and subsections from the outline
 - Vary paragraph length: some short (2 sentences), some longer (4-5 sentences)
-- Open with a specific moment on the farm — early morning chores, first harvest, a mistake that taught you something — not a generic "welcome to farming"
-- Close with what the reader will be able to do after reading this book
+- Open with a brief grounding moment (3-4 sentences max) that establishes real experience, then move to useful orientation
+- Close with what readers will be able to do after working through this book — specific, practical outcomes
+
+MUST COVER (weave naturally into the structure):
+1. YOUR CREDIBILITY: How long you've been doing this, what scale, what you've actually raised or grown — brief, factual, include a failure that taught you something
+2. WHAT THIS GUIDE IS: The specific angle — small-scale? beginner? specific animal/crop focus? hands-on practical? Be clear.
+3. WHAT THIS GUIDE ISN'T: One honest sentence about what readers need a different resource for
+4. WHO THIS IS FOR: Scale, experience level, goals — the reader who'll get the most value
+5. HOW TO USE THIS BOOK: Read straight through? Use as seasonal reference? Start with specific chapter? Give guidance.
+6. REALISTIC EXPECTATIONS: Time commitment, physical demands, learning curve — what most beginners underestimate
+7. MONEY REALITY: Brief, honest framing of costs vs. returns and timeline to break-even — set expectations early
+8. HOW THIS BOOK IS ORGANIZED: Brief logic of chapter flow so readers understand the progression
 
 SENTENCE RHYTHM (critical for sounding human):
 - Mix short sentences (4-8 words) with medium (12-18 words) and occasional long (20-25 words)
 - Never start 3+ consecutive sentences the same way
 - Use fragments occasionally. Like this. They feel natural.
-- One-word sentences work too. Honestly.
+- One-word sentences work too. Sometimes.
 
-FARMING-SPECIFIC DETAILS TO INCLUDE:
-- A specific early morning or seasonal memory
-- A real mistake you made and what it cost (time, money, animals)
-- A specific tool, breed, or variety by name
-- One honest warning about what this work actually demands
-- What this guide covers that most farming books skip (the practical, hands-on stuff)
+TONE:
+- Experienced neighbor who's been through the learning curve
+- Practical over philosophical — save detailed techniques for the working chapters
+- Personal touches establish trust and credibility, not tell your life story
+- Honest about difficulty without being discouraging
 
-EXAMPLE of the voice and rhythm we want (DO NOT copy this content, just match the style):
+WHAT TO AVOID:
+- Don't spend more than one paragraph on your origin story or how you "got into" farming
+- Don't use "journey," "passion," "rewarding lifestyle," or "connection to the land"
+- Don't promise the book covers "everything" — be specific about scope
+- Don't list what every chapter contains (that's what the table of contents is for)
+- Don't say "whether you have five acres or fifty" — pick your scale and own it
+- Don't end with "let's get started" or "now let's dig in" or similar
+
+WHAT TO AVOID:
+- Don't open with "In conclusion" or "As we come to the end" or "Now that you've learned"
+- Don't summarize what the book covered chapter by chapter
+- Don't say "farming is a journey" or "rewarding lifestyle" or "connection to the land"
+- Don't end with inspirational quotes or sentiments about the farming life
+- Don't pad with philosophy — every paragraph should contain usable information
+- Don't use "sustainable" or "holistic" without specific meaning
+
+EXAMPLE of introduction voice (match practical tone, not content):
 """
-My first batch of meat chickens died on day three. All twenty-five of them. The brooder was too hot — I'd followed the internet's advice and cranked it to 95°F without checking the thermometer, which was off by twelve degrees. Expensive lesson. $87.50 in chicks, plus the feed I'd already bought.
+I've raised chickens for nine years, starting with twelve laying hens in a converted shed and scaling up to 200 meat birds per batch plus a flock of 40 layers. I've lost birds to heat, cold, predators, and my own mistakes. The first two years I barely broke even. Year three I finally started making money — small money, but real.
 
-That was nine years ago. I've raised over four thousand birds since.
+This guide is for small-scale poultry, which I'm defining as under 500 birds total at any time. If you're planning a commercial operation with thousands of birds, the economics and regulations are different enough that you need a different book. If you want three hens for backyard eggs, this is more than you need — but it'll work.
 
-This book isn't going to tell you farming is a beautiful lifestyle choice. Some mornings it is — frost on the fence posts, coffee steam mixing with your breath, the quiet before the rooster starts up. Other mornings you're pulling a dead lamb at 3 AM in freezing rain. Both of those are farming. This book covers both.
+Most beginners underestimate two things: the daily time commitment and the startup costs. Chickens need attention every single day. No weekends off, no sleeping in. A basic laying flock setup runs $500-900 before you collect your first egg. This book gives you the real numbers throughout, because I wasted money on things I didn't need and skipped things I should have bought.
+
+The chapters follow the order you'll actually need them: setup and infrastructure first, then getting your birds, then daily management, then problems and troubleshooting. If you're taking over an existing operation, you can probably skip to Chapter 4. If you're starting from bare ground, start at Chapter 1 and go straight through.
+
+After working through this guide, you'll be able to set up housing, select and purchase appropriate birds, manage daily care, handle common health issues, and process or sell your product. You'll make mistakes — everyone does — but they'll be new mistakes, not the ones I already made for you.
 """
 
 Write the complete Introduction chapter now:`;
@@ -1272,28 +1326,66 @@ Subtitle: "${subtitle}"
 Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
+PURPOSE: This conclusion should be the chapter readers flip back to at the airport and in their hotel room. Consolidate the most useful practical information. This is reference material with personality, not a sentimental sendoff.
+
 STRUCTURE:
 - 18-20 paragraphs total
-- Open with a specific memory or moment from the journey, not a summary statement
-- Practical takeaways CAN use short bullet points or list format style 
-- End with emergency contacts in a clear list format style
-- Close with a single short paragraph — something the reader will remember
+- Open with brief, grounding context (2-3 sentences max), then get to the useful content
+- Mix flowing prose with clearly formatted reference sections
+- Lists and quick-reference sections ARE appropriate here — this chapter gets used differently than the others
+- Close with a short final paragraph (2-3 sentences) — confident, not sentimental
 
-TRAVEL CONCLUSION SPECIFICS:
-- Reference a specific place or person from earlier in the book
-- Include practical last-minute reminders (what to pack, what to photocopy)
-- Emergency contacts section in list format style with real phone numbers
-- A "things I wish I'd known" in a list format style
-- Final paragraph should make the reader want to book a flight
+MUST-INCLUDE REFERENCE SECTIONS (use clear formatting):
+1. BEFORE YOU GO checklist: documents, copies, apps to download, things to book ahead
+2. PACKING ESSENTIALS: specific to this destination, not generic travel advice
+3. QUICK PHRASES: 8-10 actually useful local phrases with pronunciation hints
+4. MONEY TIPS: ATM advice, tipping norms, cash vs card, common scams
+5. EMERGENCY CONTACTS: real phone numbers — police, tourist police, embassy, hospitals, your country's emergency line
+6. LAST-MINUTE REMINDERS: things easily forgotten, based on common mistakes
+
+CONTENT APPROACH:
+- Prioritize what readers will actually reference mid-trip
+- Be specific: "download Grab before you land" not "consider ride-sharing apps"
+- Include the non-obvious: what to photocopy, which cards work, what's closed on which days
+- Quick verdicts on common questions: "Is the tourist bus worth it? No. Here's why."
+- Acknowledge different trip lengths: "If you only have 3 days, prioritize X"
+- One brief "I wish I'd known" paragraph — 3-4 specific things, not a long list
 
 WHAT TO AVOID:
-- Don't open with "In conclusion" or "As we come to the end"
-- Don't repeat the chapter titles from earlier in the book
-- Don't use "whether you're a beginner or experienced traveler"
+- Don't open with "In conclusion" or "As we come to the end" or "As your journey winds down"
+- Don't summarize what the book covered chapter by chapter
+- Don't use "whether you're a first-time visitor or returning traveler"
+- Don't end with "safe travels" or "bon voyage" or similar
+- Don't make the final paragraph about how the destination "will stay with you forever"
+- Don't pad with generic advice that applies to all travel everywhere
 
-SENTENCE RHYTHM:
-- Same rules: vary length, vary sentence starters, use occasional fragments
-- The final paragraph should be 2-3 sentences maximum. End clean.
+TONE:
+- Helpful friend handing you notes before you leave
+- Confident, direct, practical
+- Brief personal touches only when they reinforce useful points
+- Final paragraph: leave them ready to go, not misty-eyed
+
+EXAMPLE of conclusion voice (match tone and utility, not content):
+"""
+You've read the chapters. Here's what to have ready when you land.
+
+BEFORE YOU GO
+- Passport valid 6+ months past return date. They check.
+- Photo of passport info page on your phone AND emailed to yourself
+- Grab app downloaded and account set up (needs a phone number — do this at home)
+- Hotel first night booked with confirmation you can show offline
+- Small bills ready — 500 baht in 100s and 20s for the first taxi and tips
+
+PHRASES THAT ACTUALLY HELP
+- "Khob khun khrap/kha" (thank you, male/female) — use constantly
+- "Tao rai?" (how much?) — point at item, say this, they'll type it on a calculator
+- "Mai phet" (not spicy) — though honestly, their "not spicy" is still pretty spicy
+- "Check bin" (the bill, please) — mime signing if they don't hear you
+
+[...continues with other reference sections...]
+
+The rest you'll figure out as you go. That's most of the fun anyway.
+"""
 
 Write the complete Conclusion chapter now:`;
   }
@@ -1311,28 +1403,68 @@ Subtitle: "${subtitle}"
 Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
+PURPOSE: This conclusion should be the chapter readers flip back to repeatedly — during planning, during their first season, when something goes wrong. Consolidate the most useful practical information into clear reference sections. This is a working document, not a motivational speech.
+
 STRUCTURE:
 - 18-20 paragraphs total
-- Open with a specific seasonal moment or end-of-day scene on the farm, not a summary statement
-- Practical takeaways CAN use short bullet points or a list format style 
-- Close with a single short paragraph — something the reader will remember
+- Open with brief, grounding context (2-3 sentences max), then get to the useful content
+- Mix flowing prose with clearly formatted reference sections
+- Lists, timelines, and quick-reference sections ARE appropriate here — this chapter gets used differently
+- Close with a short final paragraph (2-3 sentences) — practical and honest
 
-FARMING CONCLUSION SPECIFICS:
-- Reference a specific technique or lesson from earlier in the book
-- Include a "first year timeline" or "start here" priority in a list format style
-- Seasonal planning reminders
-- Cost reality check: realistic startup costs and when to expect returns
-- A "mistakes everyone makes" in a list format style with solutions
-- Resource list: where to buy supplies, local extension offices
+MUST-INCLUDE REFERENCE SECTIONS (use clear formatting):
+1. FIRST YEAR PRIORITIES: What to do first, second, third — with reasoning. Not everything at once.
+2. STARTUP COSTS REALITY CHECK: Actual numbers for basic setup, broken into categories. Include the things people forget to budget.
+3. SEASONAL TIMELINE: Month-by-month or season-by-season key tasks. Specific dates/windows where relevant (adjust for zones).
+4. COMMON FIRST-YEAR MISTAKES: 5-7 specific mistakes with what they cost and how to avoid them
+5. WHEN SOMETHING GOES WRONG: Quick troubleshooting reference — symptoms and likely causes for common problems
+6. RESOURCES: Where to buy supplies, extension office resources, local options
+
+CONTENT APPROACH:
+- Prioritize what readers will actually reference mid-season when stressed
+- Be specific: "Order chicks by February for April delivery" not "plan ahead"
+- Include the math: break-even points, cost per unit, expected yields
+- Honest timelines: "Expect your first profitable year in year 1-2, not 6 months"
+- Acknowledge scale: different advice for different operation sizes
+- One brief "what I'd do differently" paragraph — 3-4 specific things, lessons learned
 
 WHAT TO AVOID:
-- Don't open with "In conclusion" or "As we come to the end"
-- Don't say "farming is a rewarding journey" or any variation of that
-- Don't use "sustainable" as a buzzword — if you mention sustainability, be specific about what and how
+- Don't open with "In conclusion" or "As we come to the end" or "Now that you've learned"
+- Don't summarize what the book covered chapter by chapter
+- Don't say "farming is a journey" or "rewarding lifestyle" or "connection to the land"
+- Don't end with inspirational quotes or sentiments about the farming life
+- Don't pad with philosophy — every paragraph should contain usable information
+- Don't use "sustainable" or "holistic" without specific meaning
 
-SENTENCE RHYTHM:
-- Same rules: vary length, vary sentence starters, use occasional fragments
-- The final paragraph should be 2-3 sentences maximum. End honest.
+TONE:
+- Experienced neighbor giving you their notes before your first season
+- Confident, direct, practical
+- Honest about difficulty without being discouraging
+- Final paragraph: leave them ready to start, not inspired but vague
+
+EXAMPLE of conclusion voice (match tone and utility, not content):
+"""
+You've got the information. Here's how to actually start.
+
+FIRST YEAR PRIORITIES
+1. Soil test before you buy anything else. $15 through your extension office. Saves hundreds in wrong amendments.
+2. Start smaller than you think. Half your planned garden size. Quarter your planned flock. Scale up year two.
+3. One enterprise at a time. Chickens OR a big garden. Not both. Not yet.
+4. Infrastructure before animals. Fencing, shelter, water — all working before anything living arrives.
+
+STARTUP COSTS (small laying flock, 12-15 birds)
+- Chicks: $40-50 (order from hatchery, not feed store — better selection, healthier birds)
+- Brooder setup: $50-60 (lamp, waterer, feeder, bedding)
+- Coop: $200-800 depending on build vs buy (budget $400 for decent prefab or materials)
+- Fencing: $150-300 for basic run
+- Feed (first 6 months to laying): $80-100
+- Total to first egg: $500-900 realistically
+- Often forgotten: heat bulb replacements, medication, the second waterer you'll need
+
+[...continues with other reference sections...]
+
+Start with what you can manage. Add complexity later. That's the whole strategy.
+"""
 
 Write the complete Conclusion chapter now:`;
   }
@@ -1340,33 +1472,83 @@ Write the complete Conclusion chapter now:`;
   // ═══════════════════════════════════════════════════════════════
   // ABOUT BOOK — Domain-aware
   // ═══════════════════════════════════════════════════════════════
-  async generateAboutBook(title: string): Promise<string> {
+  async generateAboutBook(title: string, subtitle: string): Promise<string> {
     const contentType = this.detectContentType(title);
 
     const prompt =
       contentType === 'travel'
-        ? `Write an "About This Book" blurb for a travel guide titled "${title}".
+        ? `Write an "About This Book" blurb for a travel guide titled "${title}" and subtitle "${subtitle}".
 
-4-6 short paragraphs. NO generic phrases like "comprehensive guide" or "everything you need to know."
+PURPOSE: This is the back-cover or first-page blurb that helps readers decide if this book is right for them. It should be honest, specific, and useful — not marketing copy. Think: "Here's exactly what you're getting."
 
-Instead, be specific about:
-- The angle this guide takes (what it covers that other travel books skip)
-- Who will get the most out of it (solo backpackers? families? first-timers? repeat visitors?)
-- One honest limitation ("This book won't..." or "If you're looking for luxury resort reviews, that's not this")
-- How it's organized for actual trip planning, not armchair reading
+LENGTH: 4-6 short paragraphs (200-300 words total)
 
-Tone: confident, direct, slightly informal. Like a back-cover blurb written by the author, not a marketer.`
-        : `Write an "About This Book" blurb for a farming guide titled "${title}".
+MUST INCLUDE:
+1. THE ANGLE: What specific approach does this guide take? Budget-focused? Food-focused? Off-the-beaten-path? First-timers? Be concrete about the perspective.
+2. THE AUTHOR'S CREDIBILITY: One sentence — how many trips, how much time on the ground, what kind of travel. Factual, not boastful.
+3. WHO IT'S FOR: Specific traveler type who'll get the most value. Pick one primary audience.
+4. WHO IT'S NOT FOR: One honest line — "If you want luxury resort reviews, look elsewhere" or "Not for package tourists."
+5. WHAT'S DIFFERENT: One specific thing this guide covers that most travel books skip or get wrong.
+6. HOW IT'S ORGANIZED: One sentence on structure that helps readers know what to expect.
 
-4-6 short paragraphs. NO generic phrases like "comprehensive guide" or "everything you need to know."
+WHAT TO AVOID:
+- "Comprehensive guide" or "everything you need to know" or "ultimate guide"
+- "Whether you're a first-timer or seasoned traveler" — pick one
+- "Embark on a journey" or "discover the magic" or "hidden gems await"
+- "This book will be your companion" or similar
+- Generic praise for the destination ("stunning beaches," "rich culture")
+- Ending with "start planning your trip today" or any call-to-action
 
-Instead, be specific about:
-- The angle this guide takes (hands-on and practical, not academic theory)
-- Who will get the most out of it (beginners? small-scale? specific livestock or crop focus?)
-- One honest limitation ("This book won't..." or "If you're running a 500-acre commercial operation, scale up the numbers")
-- How it's organized for actually getting started, not just reading about it
+TONE: Confident, direct, slightly informal. Like the author wrote it, not a marketing department.
 
-Tone: confident, direct, practical. Like a back-cover blurb written by someone who actually farms, not a publisher.`;
+EXAMPLE (match tone and specificity, not content):
+"""
+This is a budget guide to Portugal for independent travelers — specifically, people spending $50-80/day who want good food, real neighborhoods, and no tour buses.
+
+I've spent seven months total in Portugal over four trips, mostly in Lisbon and Porto but with enough time in the Alentejo and Algarve to know which beach towns are worth the detour and which are overrun. This guide reflects what I actually did, not what the tourism board wants you to do.
+
+If you're looking for five-star hotel reviews or spa recommendations, this isn't it. If you want to know which tram is worth the wait and which is a tourist trap, which markets have real food vs. staged photo ops, and how to eat extremely well for under €15 — that's what this covers.
+
+Organized by region, then by practical category: where to sleep, where to eat, what to see, what to skip. Use it to plan or carry it with you. It works either way.
+"""
+
+Write the About This Book blurb now:`
+        : `Write an "About This Book" blurb for a farming guide titled "${title}" and subtitle "${subtitle}".
+
+PURPOSE: This is the back-cover or first-page blurb that helps readers decide if this book is right for them. It should be honest, specific, and useful — not marketing copy. Think: "Here's exactly what you're getting."
+
+LENGTH: 4-6 short paragraphs (200-300 words total)
+
+MUST INCLUDE:
+1. THE ANGLE: What specific approach does this guide take? Hands-on practical? Beginner-focused? Small-scale? Specific region or climate? Be concrete about the perspective.
+2. THE AUTHOR'S CREDIBILITY: One sentence — years of experience, scale of operation, what you've actually raised or grown. Factual, not boastful.
+3. WHO IT'S FOR: Specific reader type who'll get the most value. Pick one primary audience — scale, experience level, goals.
+4. WHO IT'S NOT FOR: One honest line — "If you're running a commercial 500-acre operation, scale up the numbers" or "Not for hobby farmers who want three chickens."
+5. WHAT'S DIFFERENT: One specific thing this guide covers that most farming books skip or bury in theory.
+6. HOW IT'S ORGANIZED: One sentence on structure — follows seasonal order? project-based? skill progression?
+
+WHAT TO AVOID:
+- "Comprehensive guide" or "everything you need to know" or "complete handbook"
+- "Whether you have one acre or one hundred" — pick a scale
+- "Sustainable," "holistic," "rewarding journey," "connection to the land"
+- "Transform your homestead" or "unlock your farm's potential"
+- Generic farming romanticism ("fresh eggs every morning," "the satisfaction of growing your own")
+- Ending with "start your farming journey today" or any call-to-action
+
+TONE: Confident, direct, practical. Like someone who actually does this work wrote it, not a publisher.
+
+EXAMPLE (match tone and specificity, not content):
+"""
+This is a practical guide to raising meat chickens on a small scale — 25 to 200 birds at a time, processed on-farm or at a local facility, sold direct or raised for your own freezer.
+
+I've raised over 4,000 meat birds in nine years, starting with a disastrous first batch and gradually figuring out what actually works. This guide is the book I wish I'd had: less theory, more "here's exactly what to buy, build, and do."
+
+If you want a commercial broiler operation with 10,000 birds, this isn't it — the economics and infrastructure are different at that scale. If you want a chapter on chicken history and heritage breed philosophy, also not here. This is about getting birds from hatchery to freezer without losing money or your sanity.
+
+Organized by the timeline you'll actually follow: setup first, then brooding, then growing, then processing, then the business side. Each chapter has costs, timelines, and the mistakes I made so you don't have to.
+"""
+
+Write the About This Book blurb now:`;
 
     return await this.generateText(prompt, {
       refine: false,
