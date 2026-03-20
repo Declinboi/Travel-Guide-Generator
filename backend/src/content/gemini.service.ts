@@ -1093,33 +1093,56 @@ Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
+PURPOSE: This is a practical guide book. Every paragraph should help the reader plan, decide, or navigate. Personal anecdotes exist to illustrate useful points, not to tell your story.
+
 STRUCTURE:
 - Write 25-28 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
-- Open each section with a specific moment, scene, or anecdote
-- Weave practical info into stories — don't just list facts
+- Lead with the useful information, then add color or context
+- Each paragraph should answer an implicit reader question: "What should I do?" "How much?" "When?" "Is it worth it?" "What's the catch?"
 
 SENTENCE RHYTHM:
 - Alternate: short sentence (4-8 words), then medium (12-18), then long (20-25), then short again
 - Start sentences differently: a name, a place, "I", "The", a time, an action, a question
 - Use occasional fragments for emphasis
-- Throw in a rhetorical question every few paragraphs
-- One or two sentences per chapter should be blunt opinions: "Skip it." or "This is overrated."
+- Rhetorical questions that voice what the reader is thinking: "Worth the detour?" "Too touristy?"
+- Blunt verdicts: "Skip it." "This is overrated." "Go anyway."
 
-TRAVEL-SPECIFIC CONTENT RULES:
-- Include at least one "I got this wrong" or "fair warning" moment per section
-- Mention a specific person by first name (a shopkeeper, a guide, a fellow traveler)
-- Include at least one specific price, time, or distance
-- Reference a smell, sound, or texture in every section
-- Mention something that was closed, broken, or disappointing — real places aren't perfect
-- Give alternatives: "If X is closed/full, try Y instead"
-- Compare to something familiar: "Think of it as the [familiar thing] but with [twist]"
+GUIDE BOOK CONTENT RULES:
+- Every section needs: what it is, how to get there, when to go, how long to spend, what it costs, and whether it's worth it
+- Include specific prices, hours, and distances — approximate is fine, vague is not
+- Give clear recommendations: "Go to X, skip Y" — don't just describe, advise
+- Warn about common mistakes: "Most people arrive too late" or "Don't bother on Mondays"
+- Offer alternatives: "If X is crowded, Y is five minutes away and half the price"
+- Mention logistics: parking, tickets, queues, best entrance, what to bring
+- Brief personal anecdotes ONLY when they illustrate something useful — not for flavor alone
+- Include one local name or phrase per section that readers can actually use
+- Sensory details should help readers recognize places: "look for the blue awning" not just "it smells nice"
 
-EXAMPLE of voice (match style, NOT content):
+PRACTICAL HONESTY:
+- Say when something is overhyped or not worth the effort for most travelers
+- Mention what's changed recently if relevant: "used to be quieter" or "prices jumped in 2024"
+- Acknowledge different traveler types: "If you have kids..." or "Solo travelers might prefer..."
+- Be specific about difficulty: walking distances, stairs, heat exposure, crowds
+- Warn about scams, hassles, or annoyances — briefly, without drama
+
+WHAT TO AVOID:
+- Don't describe places without telling readers what to DO there
+- Don't tell stories that don't lead to advice
+- Don't use "offers" as a verb ("the city offers...")
+- Don't balance every negative with a positive — if something isn't worth it, say so
+- Don't summarize sections or telegraph what's coming next
+- Don't start more than one paragraph with "The"
+- Don't end paragraphs with vague praise ("...and that's what makes it special")
+- Don't say "whether you're a budget traveler or luxury seeker" — pick your audience
+
+EXAMPLE of voice (practical guide with personality):
 """
-The morning market opens at five, but get there at four-thirty. That extra half hour is when the fishermen are still unloading, and you can watch Aunt Noi — everyone calls her that — sorting shrimp with hands that move faster than you can track. She'll wave you over if you look interested enough. Don't be shy.
+The morning market opens at five, but arrive by four-thirty if you want to see the fish auction. By six, the tourist crowds show up and prices double. Aunt Noi's shrimp stall — north side, near the ice truck — sells the freshest catch, but she won't bargain. Don't try.
 
-I made the mistake of going at seven my first time. Tourist prices. Picked-over produce. A completely different experience. Now I set an alarm, curse it, and go anyway.
+Most guides tell you to come at sunrise for photos. Bad advice. The light is flat and the aisles are packed with tour groups. Come at four-thirty for the action, or come at seven-thirty when it's thinning out and you can actually move. Skip the sunrise middle ground.
+
+Budget about 200 baht for a full breakfast — noodles, coffee, and a bag of fruit to take with you. The coffee stall on the north corner does condensed milk coffee that's aggressively sweet. Perfect if you need the energy, overwhelming if you don't. No seating — you stand or walk.
 """
 
 Write the complete chapter now:`;
@@ -1151,36 +1174,57 @@ Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
+PURPOSE: This is a practical farming guide. Every paragraph should help the reader do something, decide something, or avoid a costly mistake. Personal experience illustrates useful points — it's not memoir.
+
 STRUCTURE:
 - Write 25-28 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
-- Open each section with a real-world scenario or hands-on moment
-- Weave technical information into practical narrative — don't lecture
+- Lead with the actionable information, then explain why or add context
+- Each paragraph should answer: "How do I do this?" "What do I need?" "What will it cost?" "What goes wrong?" "What's the better option?"
 
 SENTENCE RHYTHM:
 - Alternate: short sentence (4-8 words), then medium (12-18), then long (20-25), then short again
-- Start sentences differently: a time of day, a season, "I", "The", an animal name, a tool, a question
+- Start sentences differently: a time of day, a season, "I", "The", an animal name, a tool, a quantity
 - Use occasional fragments for emphasis
-- Throw in a rhetorical question every few paragraphs
-- One or two blunt opinions per chapter: "Don't bother." or "This saved my whole operation."
+- Rhetorical questions that voice what the reader is thinking: "Worth the extra cost?" "Too much work for a beginner?"
+- Blunt verdicts: "Don't bother." "This pays for itself." "Overkill for small operations."
 
-FARMING-SPECIFIC CONTENT RULES:
-- Include at least one mistake or failure per section — what went wrong, what it cost, what you learned
-- Use specific numbers: pounds, bushels, dollars, head count, days, temperatures
-- Mention specific breeds, varieties, or tool brands by name
-- Include seasonal timing: "Plant by mid-April" not "plant in spring"
-- Reference weather and its real impact on the work
-- Give cost breakdowns when relevant: "Figure $3.50 per chick, $15 in feed per bird to finish weight"
-- Mention the physical reality: sore backs, early mornings, mud, heat, cold
-- Compare methods honestly: "Method A costs more but saves 10 hours a week"
+GUIDE BOOK CONTENT RULES:
+- Every section needs: what to do, when to do it, what it costs, what equipment you need, and what can go wrong
+- Specific numbers always: pounds, days, dollars, temperatures, spacing, quantities — approximate is fine, vague is not
+- Give clear recommendations: "Start with X, not Y" — don't just explain options, advise
+- Include timing tied to season or growth stage: "transplant when seedlings have 4 true leaves" not "when ready"
+- Cost breakdowns: materials, time investment, expected yield or return
+- Warn about common beginner mistakes and what they cost
+- Compare methods with honest trade-offs: "A is cheaper but takes twice as long"
+- Mention specific breeds, varieties, or brands when it matters — and say why
+- Personal anecdotes ONLY when they illustrate a mistake to avoid or a technique that works
 
-EXAMPLE of voice (match style, NOT content):
+PRACTICAL HONESTY:
+- Say when something is overly complicated for the benefit
+- Acknowledge scale: "This makes sense above 50 birds, not worth it for a small flock"
+- Be honest about labor: "Plan on 30 minutes daily" or "This is a two-person job"
+- Mention what wears out, breaks, or needs replacing
+- Give the math: startup cost vs. ongoing cost vs. expected return
+- Warn about regulations, permits, or processing requirements when relevant
+
+WHAT TO AVOID:
+- Don't explain concepts without telling readers what to DO with the information
+- Don't tell failure stories without the lesson and the fix
+- Don't use "journey" or "adventure" or "rewarding" — show the work, skip the sentiment
+- Don't hedge when you know the answer: "tomatoes need full sun" not "may benefit from"
+- Don't balance every negative with a positive — if something isn't worth it, say so
+- Don't start more than one paragraph with "The"
+- Don't end paragraphs with broad philosophy — end with specific action or assessment
+- Don't say "it depends" without then explaining what it depends ON
+
+EXAMPLE of voice (practical guide with personality):
 """
-I tried no-till for the first time on a quarter acre of clay soil. The books made it sound easy — just lay down cardboard, pile on compost, and plant through it. What nobody mentioned was that the voles would move in under the cardboard within two weeks and eat every sweet potato start I'd planted. Forty plants. Gone.
+Start your brooder setup three days before chicks arrive. Heat lamp on, thermometer at chick height, bedding down. You want 95°F directly under the lamp and room to escape to cooler edges. Check the thermometer, not the lamp wattage — ambient temperature matters more than you'd think.
 
-Second year I used landscape fabric instead. Not as pretty, not as "sustainable." But I actually got a harvest. Sometimes practical beats ideological.
+Most first-timers set up the day chicks arrive. Bad idea. You're rushed, the temperature isn't stable, and you lose chicks to cold corners before you've figured out the problem. I lost eight of twenty-five my first batch this way. $28 in dead birds, plus the stress.
 
-Your soil tells you what it wants if you pay attention. Grab a handful after a rain. If it forms a tight ball that holds its shape, you've got clay. If it falls apart immediately, that's sand. Most of us are somewhere in between, which is actually fine.
+Budget $45-60 for a basic brooder setup: heat lamp ($15), bulb ($10), thermometer ($8), waterer ($7), feeder ($8), and pine shavings ($6 for a bale that lasts weeks). Don't cheap out on the thermometer. The $3 ones drift. The $8 digital ones hold calibration and save you birds.
 """
 
 Write the complete chapter now:`;
@@ -1293,7 +1337,6 @@ SENTENCE RHYTHM:
 Write the complete Conclusion chapter now:`;
   }
 
-  
   // ═══════════════════════════════════════════════════════════════
   // ABOUT BOOK — Domain-aware
   // ═══════════════════════════════════════════════════════════════
