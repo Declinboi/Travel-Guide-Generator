@@ -1569,6 +1569,7 @@ export class DocxService {
       lowerTitle.includes("d'agriculture") ||
       lowerTitle.includes("l'agriculture") ||
       lowerTitle.includes("l'élevage") ||
+      lowerTitle.includes('pisciculture') ||
       lowerTitle.includes("d'elevage")
     ) {
       return {
