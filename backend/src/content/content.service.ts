@@ -151,6 +151,7 @@ export class ContentService {
 
       const aboutBook = await this.geminiService.generateAboutBook(
         generateDto.title,
+        generateDto.subtitle || '',
       );
 
       await this.saveChapter(projectId, 'About Book', 2, aboutBook);

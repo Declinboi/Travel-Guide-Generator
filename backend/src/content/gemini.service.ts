@@ -983,6 +983,8 @@ WHAT TO AVOID:
 - Don't list what every chapter contains (that's what the table of contents is for)
 - Don't use "whether you're a budget backpacker or luxury traveler" — pick your audience
 - Don't end with "let's begin" or "turn the page to start your adventure"
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
+
 
 EXAMPLE of introduction voice (match practical tone, not content):
 """
@@ -1058,6 +1060,8 @@ WHAT TO AVOID:
 - Don't end with inspirational quotes or sentiments about the farming life
 - Don't pad with philosophy — every paragraph should contain usable information
 - Don't use "sustainable" or "holistic" without specific meaning
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
+
 
 EXAMPLE of introduction voice (match practical tone, not content):
 """
@@ -1189,6 +1193,8 @@ WHAT TO AVOID:
 - Don't start more than one paragraph with "The"
 - Don't end paragraphs with vague praise ("...and that's what makes it special")
 - Don't say "whether you're a budget traveler or luxury seeker" — pick your audience
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
+
 
 EXAMPLE of voice (practical guide with personality):
 """
@@ -1271,6 +1277,8 @@ WHAT TO AVOID:
 - Don't start more than one paragraph with "The"
 - Don't end paragraphs with broad philosophy — end with specific action or assessment
 - Don't say "it depends" without then explaining what it depends ON
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
+
 
 EXAMPLE of voice (practical guide with personality):
 """
@@ -1358,6 +1366,8 @@ WHAT TO AVOID:
 - Don't end with "safe travels" or "bon voyage" or similar
 - Don't make the final paragraph about how the destination "will stay with you forever"
 - Don't pad with generic advice that applies to all travel everywhere
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
+
 
 TONE:
 - Helpful friend handing you notes before you leave
@@ -1435,6 +1445,7 @@ WHAT TO AVOID:
 - Don't end with inspirational quotes or sentiments about the farming life
 - Don't pad with philosophy — every paragraph should contain usable information
 - Don't use "sustainable" or "holistic" without specific meaning
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
 
 TONE:
 - Experienced neighbor giving you their notes before your first season
