@@ -1570,7 +1570,7 @@ export class DocxService {
       lowerTitle.includes("l'agriculture") ||
       lowerTitle.includes("l'élevage") ||
       lowerTitle.includes('pisciculture') ||
-      lowerTitle.includes("d'elevage")
+      lowerTitle.includes("d'élevage")
     ) {
       return {
         chapter: 'Chapitre',
@@ -1590,6 +1590,7 @@ export class DocxService {
       lowerTitle.includes('la agricultura') ||
       lowerTitle.includes('agricultura') ||
       lowerTitle.includes('de cultivo') ||
+      lowerTitle.includes('para') ||
       lowerTitle.includes('de cría')
     ) {
       return {

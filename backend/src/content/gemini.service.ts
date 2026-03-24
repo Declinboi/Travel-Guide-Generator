@@ -1277,28 +1277,68 @@ Subtitle: "${subtitle}"
 Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
+PURPOSE: This conclusion should be the chapter readers flip back to at the airport and in their hotel room. Consolidate the most useful practical information. This is reference material with personality, not a sentimental sendoff.
+
 STRUCTURE:
 - 18-20 paragraphs total
-- Open with a specific memory or moment from the journey, not a summary statement
-- Practical takeaways CAN use short bullet points or list format style 
-- End with emergency contacts in a clear list format style
-- Close with a single short paragraph — something the reader will remember
+- Open with brief, grounding context (2-3 sentences max), then get to the useful content
+- Mix flowing prose with clearly formatted reference sections
+- Lists and quick-reference sections ARE appropriate here — this chapter gets used differently than the others
+- Close with a short final paragraph (2-3 sentences) — confident, not sentimental
 
-TRAVEL CONCLUSION SPECIFICS:
-- Reference a specific place or person from earlier in the book
-- Include practical last-minute reminders (what to pack, what to photocopy)
-- Emergency contacts section in list format style with real phone numbers
-- A "things I wish I'd known" in a list format style
-- Final paragraph should make the reader want to book a flight
+MUST-INCLUDE REFERENCE SECTIONS (use clear formatting):
+1. BEFORE YOU GO checklist: documents, copies, apps to download, things to book ahead
+2. PACKING ESSENTIALS: specific to this destination, not generic travel advice
+3. QUICK PHRASES: 8-10 actually useful local phrases with pronunciation hints
+4. MONEY TIPS: ATM advice, tipping norms, cash vs card, common scams
+5. EMERGENCY CONTACTS: real phone numbers — police, tourist police, embassy, hospitals, your country's emergency line
+6. LAST-MINUTE REMINDERS: things easily forgotten, based on common mistakes
+
+CONTENT APPROACH:
+- Prioritize what readers will actually reference mid-trip
+- Be specific: "download Grab before you land" not "consider ride-sharing apps"
+- Include the non-obvious: what to photocopy, which cards work, what's closed on which days
+- Quick verdicts on common questions: "Is the tourist bus worth it? No. Here's why."
+- Acknowledge different trip lengths: "If you only have 3 days, prioritize X"
+- One brief "I wish I'd known" paragraph — 3-4 specific things, not a long list
 
 WHAT TO AVOID:
-- Don't open with "In conclusion" or "As we come to the end"
-- Don't repeat the chapter titles from earlier in the book
-- Don't use "whether you're a beginner or experienced traveler"
+- Don't open with "In conclusion" or "As we come to the end" or "As your journey winds down"
+- Don't summarize what the book covered chapter by chapter
+- Don't use "whether you're a first-time visitor or returning traveler"
+- Don't end with "safe travels" or "bon voyage" or similar
+- Don't make the final paragraph about how the destination "will stay with you forever"
+- Don't pad with generic advice that applies to all travel everywhere
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
 
-SENTENCE RHYTHM:
-- Same rules: vary length, vary sentence starters, use occasional fragments
-- The final paragraph should be 2-3 sentences maximum. End clean.
+
+TONE:
+- Helpful friend handing you notes before you leave
+- Confident, direct, practical
+- Brief personal touches only when they reinforce useful points
+- Final paragraph: leave them ready to go, not misty-eyed
+
+EXAMPLE of conclusion voice (match tone and utility, not content):
+"""
+You've read the chapters. Here's what to have ready when you land.
+
+BEFORE YOU GO
+- Passport valid 6+ months past return date. They check.
+- Photo of passport info page on your phone AND emailed to yourself
+- Grab app downloaded and account set up (needs a phone number — do this at home)
+- Hotel first night booked with confirmation you can show offline
+- Small bills ready — 500 baht in 100s and 20s for the first taxi and tips
+
+PHRASES THAT ACTUALLY HELP
+- "Khob khun khrap/kha" (thank you, male/female) — use constantly
+- "Tao rai?" (how much?) — point at item, say this, they'll type it on a calculator
+- "Mai phet" (not spicy) — though honestly, their "not spicy" is still pretty spicy
+- "Check bin" (the bill, please) — mime signing if they don't hear you
+
+[...continues with other reference sections...]
+
+The rest you'll figure out as you go. That's most of the fun anyway.
+"""
 
 Write the complete Conclusion chapter now:`;
   }
@@ -1316,32 +1356,72 @@ Subtitle: "${subtitle}"
 Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
 
+PURPOSE: This conclusion should be the chapter readers flip back to repeatedly — during planning, during their first season, when something goes wrong. Consolidate the most useful practical information into clear reference sections. This is a working document, not a motivational speech.
+
 STRUCTURE:
 - 18-20 paragraphs total
-- Open with a specific seasonal moment or end-of-day scene on the farm, not a summary statement
-- Practical takeaways CAN use short bullet points or a list format style 
-- Close with a single short paragraph — something the reader will remember
+- Open with brief, grounding context (2-3 sentences max), then get to the useful content
+- Mix flowing prose with clearly formatted reference sections
+- Lists, timelines, and quick-reference sections ARE appropriate here — this chapter gets used differently
+- Close with a short final paragraph (2-3 sentences) — practical and honest
 
-FARMING CONCLUSION SPECIFICS:
-- Reference a specific technique or lesson from earlier in the book
-- Include a "first year timeline" or "start here" priority in a list format style
-- Seasonal planning reminders
-- Cost reality check: realistic startup costs and when to expect returns
-- A "mistakes everyone makes" in a list format style with solutions
-- Resource list: where to buy supplies, local extension offices
+MUST-INCLUDE REFERENCE SECTIONS (use clear formatting):
+1. FIRST YEAR PRIORITIES: What to do first, second, third — with reasoning. Not everything at once.
+2. STARTUP COSTS REALITY CHECK: Actual numbers for basic setup, broken into categories. Include the things people forget to budget.
+3. SEASONAL TIMELINE: Month-by-month or season-by-season key tasks. Specific dates/windows where relevant (adjust for zones).
+4. COMMON FIRST-YEAR MISTAKES: 5-7 specific mistakes with what they cost and how to avoid them
+5. WHEN SOMETHING GOES WRONG: Quick troubleshooting reference — symptoms and likely causes for common problems
+6. RESOURCES: Where to buy supplies, extension office resources, local options
+
+CONTENT APPROACH:
+- Prioritize what readers will actually reference mid-season when stressed
+- Be specific: "Order chicks by February for April delivery" not "plan ahead"
+- Include the math: break-even points, cost per unit, expected yields
+- Honest timelines: "Expect your first profitable year in year 1-2, not 6 months"
+- Acknowledge scale: different advice for different operation sizes
+- One brief "what I'd do differently" paragraph — 3-4 specific things, lessons learned
 
 WHAT TO AVOID:
-- Don't open with "In conclusion" or "As we come to the end"
-- Don't say "farming is a rewarding journey" or any variation of that
-- Don't use "sustainable" as a buzzword — if you mention sustainability, be specific about what and how
+- Don't open with "In conclusion" or "As we come to the end" or "Now that you've learned"
+- Don't summarize what the book covered chapter by chapter
+- Don't say "farming is a journey" or "rewarding lifestyle" or "connection to the land"
+- Don't end with inspirational quotes or sentiments about the farming life
+- Don't pad with philosophy — every paragraph should contain usable information
+- Don't use "sustainable" or "holistic" without specific meaning
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
 
-SENTENCE RHYTHM:
-- Same rules: vary length, vary sentence starters, use occasional fragments
-- The final paragraph should be 2-3 sentences maximum. End honest.
+TONE:
+- Experienced neighbor giving you their notes before your first season
+- Confident, direct, practical
+- Honest about difficulty without being discouraging
+- Final paragraph: leave them ready to start, not inspired but vague
+
+EXAMPLE of conclusion voice (match tone and utility, not content):
+"""
+You've got the information. Here's how to actually start.
+
+FIRST YEAR PRIORITIES
+1. Soil test before you buy anything else. $15 through your extension office. Saves hundreds in wrong amendments.
+2. Start smaller than you think. Half your planned garden size. Quarter your planned flock. Scale up year two.
+3. One enterprise at a time. Chickens OR a big garden. Not both. Not yet.
+4. Infrastructure before animals. Fencing, shelter, water — all working before anything living arrives.
+
+STARTUP COSTS (small laying flock, 12-15 birds)
+- Chicks: $40-50 (order from hatchery, not feed store — better selection, healthier birds)
+- Brooder setup: $50-60 (lamp, waterer, feeder, bedding)
+- Coop: $200-800 depending on build vs buy (budget $400 for decent prefab or materials)
+- Fencing: $150-300 for basic run
+- Feed (first 6 months to laying): $80-100
+- Total to first egg: $500-900 realistically
+- Often forgotten: heat bulb replacements, medication, the second waterer you'll need
+
+[...continues with other reference sections...]
+
+Start with what you can manage. Add complexity later. That's the whole strategy.
+"""
 
 Write the complete Conclusion chapter now:`;
   }
-  
 
   // ═══════════════════════════════════════════════════════════════
   // ABOUT BOOK — Domain-aware
