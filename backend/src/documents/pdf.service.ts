@@ -1469,7 +1469,7 @@ export class PdfService {
       lowerTitle.includes("l'agriculture") ||
       lowerTitle.includes("l'élevage") ||
       lowerTitle.includes('pisciculture') ||
-      lowerTitle.includes("d'elevage")
+      lowerTitle.includes("d'élevage")
     ) {
       return {
         chapter: 'Chapitre',
