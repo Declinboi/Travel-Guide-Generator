@@ -1443,6 +1443,7 @@ export class PdfService {
     if (
       lowerTitle.includes('reiseführer') ||
       lowerTitle.includes('führer') ||
+      lowerTitle.includes('füh') ||
       lowerTitle.includes('reisefuhrer') ||
       lowerTitle.includes('reisehandbuch') ||
       lowerTitle.includes('stadtführer') ||
@@ -1459,7 +1460,7 @@ export class PdfService {
       };
     }
 
-    // French detection
+    // French detection DE LA
     if (
       lowerTitle.includes('guide de voyage') ||
       lowerTitle.includes('guide touristique') ||
@@ -1468,6 +1469,7 @@ export class PdfService {
       lowerTitle.includes("d'agriculture") ||
       lowerTitle.includes("l'agriculture") ||
       lowerTitle.includes("l'élevage") ||
+      lowerTitle.includes('de la') ||
       lowerTitle.includes('pisciculture') ||
       lowerTitle.includes("d'élevage")
     ) {
@@ -1490,6 +1492,7 @@ export class PdfService {
       lowerTitle.includes('agricultura') ||
       lowerTitle.includes('de cultivo') ||
       lowerTitle.includes('para') ||
+      lowerTitle.includes('guía') ||
       lowerTitle.includes('de cría')
     ) {
       return {
@@ -1506,6 +1509,7 @@ export class PdfService {
       lowerTitle.includes('guida di viaggio') ||
       lowerTitle.includes('guida del viaggiatore') ||
       lowerTitle.includes('turistica') ||
+      lowerTitle.includes('guida') ||
       lowerTitle.includes("all'agricoltura") ||
       lowerTitle.includes('di agricoltura') ||
       lowerTitle.includes('di allevamento') ||
