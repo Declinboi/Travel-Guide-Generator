@@ -24,6 +24,19 @@ interface APIProvider {
 
 type ContentType = 'travel' | 'farming';
 
+type ChapterFormat =
+  | 'SCENE_NARRATIVE'
+  | 'DIRECT_INSTRUCTION'
+  | 'PROBLEM_SOLUTION'
+  | 'COMPARE_CONTRAST';
+
+const CHAPTER_FORMATS: ChapterFormat[] = [
+  'SCENE_NARRATIVE',
+  'DIRECT_INSTRUCTION',
+  'PROBLEM_SOLUTION',
+  'COMPARE_CONTRAST',
+];
+
 // ═══════════════════════════════════════════════════════════════
 // DUAL SYSTEM PROMPTS — Travel vs Farming
 // ═══════════════════════════════════════════════════════════════
@@ -1023,12 +1036,36 @@ Write the complete Introduction chapter now:`;
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // CHAPTER CONTENT — Separate prompts for Travel vs Farming
+  // FORMAT ROTATION — Random selection for content variation
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Select a random chapter format for the entire book.
+   * Call this ONCE when starting book generation, then pass the format
+   * to all chapter generation calls.
+   */
+  public selectBookFormat(): ChapterFormat {
+    const randomIndex = Math.floor(Math.random() * CHAPTER_FORMATS.length);
+    const format = CHAPTER_FORMATS[randomIndex];
+    this.logger.log(`Selected book format: ${format}`);
+    return format;
+  }
+
+  /**
+   * Get all available formats (useful for testing or manual selection)
+   */
+  public getAvailableFormats(): ChapterFormat[] {
+    return [...CHAPTER_FORMATS];
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CHAPTER CONTENT — Now with format rotation
   // ═══════════════════════════════════════════════════════════════
   async generateChapterContent(
     chapterOutline: ChapterOutline,
     bookTitle: string,
     bookSubtitle: string,
+    format: ChapterFormat,
     contextData?: {
       // TRAVEL context
       currency?: string;
@@ -1049,6 +1086,10 @@ Write the complete Introduction chapter now:`;
   ): Promise<string> {
     const contentType = this.detectContentType(bookTitle);
 
+    this.logger.log(
+      `Generating chapter ${chapterOutline.chapterNumber} with format: ${format}`,
+    );
+
     const prompt =
       contentType === 'travel'
         ? this.buildTravelChapterPrompt(
@@ -1056,12 +1097,14 @@ Write the complete Introduction chapter now:`;
             bookTitle,
             bookSubtitle,
             contextData,
+            format,
           )
         : this.buildFarmingChapterPrompt(
             chapterOutline,
             bookTitle,
             bookSubtitle,
             contextData,
+            format,
           );
 
     return await this.generateText(prompt, {
@@ -1071,11 +1114,16 @@ Write the complete Introduction chapter now:`;
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // TRAVEL CHAPTER PROMPTS — 4 Format Variants
+  // ═══════════════════════════════════════════════════════════════
+
   private buildTravelChapterPrompt(
     chapterOutline: ChapterOutline,
     bookTitle: string,
     bookSubtitle: string,
     contextData?: any,
+    format: ChapterFormat = 'SCENE_NARRATIVE',
   ): string {
     const contextBlock = contextData
       ? `
@@ -1088,41 +1136,187 @@ ${contextData.weatherNotes ? `- Weather: ${contextData.weatherNotes}` : ''}
 `
       : '';
 
-    return `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the travel guide "${bookTitle}: ${bookSubtitle}".
+    const baseHeader = `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the travel guide "${bookTitle}: ${bookSubtitle}".
 
 Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
-PURPOSE: This is a practical guide book. Every paragraph should help the reader plan, decide, or navigate. Personal anecdotes exist to illustrate useful points, not to tell your story.
+PURPOSE: This is a practical guide book. Every paragraph should help the reader plan, decide, or navigate.`;
+
+    const formatInstructions = this.getTravelFormatInstructions(format);
+    const sharedRules = this.getTravelSharedRules();
+
+    return `${baseHeader}
+
+${formatInstructions}
+
+${sharedRules}
+
+Write the complete chapter now:`;
+  }
+
+  private getTravelFormatInstructions(format: ChapterFormat): string {
+    switch (format) {
+      case 'SCENE_NARRATIVE':
+        return `
+WRITING FORMAT: SCENE-FIRST NARRATIVE
+Structure each section by opening with a specific moment or scene, then unpack the practical details.
 
 STRUCTURE:
 - Write 25-28 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
-- Lead with the useful information, then add color or context
-- Each paragraph should answer an implicit reader question: "What should I do?" "How much?" "When?" "Is it worth it?" "What's the catch?"
+- Open each section with a vivid 2-3 sentence scene: arriving somewhere, watching something happen, a conversation snippet
+- After the scene, pivot to practical guidance that builds from what you showed
+- End sections with a specific recommendation or warning
+
+PARAGRAPH FLOW:
+1. Scene opener (sensory, specific, in-the-moment)
+2. Context paragraph (what this place/experience is)
+3. Practical details (costs, hours, how to get there)
+4. Insider tip or mistake to avoid
+5. Transition or verdict before next section
 
 SENTENCE RHYTHM:
-- Alternate: short sentence (4-8 words), then medium (12-18), then long (20-25), then short again
-- Start sentences differently: a name, a place, "I", "The", a time, an action, a question
-- Use occasional fragments for emphasis
-- Rhetorical questions that voice what the reader is thinking: "Worth the detour?" "Too touristy?"
-- Blunt verdicts: "Skip it." "This is overrated." "Go anyway."
+- Scene sentences: short and punchy, present tense feel ("The door opens. Smoke and garlic hit you.")
+- Info sentences: medium length, clear and direct
+- Vary starters: a name, a time, "I", "The", a sensory detail, a question
+- Use fragments in scene moments. Like this. They land harder.
 
-GUIDE BOOK CONTENT RULES:
+EXAMPLE of this format (match structure, not content):
+"""
+The ticket window closes at 4:30, not 5. I found this out the hard way, watching the metal shutter come down while I was still three people back in line. The guard shrugged. Come back tomorrow.
+
+The temple complex is worth the early alarm, but only if you actually get inside. Gates open at 6 AM, and the first hour is genuinely uncrowded — monks doing morning rounds, mist still clinging to the stupas. By 8 it's tour bus territory. By 10 you're shuffling in a queue.
+
+Entry costs 500 baht for foreigners, 50 for locals. No way around this. Bring cash — the ticket booth doesn't take cards, and the nearest ATM is a 10-minute walk back toward the main road.
+"""`;
+
+      case 'DIRECT_INSTRUCTION':
+        return `
+WRITING FORMAT: DIRECT INSTRUCTION
+Structure each section as clear, actionable guidance. Lead with what to do, follow with why and how.
+
+STRUCTURE:
+- Write 25-28 paragraphs covering all sections and subsections
+- NO bullet points, NO numbered lists — everything in flowing prose, but with an imperative, instructional voice
+- Open each section with a direct instruction or recommendation
+- Follow with the reasoning, context, and specific details
+- End sections with a clear verdict or next step
+
+PARAGRAPH FLOW:
+1. Direct instruction opener ("Go to X." / "Skip Y." / "Book this in advance.")
+2. Why this matters (brief reasoning)
+3. How to do it (specifics: costs, timing, logistics)
+4. What can go wrong and how to avoid it
+5. Verdict or priority statement
+
+SENTENCE RHYTHM:
+- Instruction sentences: short, imperative ("Book the night train." "Eat here." "Avoid the south entrance.")
+- Explanation sentences: medium length, clear cause-and-effect
+- Vary between command, statement, and occasional question
+- One-word verdicts work: "Essential." "Optional." "Skip."
+
+EXAMPLE of this format (match structure, not content):
+"""
+Book the ferry tickets a day ahead. The morning boats sell out by 7 AM during high season, and the afternoon crossings are rough — the wind picks up after noon and half the passengers get sick. I've done both. Morning is worth the early wake-up.
+
+The main pier is a 15-minute walk from the town center, or 60 baht by songthaew if you flag one down on the main road. Don't pay more than 80. Drivers will ask for 150 — smile, say "60," and start walking. They'll honk you back.
+
+Get to the pier by 6:30 AM. The ticket window opens at 6, and the line builds fast. Bring exact change — 450 baht per person, cash only.
+"""`;
+
+      case 'PROBLEM_SOLUTION':
+        return `
+WRITING FORMAT: PROBLEM-SOLUTION
+Structure each section around a common traveler problem, question, or challenge, then provide the solution.
+
+STRUCTURE:
+- Write 25-28 paragraphs covering all sections and subsections
+- NO bullet points, NO numbered lists — everything in flowing prose
+- Open each section by naming a specific problem, frustration, or question travelers face
+- Then deliver the solution with specific, actionable details
+- End sections with validation that the solution works
+
+PARAGRAPH FLOW:
+1. Problem statement ("Most travelers waste their first morning..." / "The biggest mistake here is..." / "You'll hear conflicting advice about...")
+2. Why this problem exists (brief context)
+3. The solution (specific steps, recommendations)
+4. How you know it works (personal experience or evidence)
+5. Edge cases or alternatives
+
+SENTENCE RHYTHM:
+- Problem sentences: conversational, acknowledging frustration ("Here's the thing nobody mentions...")
+- Solution sentences: confident, specific, instructional
+- Validation sentences: brief, personal, convincing ("This saved me three hours." "Worth it.")
+- Mix rhetorical questions into problem setups: "Sound familiar?"
+
+EXAMPLE of this format (match structure, not content):
+"""
+The maps are wrong. Not a little wrong — seriously wrong. Google thinks the main market is a 10-minute walk from the station. It's actually 25 minutes, and the "shortcut" it suggests goes through a construction zone that's been closed for two years.
+
+Here's what actually works: exit the station from the north side (follow signs for "Local Buses"), turn left, and walk until you hit the river. The market is along the water, not inland where the maps show it. Look for the red umbrellas.
+
+This route takes 20 minutes at a normal pace, 15 if you're rushing. It's not the shortest distance on paper, but it's the fastest actual walking route with no backtracking.
+"""`;
+
+      case 'COMPARE_CONTRAST':
+        return `
+WRITING FORMAT: COMPARISON-CONTRAST
+Structure each section around choices, trade-offs, and decisions. Help readers pick between options.
+
+STRUCTURE:
+- Write 25-28 paragraphs covering all sections and subsections
+- NO bullet points, NO numbered lists — everything in flowing prose
+- Open each section by framing a decision or presenting options
+- Compare options honestly with specific trade-offs (cost, time, experience, convenience)
+- End sections with a clear recommendation for different traveler types
+
+PARAGRAPH FLOW:
+1. Decision framing ("You have two options for getting there..." / "The question is whether to...")
+2. Option A: what it offers, costs, drawbacks
+3. Option B: what it offers, costs, drawbacks
+4. Direct comparison on key factors
+5. Verdict: who should choose what
+
+SENTENCE RHYTHM:
+- Framing sentences: set up the choice clearly
+- Comparison sentences: balanced but opinionated ("A is cheaper but B is worth the extra cost if...")
+- Verdict sentences: direct and confident ("For most travelers, pick A. If you have time, B.")
+- Use "but" and "however" to pivot between options — don't hedge, compare
+
+EXAMPLE of this format (match structure, not content):
+"""
+Two ways to reach the ruins: the tourist shuttle or the local bus. The shuttle costs 400 baht, leaves from your hotel at 8 AM, includes a guide who speaks English, and returns you by 2 PM. The local bus costs 35 baht, leaves from the east terminal every 30 minutes, takes twice as long, and drops you 800 meters from the entrance with no guide.
+
+The shuttle is efficient. You'll see the highlights, hear the history, and check the box in five hours. The guide knows which photo spots are least crowded.
+
+The local bus is an experience. You'll share seats with farmers, students, and monks. The ride takes 90 minutes instead of 40, but you'll see countryside the shuttle skips entirely.
+
+My take: first-timers or short-trippers should take the shuttle. If you've got three or more days and want to feel the place rather than just see it, take the local bus at least one direction.
+"""`;
+
+      default:
+        return this.getTravelFormatInstructions('SCENE_NARRATIVE');
+    }
+  }
+
+  private getTravelSharedRules(): string {
+    return `
+GUIDE BOOK CONTENT RULES (apply regardless of format):
 - Every section needs: what it is, how to get there, when to go, how long to spend, what it costs, and whether it's worth it
 - Include specific prices, hours, and distances — approximate is fine, vague is not
 - Give clear recommendations: "Go to X, skip Y" — don't just describe, advise
 - Warn about common mistakes: "Most people arrive too late" or "Don't bother on Mondays"
 - Offer alternatives: "If X is crowded, Y is five minutes away and half the price"
 - Mention logistics: parking, tickets, queues, best entrance, what to bring
-- Brief personal anecdotes ONLY when they illustrate something useful — not for flavor alone
+- Brief personal anecdotes ONLY when they illustrate something useful
 - Include one local name or phrase per section that readers can actually use
 - Sensory details should help readers recognize places: "look for the blue awning" not just "it smells nice"
 
 PRACTICAL HONESTY:
 - Say when something is overhyped or not worth the effort for most travelers
-- Mention what's changed recently if relevant: "used to be quieter" or "prices jumped in 2024"
+- Mention what's changed recently if relevant
 - Acknowledge different traveler types: "If you have kids..." or "Solo travelers might prefer..."
 - Be specific about difficulty: walking distances, stairs, heat exposure, crowds
 - Warn about scams, hassles, or annoyances — briefly, without drama
@@ -1136,26 +1330,19 @@ WHAT TO AVOID:
 - Don't start more than one paragraph with "The"
 - Don't end paragraphs with vague praise ("...and that's what makes it special")
 - Don't say "whether you're a budget traveler or luxury seeker" — pick your audience
-- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
-
-
-EXAMPLE of voice (practical guide with personality):
-"""
-The morning market opens at five, but arrive by four-thirty if you want to see the fish auction. By six, the tourist crowds show up and prices double. Aunt Noi's shrimp stall — north side, near the ice truck — sells the freshest catch, but she won't bargain. Don't try.
-
-Most guides tell you to come at sunrise for photos. Bad advice. The light is flat and the aisles are packed with tour groups. Come at four-thirty for the action, or come at seven-thirty when it's thinning out and you can actually move. Skip the sunrise middle ground.
-
-Budget about 200 baht for a full breakfast — noodles, coffee, and a bag of fruit to take with you. The coffee stall on the north corner does condensed milk coffee that's aggressively sweet. Perfect if you need the energy, overwhelming if you don't. No seating — you stand or walk.
-"""
-
-Write the complete chapter now:`;
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"`;
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // FARMING CHAPTER PROMPTS — 4 Format Variants
+  // ═══════════════════════════════════════════════════════════════
 
   private buildFarmingChapterPrompt(
     chapterOutline: ChapterOutline,
     bookTitle: string,
     bookSubtitle: string,
     contextData?: any,
+    format: ChapterFormat = 'SCENE_NARRATIVE',
   ): string {
     const contextBlock = contextData
       ? `
@@ -1171,28 +1358,174 @@ ${contextData.localPrices?.length ? `- Local prices: ${contextData.localPrices.j
 `
       : '';
 
-    return `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the farming guide "${bookTitle}: ${bookSubtitle}".
+    const baseHeader = `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the farming guide "${bookTitle}: ${bookSubtitle}".
 
 Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
-PURPOSE: This is a practical farming guide. Every paragraph should help the reader do something, decide something, or avoid a costly mistake. Personal experience illustrates useful points — it's not memoir.
+PURPOSE: This is a practical farming guide. Every paragraph should help the reader do something, decide something, or avoid a costly mistake.`;
+
+    const formatInstructions = this.getFarmingFormatInstructions(format);
+    const sharedRules = this.getFarmingSharedRules();
+
+    return `${baseHeader}
+
+${formatInstructions}
+
+${sharedRules}
+
+Write the complete chapter now:`;
+  }
+
+  private getFarmingFormatInstructions(format: ChapterFormat): string {
+    switch (format) {
+      case 'SCENE_NARRATIVE':
+        return `
+WRITING FORMAT: SCENE-FIRST NARRATIVE
+Structure each section by opening with a specific farm moment or hands-on scenario, then unpack the practical details.
 
 STRUCTURE:
 - Write 25-28 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
-- Lead with the actionable information, then explain why or add context
-- Each paragraph should answer: "How do I do this?" "What do I need?" "What will it cost?" "What goes wrong?" "What's the better option?"
+- Open each section with a vivid farm moment: early morning chores, something going wrong, a seasonal task
+- After the scene, pivot to practical guidance that builds from what you showed
+- End sections with a specific recommendation, number, or warning
+
+PARAGRAPH FLOW:
+1. Scene opener (sensory, specific, showing the work)
+2. What this task/technique is and why it matters
+3. Practical details (costs, timing, materials, steps)
+4. What can go wrong and how to prevent it
+5. Verdict or key number before next section
 
 SENTENCE RHYTHM:
-- Alternate: short sentence (4-8 words), then medium (12-18), then long (20-25), then short again
-- Start sentences differently: a time of day, a season, "I", "The", an animal name, a tool, a quantity
-- Use occasional fragments for emphasis
-- Rhetorical questions that voice what the reader is thinking: "Worth the extra cost?" "Too much work for a beginner?"
-- Blunt verdicts: "Don't bother." "This pays for itself." "Overkill for small operations."
+- Scene sentences: short and grounded ("The thermometer read 42°F. Too cold.")
+- Info sentences: medium length, clear and direct
+- Vary starters: a time of day, a season, a tool name, "I", "The", a number
+- Use fragments in scene moments. They hit harder.
 
-GUIDE BOOK CONTENT RULES:
+EXAMPLE of this format (match structure, not content):
+"""
+The first chick was dead by morning. I found her belly-up under the lamp, the others huddled in the opposite corner. The brooder was 104°F — ten degrees too hot. I'd trusted the lamp rating instead of checking the thermometer at chick height.
+
+Brooder temperature matters more than almost anything else in the first week. Chicks can't regulate their body heat, so they depend entirely on your setup. Get this wrong and you'll lose birds to cold or heat.
+
+Target 95°F directly under the heat source for day-old chicks, dropping 5 degrees per week until you hit 70°F or they're fully feathered. Measure at chick height — 2 inches off the bedding — not at lamp level.
+"""`;
+
+      case 'DIRECT_INSTRUCTION':
+        return `
+WRITING FORMAT: DIRECT INSTRUCTION
+Structure each section as clear, actionable guidance. Lead with what to do, follow with why and how.
+
+STRUCTURE:
+- Write 25-28 paragraphs covering all sections and subsections
+- NO bullet points, NO numbered lists — everything in flowing prose, but with an imperative, instructional voice
+- Open each section with a direct instruction or action step
+- Follow with the reasoning, materials needed, and specific details
+- End sections with a cost, timeline, or measurable outcome
+
+PARAGRAPH FLOW:
+1. Direct instruction opener ("Set up your brooder three days before chicks arrive." / "Test your soil before buying amendments.")
+2. Why this matters (brief reasoning, what goes wrong if you skip it)
+3. How to do it (specific steps, materials, costs)
+4. Common mistakes at this step
+5. Success indicator or checkpoint
+
+SENTENCE RHYTHM:
+- Instruction sentences: short, imperative ("Order chicks in January." "Check daily." "Don't skip this.")
+- Explanation sentences: medium length, clear cause-and-effect
+- Mix commands, statements, and occasional questions
+- One-word verdicts: "Essential." "Optional." "Overkill."
+
+EXAMPLE of this format (match structure, not content):
+"""
+Order your chicks eight weeks before you want them. Hatcheries book up fast, especially for popular breeds in spring. Wait until March to order April chicks and you'll get whatever's left — often not what you wanted.
+
+Most hatcheries require a 15-25 chick minimum to ship safely. The birds keep each other warm in transit. If you only want six layers, find a local farm selling started pullets instead.
+
+Expect to pay $3-5 per chick for common laying breeds, $5-8 for meat birds, and $8-15 for heritage or rare breeds. Shipping adds $15-40 depending on distance. Budget $80-120 total for a starter flock of 25 birds.
+"""`;
+
+      case 'PROBLEM_SOLUTION':
+        return `
+WRITING FORMAT: PROBLEM-SOLUTION
+Structure each section around a common farming problem, mistake, or challenge, then provide the solution.
+
+STRUCTURE:
+- Write 25-28 paragraphs covering all sections and subsections
+- NO bullet points, NO numbered lists — everything in flowing prose
+- Open each section by naming a specific problem farmers face (especially beginners)
+- Then deliver the solution with specific, actionable details and numbers
+- End sections with validation that the solution works
+
+PARAGRAPH FLOW:
+1. Problem statement ("Most beginners lose birds because..." / "The expensive mistake here is...")
+2. Why this problem happens (root cause, what people get wrong)
+3. The solution (specific steps, materials, costs)
+4. How you know it works (personal experience, numbers)
+5. Prevention or early warning signs
+
+SENTENCE RHYTHM:
+- Problem sentences: conversational, acknowledging frustration ("Ask me how I know this.")
+- Solution sentences: confident, specific, numbers-heavy
+- Validation sentences: brief, personal ("This cut my losses by 80%." "Worth it.")
+- Use rhetorical questions to set up problems: "Ever wonder why your tomatoes crack after rain?"
+
+EXAMPLE of this format (match structure, not content):
+"""
+New chicken keepers lose more birds to predators in the first month than in the entire rest of the year. The coop looks secure. The run seems solid. Then you wake up to feathers and a hole you didn't notice under the fence.
+
+The problem is thinking like a human. You see a fence. A raccoon sees a puzzle. They'll dig under, climb over, reach through gaps you didn't know existed.
+
+The solution is hardware cloth and an apron. Use 1/2-inch hardware cloth on all openings. Bury a 12-inch apron extending outward from the base of your run. Animals dig at the fence line, hit the apron, and give up.
+"""`;
+
+      case 'COMPARE_CONTRAST':
+        return `
+WRITING FORMAT: COMPARISON-CONTRAST
+Structure each section around choices, methods, and trade-offs. Help readers pick the right approach for their situation.
+
+STRUCTURE:
+- Write 25-28 paragraphs covering all sections and subsections
+- NO bullet points, NO numbered lists — everything in flowing prose
+- Open each section by framing a decision or presenting method options
+- Compare options honestly with specific trade-offs (cost, labor, results, scale)
+- End sections with a clear recommendation for different farm situations
+
+PARAGRAPH FLOW:
+1. Decision framing ("Two approaches to this..." / "You'll need to choose between...")
+2. Option A: what it involves, costs, labor, results
+3. Option B: what it involves, costs, labor, results
+4. Direct comparison on key factors (cost, time, effectiveness)
+5. Verdict: who should choose what based on scale, budget, experience
+
+SENTENCE RHYTHM:
+- Framing sentences: set up the choice clearly
+- Comparison sentences: balanced but opinionated ("A costs less but B saves time long-term")
+- Verdict sentences: direct and specific ("Under 25 birds, choose A. Scaling up? B pays off.")
+- Use "but" and "however" to pivot between options — don't hedge, compare honestly
+
+EXAMPLE of this format (match structure, not content):
+"""
+Two feeding strategies for layers: free-choice or rationed. Free-choice means keeping feeders full 24/7 and letting birds eat whenever they want. Rationed means measuring out a specific amount per bird per day.
+
+Free-choice is simpler. Less daily work, no measuring. The downside: you'll use 10-15% more feed, and some birds will overeat while others get pushed out.
+
+Rationed feeding takes more effort but more control. You'll know exactly what each bird consumes, spot health problems faster, and reduce waste to near zero.
+
+For backyard flocks under 20 birds, free-choice makes sense. Over 50 birds, rationing starts paying for itself. Between 20-50, it depends on how often you're out there anyway.
+"""`;
+
+      default:
+        return this.getFarmingFormatInstructions('SCENE_NARRATIVE');
+    }
+  }
+
+  private getFarmingSharedRules(): string {
+    return `
+GUIDE BOOK CONTENT RULES (apply regardless of format):
 - Every section needs: what to do, when to do it, what it costs, what equipment you need, and what can go wrong
 - Specific numbers always: pounds, days, dollars, temperatures, spacing, quantities — approximate is fine, vague is not
 - Give clear recommendations: "Start with X, not Y" — don't just explain options, advise
@@ -1220,19 +1553,7 @@ WHAT TO AVOID:
 - Don't start more than one paragraph with "The"
 - Don't end paragraphs with broad philosophy — end with specific action or assessment
 - Don't say "it depends" without then explaining what it depends ON
-- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"
-
-
-EXAMPLE of voice (practical guide with personality):
-"""
-Start your brooder setup three days before chicks arrive. Heat lamp on, thermometer at chick height, bedding down. You want 95°F directly under the lamp and room to escape to cooler edges. Check the thermometer, not the lamp wattage — ambient temperature matters more than you'd think.
-
-Most first-timers set up the day chicks arrive. Bad idea. You're rushed, the temperature isn't stable, and you lose chicks to cold corners before you've figured out the problem. I lost eight of twenty-five my first batch this way. $28 in dead birds, plus the stress.
-
-Budget $45-60 for a basic brooder setup: heat lamp ($15), bulb ($10), thermometer ($8), waterer ($7), feeder ($8), and pine shavings ($6 for a bale that lasts weeks). Don't cheap out on the thermometer. The $3 ones drift. The $8 digital ones hold calibration and save you birds.
-"""
-
-Write the complete chapter now:`;
+- Don't use difficult words/grammar when simple ones will do — "utilize" vs "use", "ameliorate" vs "fix"`;
   }
 
   // ═══════════════════════════════════════════════════════════════

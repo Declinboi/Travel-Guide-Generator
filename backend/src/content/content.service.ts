@@ -5,7 +5,7 @@ import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Project, ProjectStatus } from 'src/DB/entities/project.entity';
 import { Job, JobType, JobStatus } from 'src/DB/entities/job.entity';
-import { GeminiService } from './gemini.service';
+import { GeminiService} from './gemini.service';
 import { GenerateTravelGuideDto } from './dto/generate-travel-guide.dto';
 import { Chapter } from 'src/DB/entities/chapter.entity';
 
@@ -106,6 +106,14 @@ export class ContentService {
       const year = new Date().getFullYear();
       const numberOfChapters = generateDto.numberOfChapters || 10;
 
+      // ═══════════════════════════════════════════════════════════════
+      // SELECT BOOK FORMAT ONCE — Used for all chapters
+      // ═══════════════════════════════════════════════════════════════
+      const bookFormat = this.geminiService.selectBookFormat();
+      this.logger.log(
+        `Book "${generateDto.title}" will use format: ${bookFormat}`,
+      );
+
       // STEP 1: Generate detailed outline (5% progress)
       this.logger.log(
         `Step 1: Generating book outline for ${generateDto.title} with ${numberOfChapters} chapters...`,
@@ -133,7 +141,10 @@ export class ContentService {
       );
 
       job.progress = 10;
-      job.result = { outline };
+      job.result = {
+        outline,
+        bookFormat, // Store format in job result for reference
+      };
       await this.jobRepository.save(job);
 
       // ── Cooldown after outline generation ───────────────────
@@ -195,7 +206,7 @@ export class ContentService {
 
       // STEP 4: Generate main chapters (25% - 85% progress)
       this.logger.log(
-        `Step 4: Writing ${outline.chapters.length - 2} main chapters...`,
+        `Step 4: Writing ${outline.chapters.length - 2} main chapters using ${bookFormat} format...`,
       );
 
       const mainChapters = outline.chapters.slice(1, -1);
@@ -203,19 +214,21 @@ export class ContentService {
 
       for (let i = 0; i < mainChapters.length; i++) {
         // ── Cooldown before each chapter ──────────────────────
-        // Longer cooldown for chapters since they are heavier
-        // API calls (refine = 2 API calls per chapter)
         await this.cooldown(this.CHAPTER_COOLDOWN_MS);
 
         const chapterOutline = mainChapters[i];
         this.logger.log(
-          `Writing Chapter ${chapterOutline.chapterNumber}: ${chapterOutline.chapterTitle} (${i + 1}/${mainChapters.length})`,
+          `Writing Chapter ${chapterOutline.chapterNumber}: ${chapterOutline.chapterTitle} (${i + 1}/${mainChapters.length}) [Format: ${bookFormat}]`,
         );
 
+        // ═══════════════════════════════════════════════════════════════
+        // PASS BOOK FORMAT TO CHAPTER GENERATION
+        // ═══════════════════════════════════════════════════════════════
         const content = await this.geminiService.generateChapterContent(
           chapterOutline,
           generateDto.title,
           generateDto.subtitle || '',
+          bookFormat, // <-- Same format for all chapters
         );
 
         await this.saveChapter(
@@ -232,13 +245,13 @@ export class ContentService {
           projectId,
           chapterNumber: chapterOutline.chapterNumber,
           totalChapters: outline.chapters.length,
+          format: bookFormat,
         });
       }
 
-
-       // ── Cooldown before conclusion ──────────────────────────
+      // ── Cooldown before conclusion ──────────────────────────
       await this.cooldown(this.CHAPTER_COOLDOWN_MS);
-      
+
       // STEP 5: Generate conclusion (95% progress)
       this.logger.log('Step 5: Writing conclusion...');
 
@@ -264,7 +277,7 @@ export class ContentService {
         where: { projectId },
       });
 
-      // We should have: 4 front matter + numberOfChapters content chapters
+      // We should have: 3 front matter + numberOfChapters content chapters
       const expectedTotal = 3 + numberOfChapters;
 
       this.logger.log(
@@ -284,6 +297,7 @@ export class ContentService {
       job.result = {
         ...job.result,
         totalChapters: savedChapters,
+        bookFormat, // Include format in final result
         message: 'Book content generation completed successfully',
       };
       await this.jobRepository.save(job);
@@ -302,9 +316,12 @@ export class ContentService {
       project.status = ProjectStatus.COMPLETED;
       await this.projectRepository.save(project);
 
-      this.eventEmitter.emit('content.generation.completed', { projectId });
+      this.eventEmitter.emit('content.generation.completed', {
+        projectId,
+        bookFormat,
+      });
       this.logger.log(
-        `Travel guide book generation completed for project ${projectId}`,
+        `Travel guide book generation completed for project ${projectId} using format: ${bookFormat}`,
       );
     } catch (error) {
       this.logger.error(
@@ -345,7 +362,7 @@ export class ContentService {
     }
 
     const chapter = this.chapterRepository.create({
-      projectId, // EXPLICITLY set projectId
+      projectId,
       title,
       order,
       content,
