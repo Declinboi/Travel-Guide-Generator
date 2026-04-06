@@ -187,7 +187,7 @@ export class GeminiService {
   private readonly PROVIDER_COOLDOWN_MS = 5000; // Min 5s between calls to same key
   private readonly RATE_LIMIT_LOCKOUT_MS = 60000; // Lock out for 60s after 429
 
-  private readonly REQUEST_TIMEOUT_MS = 45000; // 45s timeout per request
+  private readonly REQUEST_TIMEOUT_MS = 95000; // 95s timeout per request
   private readonly PROVIDER_SWITCH_DELAY_MS = 4000; // 4s delay when switching after failure
   private readonly MAX_CONSECUTIVE_ERRORS = 5; // Max errors before extended lockout
   private readonly EXTENDED_LOCKOUT_MS = 300000; // 5 min lockout after too many errors
@@ -1136,7 +1136,7 @@ ${contextData.weatherNotes ? `- Weather: ${contextData.weatherNotes}` : ''}
 `
       : '';
 
-    const baseHeader = `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the travel guide "${bookTitle}: ${bookSubtitle}".
+    const baseHeader = `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the travel guide "${bookTitle}: ${bookSubtitle} " IN PLAIN ENGLISH LANGUAGE.
 
 Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
@@ -1358,7 +1358,7 @@ ${contextData.localPrices?.length ? `- Local prices: ${contextData.localPrices.j
 `
       : '';
 
-    const baseHeader = `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the farming guide "${bookTitle}: ${bookSubtitle}".
+    const baseHeader = `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the farming guide "${bookTitle}: ${bookSubtitle}" IN PLAIN ENGLISH LANGUAGE.
 
 Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}

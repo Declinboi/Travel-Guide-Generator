@@ -559,14 +559,14 @@ export class PdfService {
         .text(`${chapterPrefix} ${chapterNumber}`, {
           align: 'center',
         });
-      doc.moveDown(1);
+      doc.moveDown(0.3);
     }
 
     // Always show the chapter title
     doc.fontSize(20).font(titleFont).text(cleanTitle, {
       align: 'center',
     });
-    doc.moveDown(1);
+    doc.moveDown(0.3);
   }
 
   private addFormattedContent(
