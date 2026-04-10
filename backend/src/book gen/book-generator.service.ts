@@ -40,7 +40,7 @@ export class BookGeneratorService {
       title: createBookDto.title,
       subtitle: createBookDto.subtitle,
       author: createBookDto.author,
-      numberOfChapters: 10,
+      numberOfChapters: 12,
       userId: createBookDto.userId,
     });
 
@@ -93,7 +93,7 @@ export class BookGeneratorService {
           title: createBookDto.title,
           subtitle: createBookDto.subtitle,
           author: createBookDto.author,
-          numberOfChapters: 10,
+          numberOfChapters: 12,
         },
       );
 
@@ -235,7 +235,7 @@ export class BookGeneratorService {
     images: Express.Multer.File[],
   ) {
     const totalImages = images.length;
-    const numberOfChapters = 10;
+    const numberOfChapters = 12;
 
     let chapterNumbers = createBookDto.imageChapterNumbers;
 

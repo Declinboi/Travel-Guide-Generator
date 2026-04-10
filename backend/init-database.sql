@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS projects (
     author VARCHAR(255) NOT NULL,
     description TEXT,
     status project_status DEFAULT 'DRAFT',
-    "numberOfChapters" INTEGER DEFAULT 10,
+    "numberOfChapters" INTEGER DEFAULT 12,
     "contentLength" VARCHAR(50) DEFAULT 'MEDIUM',
     "userId" UUID,
     "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

@@ -78,7 +78,7 @@ const BookStatus = () => {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-gray-50 p-4 rounded-lg">
             <p className="text-sm text-gray-600">Chapters</p>
-            <p className="text-2xl font-bold">{status.stats.chapters}/13</p>
+            <p className="text-2xl font-bold">{status.stats.chapters}/15</p>
           </div>
           <div className="bg-gray-50 p-4 rounded-lg">
             <p className="text-sm text-gray-600">Images</p>

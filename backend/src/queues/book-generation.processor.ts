@@ -637,7 +637,7 @@ export class BookGenerationProcessor extends WorkerHost {
           title: createBookDto.title,
           subtitle: createBookDto.subtitle,
           author: createBookDto.author,
-          numberOfChapters: 10,
+          numberOfChapters: 12,
         },
       );
 

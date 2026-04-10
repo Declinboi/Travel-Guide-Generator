@@ -23,12 +23,12 @@ export class CreateProjectDto {
   @IsOptional()
   description?: string;
 
-  @ApiProperty({ example: 10, default: 10, minimum: 5, maximum: 30 })
+  @ApiProperty({ example: 12, default: 12, minimum: 5, maximum: 30 })
   @IsInt()
   @Min(5)
   @Max(30)
   @IsOptional()
-  numberOfChapters?: number = 10;
+  numberOfChapters?: number = 12;
 
   @ApiProperty({ 
     example: 'MEDIUM',

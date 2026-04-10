@@ -775,6 +775,7 @@ export class LibreTranslationService {
         ]);
 
         // CRITICAL CHECK: If title translation is below 80%, use fallback
+        // CRITICAL CHECK: If title translation is below 80%, use fallback
         let finalTitle = translatedTitle;
         const { percentage, unchangedWords } = this.getTranslationPercentage(
           title,
@@ -789,13 +790,20 @@ export class LibreTranslationService {
           this.logger.warn(
             `Title translation below 80% (${percentage.toFixed(0)}%) - merging with fallback`,
           );
-          // Merge: keep what LibreTranslate translated, fill in the rest with fallback
           finalTitle = this.mergeWithFallback(
             title,
             translatedTitle,
             targetLanguage,
           );
         }
+
+        // ADDITIONAL CHECK: Verify no animal names were silently dropped during translation
+        // e.g. "Snail farming Guide" → "Guida all'agricoltura" (Snail was dropped, not translated)
+        finalTitle = this.injectMissingAnimalTranslations(
+          title,
+          finalTitle,
+          targetLanguage,
+        );
 
         // Validate that title was translated
         const titleValidation = this.validateMetadataTranslation(
@@ -933,6 +941,189 @@ export class LibreTranslationService {
   }
 
   /**
+   * Detect animal names in the original title that were DROPPED (not translated)
+   * by LibreTranslate and inject their correct translation into the result.
+   *
+   * Example: "Snail farming Guide" → "Guida all'agricoltura"
+   *   - "Snail" was silently dropped → inject "Lumache" → "Guida delle Lumache all'agricoltura"
+   *   - but we prepend it at the front to preserve natural word order
+   */
+  private injectMissingAnimalTranslations(
+    original: string,
+    translated: string,
+    targetLanguage: Language,
+  ): string {
+    const isFarming = this.isFarmingContext(original);
+    if (!isFarming) return translated;
+
+    const animalTranslations: Record<Language, Record<string, string>> = {
+      [Language.SPANISH]: {
+        Snail: 'Caracol',
+        Snails: 'Caracoles',
+        Worm: 'Gusano',
+        Worms: 'Gusanos',
+        Quail: 'Codorniz',
+        Frog: 'Rana',
+        Frogs: 'Ranas',
+        Shrimp: 'Camarón',
+        Crab: 'Cangrejo',
+        Catfish: 'Bagre',
+        Tilapia: 'Tilapia',
+        Chicken: 'Pollo',
+        Chickens: 'Pollos',
+        Cow: 'Vaca',
+        Cows: 'Vacas',
+        Cattle: 'Ganado',
+        Pig: 'Cerdo',
+        Pigs: 'Cerdos',
+        Sheep: 'Oveja',
+        Goat: 'Cabra',
+        Goats: 'Cabras',
+        Rabbit: 'Conejo',
+        Rabbits: 'Conejos',
+        Bee: 'Abeja',
+        Bees: 'Abejas',
+        Fish: 'Pez',
+        Duck: 'Pato',
+        Ducks: 'Patos',
+      },
+      [Language.FRENCH]: {
+        Snail: 'Escargot',
+        Snails: 'Escargots',
+        Worm: 'Ver',
+        Worms: 'Vers',
+        Quail: 'Caille',
+        Frog: 'Grenouille',
+        Frogs: 'Grenouilles',
+        Shrimp: 'Crevette',
+        Crab: 'Crabe',
+        Catfish: 'Poisson-chat',
+        Tilapia: 'Tilapia',
+        Chicken: 'Poulet',
+        Chickens: 'Poulets',
+        Cow: 'Vache',
+        Cows: 'Vaches',
+        Cattle: 'Bétail',
+        Pig: 'Cochon',
+        Pigs: 'Cochons',
+        Sheep: 'Mouton',
+        Goat: 'Chèvre',
+        Goats: 'Chèvres',
+        Rabbit: 'Lapin',
+        Rabbits: 'Lapins',
+        Bee: 'Abeille',
+        Bees: 'Abeilles',
+        Fish: 'Poisson',
+        Duck: 'Canard',
+        Ducks: 'Canards',
+      },
+      [Language.GERMAN]: {
+        Snail: 'Schnecke',
+        Snails: 'Schnecken',
+        Worm: 'Wurm',
+        Worms: 'Würmer',
+        Quail: 'Wachtel',
+        Frog: 'Frosch',
+        Frogs: 'Frösche',
+        Shrimp: 'Garnele',
+        Crab: 'Krabbe',
+        Catfish: 'Wels',
+        Tilapia: 'Tilapia',
+        Chicken: 'Huhn',
+        Chickens: 'Hühner',
+        Cow: 'Kuh',
+        Cows: 'Kühe',
+        Cattle: 'Rinder',
+        Pig: 'Schwein',
+        Pigs: 'Schweine',
+        Sheep: 'Schaf',
+        Goat: 'Ziege',
+        Goats: 'Ziegen',
+        Rabbit: 'Kaninchen',
+        Rabbits: 'Kaninchen',
+        Bee: 'Biene',
+        Bees: 'Bienen',
+        Fish: 'Fisch',
+        Duck: 'Ente',
+        Ducks: 'Enten',
+      },
+      [Language.ITALIAN]: {
+        Snail: 'Lumaca',
+        Snails: 'Lumache',
+        Worm: 'Verme',
+        Worms: 'Vermi',
+        Quail: 'Quaglia',
+        Frog: 'Rana',
+        Frogs: 'Rane',
+        Shrimp: 'Gambero',
+        Crab: 'Granchio',
+        Catfish: 'Pesce gatto',
+        Tilapia: 'Tilapia',
+        Chicken: 'Pollo',
+        Chickens: 'Polli',
+        Cow: 'Mucca',
+        Cows: 'Mucche',
+        Cattle: 'Bestiame',
+        Pig: 'Maiale',
+        Pigs: 'Maiali',
+        Sheep: 'Pecora',
+        Goat: 'Capra',
+        Goats: 'Capre',
+        Rabbit: 'Coniglio',
+        Rabbits: 'Conigli',
+        Bee: 'Ape',
+        Bees: 'Api',
+        Fish: 'Pesce',
+        Duck: 'Anatra',
+        Ducks: 'Anatre',
+      },
+      [Language.ENGLISH]: {},
+    };
+
+    const translations = animalTranslations[targetLanguage] || {};
+    const originalWords = original.split(/\s+/);
+    let result = translated;
+    const injected: string[] = [];
+
+    for (const word of originalWords) {
+      const cleanWord = word.replace(/[^a-zA-Z]/g, '');
+      if (!cleanWord) continue;
+
+      // Look up the animal translation for this word
+      const animalKey =
+        cleanWord.charAt(0).toUpperCase() + cleanWord.slice(1).toLowerCase();
+      const animalTranslated =
+        translations[animalKey] || translations[cleanWord];
+      if (!animalTranslated) continue;
+
+      // Check if neither the English original NOR the translated animal word
+      // appears in the current translated result (case-insensitive)
+      const englishPresent = new RegExp(`\\b${cleanWord}\\b`, 'i').test(result);
+      const translationPresent = new RegExp(
+        animalTranslated.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+        'i',
+      ).test(result);
+
+      if (!englishPresent && !translationPresent) {
+        // The animal was silently dropped — inject it
+        this.logger.warn(
+          `Animal "${cleanWord}" was dropped by LibreTranslate. Injecting "${animalTranslated}" into title.`,
+        );
+        injected.push(animalTranslated);
+      }
+    }
+
+    if (injected.length > 0) {
+      // Prepend the missing animal translations (they belong at the start of the title)
+      result = `${injected.join(' ')} ${result}`;
+      this.logger.log(
+        `Injected missing animals: "${translated}" → "${result}"`,
+      );
+    }
+
+    return result;
+  }
+  /**
    * Get fallback word translation from dictionary
    */
   private getFallbackWord(
@@ -977,6 +1168,7 @@ export class LibreTranslationService {
         guide: 'Führer',
         guidebook: 'Reiseführer',
         farming: 'Landwirtschafts',
+        farm: 'Zucht',
         book: 'Buch',
         complete: 'Vollständige',
         ultimate: 'Ultimate',
@@ -1014,48 +1206,178 @@ export class LibreTranslationService {
   /**
    * Merge LibreTranslate result with fallback for untranslated words
    */
+  // private mergeWithFallback(
+  //   original: string,
+  //   libreTranslated: string,
+  //   targetLanguage: Language,
+  // ): string {
+  //   const origWords = original.split(/\s+/);
+  //   let result = libreTranslated;
+  //   const isFarming = this.isFarmingContext(original);
+
+  //   this.logger.debug(
+  //     `Merging translations - Original: "${original}", LibreTranslate: "${libreTranslated}", FarmingContext: ${isFarming}`,
+  //   );
+
+  //   for (const origWord of origWords) {
+  //     // Skip numbers and very short words
+  //     if (/^\d+$/.test(origWord) || origWord.length <= 2) continue;
+
+  //     // Check if this word appears unchanged in the translation (case-insensitive)
+  //     const wordRegex = new RegExp(`\\b${origWord}\\b`, 'i');
+  //     if (wordRegex.test(result)) {
+  //       // Try animal translation first (only in farming context)
+  //       let fallbackWord = this.getAnimalTranslation(
+  //         origWord,
+  //         targetLanguage,
+  //         isFarming,
+  //       );
+
+  //       // If no animal translation, try regular fallback
+  //       if (!fallbackWord) {
+  //         fallbackWord = this.getFallbackWord(origWord, targetLanguage);
+  //       }
+
+  //       if (
+  //         fallbackWord &&
+  //         fallbackWord.toLowerCase() !== origWord.toLowerCase()
+  //       ) {
+  //         result = result.replace(wordRegex, fallbackWord);
+  //         this.logger.debug(`  Replaced "${origWord}" with "${fallbackWord}"`);
+  //       }
+  //     }
+  //   }
+
+  //   this.logger.log(`Merged result: "${result}"`);
+  //   return result;
+  // }
+
   private mergeWithFallback(
     original: string,
     libreTranslated: string,
     targetLanguage: Language,
   ): string {
     const origWords = original.split(/\s+/);
-    let result = libreTranslated;
     const isFarming = this.isFarmingContext(original);
 
     this.logger.debug(
       `Merging translations - Original: "${original}", LibreTranslate: "${libreTranslated}", FarmingContext: ${isFarming}`,
     );
 
-    for (const origWord of origWords) {
-      // Skip numbers and very short words
-      if (/^\d+$/.test(origWord) || origWord.length <= 2) continue;
+    // Build a word-by-word replacement map from original → translated
+    let result = libreTranslated;
+    const resultWords = result.split(/\s+/);
 
-      // Check if this word appears unchanged in the translation (case-insensitive)
-      const wordRegex = new RegExp(`\\b${origWord}\\b`, 'i');
-      if (wordRegex.test(result)) {
-        // Try animal translation first (only in farming context)
-        let fallbackWord = this.getAnimalTranslation(
-          origWord,
+    // Check EVERY word in the result — not just ones that match original
+    // LibreTranslate may have partially translated some words
+    const finalWords = resultWords.map((resultWord) => {
+      // Skip short words, numbers, punctuation
+      const cleanWord = resultWord.replace(/[^a-zA-Z]/g, '');
+      if (!cleanWord || cleanWord.length <= 2 || /^\d+$/.test(cleanWord)) {
+        return resultWord;
+      }
+
+      // 1. Try animal translation
+      const animalTranslation = this.getAnimalTranslation(
+        cleanWord,
+        targetLanguage,
+        isFarming,
+      );
+      if (
+        animalTranslation &&
+        animalTranslation.toLowerCase() !== cleanWord.toLowerCase()
+      ) {
+        this.logger.debug(
+          `  Replaced "${cleanWord}" with animal translation "${animalTranslation}"`,
+        );
+        return resultWord.replace(cleanWord, animalTranslation);
+      }
+
+      // 2. Try regular fallback word
+      const fallbackWord = this.getFallbackWord(cleanWord, targetLanguage);
+      if (
+        fallbackWord &&
+        fallbackWord.toLowerCase() !== cleanWord.toLowerCase()
+      ) {
+        this.logger.debug(
+          `  Replaced "${cleanWord}" with fallback "${fallbackWord}"`,
+        );
+        return resultWord.replace(cleanWord, fallbackWord);
+      }
+
+      // 3. Check if this word still exists unchanged in original
+      //    and has a known translation we can apply
+      // 3. Check if this word still exists unchanged in original
+      //    and has a known translation we can apply
+      const origMatch = origWords.find(
+        (w) => w.toLowerCase() === cleanWord.toLowerCase(),
+      );
+      if (origMatch) {
+        // Still English — try one more time with animal dict
+        const animalRetry = this.getAnimalTranslation(
+          origMatch,
           targetLanguage,
           isFarming,
         );
-
-        // If no animal translation, try regular fallback
-        if (!fallbackWord) {
-          fallbackWord = this.getFallbackWord(origWord, targetLanguage);
-        }
-
         if (
-          fallbackWord &&
-          fallbackWord.toLowerCase() !== origWord.toLowerCase()
+          animalRetry &&
+          animalRetry.toLowerCase() !== origMatch.toLowerCase()
         ) {
-          result = result.replace(wordRegex, fallbackWord);
-          this.logger.debug(`  Replaced "${origWord}" with "${fallbackWord}"`);
+          this.logger.debug(
+            `  Replaced unchanged "${cleanWord}" with "${animalRetry}"`,
+          );
+          return resultWord.replace(cleanWord, animalRetry);
         }
       }
-    }
 
+      // 4. Stem/variant match: word may be a partial translation of an original word
+      //    e.g. "farming" → LibreTranslate returned "Farm" (English partial)
+      //    Check if cleanWord is a stem/prefix of any original word or vice versa
+      const stemMatch = origWords.find((w) => {
+        const wLower = w.toLowerCase();
+        const cLower = cleanWord.toLowerCase();
+        return (
+          wLower !== cLower &&
+          (wLower.startsWith(cLower) || cLower.startsWith(wLower))
+        );
+      });
+      if (stemMatch) {
+        // Try fallback for the original word (e.g. "farming")
+        const stemFallback = this.getFallbackWord(stemMatch, targetLanguage);
+        if (
+          stemFallback &&
+          stemFallback.toLowerCase() !== stemMatch.toLowerCase() &&
+          stemFallback.toLowerCase() !== cleanWord.toLowerCase()
+        ) {
+          this.logger.debug(
+            `  Stem match: replaced partial "${cleanWord}" (from "${stemMatch}") with "${stemFallback}"`,
+          );
+          return resultWord.replace(new RegExp(cleanWord, 'i'), stemFallback);
+        }
+
+        // Also try animal dict for the stem match
+        if (isFarming) {
+          const stemAnimal = this.getAnimalTranslation(
+            stemMatch,
+            targetLanguage,
+            true,
+          );
+          if (
+            stemAnimal &&
+            stemAnimal.toLowerCase() !== stemMatch.toLowerCase()
+          ) {
+            this.logger.debug(
+              `  Stem animal match: replaced "${cleanWord}" (from "${stemMatch}") with "${stemAnimal}"`,
+            );
+            return resultWord.replace(new RegExp(cleanWord, 'i'), stemAnimal);
+          }
+        }
+      }
+
+      return resultWord;
+    });
+
+    result = finalWords.join(' ');
     this.logger.log(`Merged result: "${result}"`);
     return result;
   }
@@ -1273,6 +1595,7 @@ export class LibreTranslationService {
         Guide: 'Führer',
         Guidebook: 'Reiseführer',
         Farming: 'Landwirtschafts',
+        Farm: 'Zucht',
         Book: 'Buch',
         Complete: 'Vollständige',
         Ultimate: 'Ultimate',

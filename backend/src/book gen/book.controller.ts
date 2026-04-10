@@ -77,7 +77,7 @@ export class BookController {
         title: createBookDto.title,
         subtitle: createBookDto.subtitle,
         author: createBookDto.author,
-        numberOfChapters: 10,
+        numberOfChapters: 12,
         userId: createBookDto.userId || userId,
         status: ProjectStatus.DRAFT,
         createdAt: new Date(),

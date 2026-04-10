@@ -67,7 +67,7 @@ export class ContentService {
 
     // Update project
     project.status = ProjectStatus.GENERATING_CONTENT;
-    project.numberOfChapters = generateDto.numberOfChapters || 10;
+    project.numberOfChapters = generateDto.numberOfChapters || 12;
     await this.projectRepository.save(project);
 
     // Start generation in background
@@ -104,7 +104,7 @@ export class ContentService {
       await this.jobRepository.save(job);
 
       const year = new Date().getFullYear();
-      const numberOfChapters = generateDto.numberOfChapters || 10;
+      const numberOfChapters = generateDto.numberOfChapters || 12;
 
       // ═══════════════════════════════════════════════════════════════
       // SELECT BOOK FORMAT ONCE — Used for all chapters
