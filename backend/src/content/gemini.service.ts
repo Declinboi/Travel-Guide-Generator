@@ -1208,7 +1208,7 @@ WRITING FORMAT: SCENE-FIRST NARRATIVE
 Structure each section by opening with a specific moment or scene, then unpack the practical details.
 
 STRUCTURE:
-- Write 25-28 paragraphs covering all sections and subsections
+- Write 30-35 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a vivid 2-3 sentence scene: arriving somewhere, watching something happen, a conversation snippet
 - After the scene, pivot to practical guidance that builds from what you showed
@@ -1242,7 +1242,7 @@ WRITING FORMAT: DIRECT INSTRUCTION
 Structure each section as clear, actionable guidance. Lead with what to do, follow with why and how.
 
 STRUCTURE:
-- Write 25-28 paragraphs covering all sections and subsections
+- Write 30-35 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose, but with an imperative, instructional voice
 - Open each section with a direct instruction or recommendation
 - Follow with the reasoning, context, and specific details
@@ -1276,7 +1276,7 @@ WRITING FORMAT: PROBLEM-SOLUTION
 Structure each section around a common traveler problem, question, or challenge, then provide the solution.
 
 STRUCTURE:
-- Write 25-28 paragraphs covering all sections and subsections
+- Write 30-35 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section by naming a specific problem, frustration, or question travelers face
 - Then deliver the solution with specific, actionable details
@@ -1310,7 +1310,7 @@ WRITING FORMAT: COMPARISON-CONTRAST
 Structure each section around choices, trade-offs, and decisions. Help readers pick between options.
 
 STRUCTURE:
-- Write 25-28 paragraphs covering all sections and subsections
+- Write 30-35 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section by framing a decision or presenting options
 - Compare options honestly with specific trade-offs (cost, time, experience, convenience)
