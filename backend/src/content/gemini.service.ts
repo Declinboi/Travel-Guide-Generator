@@ -299,6 +299,19 @@ export class GeminiService {
       await this.sleep(waitTime);
     }
   }
+
+  private isAccessDeniedError(error: any): boolean {
+    return (
+      error?.status === 403 ||
+      error?.message?.includes('403') ||
+      error?.message?.includes('Forbidden') ||
+      error?.message?.includes('denied access') ||
+      error?.message?.includes('API key not valid') ||
+      error?.message?.includes('API_KEY_INVALID') ||
+      error?.message?.includes('permission') ||
+      error?.message?.includes('disabled')
+    );
+  }
   // ══════════════════════════════════════════════════════════════
   // NEW: Network error detection
   // ══════════════════════════════════════════════════════════════
@@ -349,7 +362,8 @@ export class GeminiService {
     return (
       this.isNetworkError(error) ||
       this.isRateLimitError(error) ||
-      this.isOverloadError(error)
+      this.isOverloadError(error) ||
+      this.isAccessDeniedError(error) // 403 = skip this key, try next
     );
   }
   // ══════════════════════════════════════════════════════════════
@@ -522,20 +536,20 @@ export class GeminiService {
     prompt: string,
     systemPrompt?: string,
   ): Promise<string> {
-    const maxAttempts = this.apiProviders.length * 2; // Allow cycling through twice
+    const maxAttempts = this.apiProviders.length * 2;
     let lastError: any;
     let attemptCount = 0;
+
     while (attemptCount < maxAttempts) {
       attemptCount++;
 
-      // Get next available provider
       const provider = this.getNextProvider();
-      // Handle case where all providers are locked out
+
       if (!provider) {
-        // Find the provider that will be available soonest
         const now = Date.now();
         let soonest: APIProvider | null = null;
         let shortestWait = Infinity;
+
         for (const p of this.apiProviders) {
           let waitTime = 0;
 
@@ -550,15 +564,14 @@ export class GeminiService {
             soonest = p;
           }
         }
+
         if (soonest && shortestWait > 0) {
-          // Cap wait time at 60 seconds
           const cappedWait = Math.min(shortestWait, 60000);
           this.logger.warn(
             `All providers locked out. Waiting ${Math.round(cappedWait / 1000)}s for ${soonest.type} provider...`,
           );
           await this.sleep(cappedWait);
 
-          // Reset the soonest provider and try it
           soonest.rateLimitedUntil = 0;
           if (soonest.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
             soonest.consecutiveErrors = Math.floor(
@@ -569,6 +582,7 @@ export class GeminiService {
 
         continue;
       }
+
       const providerIdx = this.apiProviders.indexOf(provider) + 1;
 
       try {
@@ -585,41 +599,54 @@ export class GeminiService {
       } catch (error: any) {
         lastError = error;
 
-        const errorType = this.isRateLimitError(error)
-          ? 'rate_limit'
-          : this.isNetworkError(error)
-            ? 'network'
-            : this.isOverloadError(error)
-              ? 'overload'
-              : 'other';
+        const errorType = this.isAccessDeniedError(error)
+          ? 'access_denied' // ← NEW
+          : this.isRateLimitError(error)
+            ? 'rate_limit'
+            : this.isNetworkError(error)
+              ? 'network'
+              : this.isOverloadError(error)
+                ? 'overload'
+                : 'other';
+
         this.logger.warn(
           `${provider.type} provider #${providerIdx} failed (${errorType}): ${error?.message?.substring(0, 100)}`,
         );
-        // Handle based on error type
+
+        // ══════════════════════════════════════════════════════════
+        // 403 ACCESS DENIED — Lock out permanently, skip to next
+        // ══════════════════════════════════════════════════════════
+        if (this.isAccessDeniedError(error)) {
+          // Lock this key out for 24 hours — it's denied, not just busy
+          provider.rateLimitedUntil = Date.now() + 24 * 60 * 60 * 1000;
+          provider.consecutiveErrors = this.MAX_CONSECUTIVE_ERRORS; // Mark as bad
+          this.logger.error(
+            `Provider #${providerIdx} (${provider.type}) ACCESS DENIED (403) — permanently skipping this key. Try the next provider immediately.`,
+          );
+          // NO DELAY — immediately try next provider, no point waiting
+          continue;
+        }
+
         if (this.isRateLimitError(error)) {
-          // Lock out for rate limit
           provider.rateLimitedUntil = Date.now() + this.RATE_LIMIT_LOCKOUT_MS;
           this.logger.warn(
             `Provider #${providerIdx} rate limited, locked out for ${this.RATE_LIMIT_LOCKOUT_MS / 1000}s`,
           );
         } else if (this.isNetworkError(error)) {
-          // Network errors: short lockout, then retry
-          const lockoutMs = this.addJitter(5000); // ~5s lockout
+          const lockoutMs = this.addJitter(5000);
           provider.rateLimitedUntil = Date.now() + lockoutMs;
           this.logger.warn(
             `Provider #${providerIdx} network error, brief lockout for ${Math.round(lockoutMs / 1000)}s`,
           );
         } else if (this.isOverloadError(error)) {
-          // Overload: medium lockout
-          const lockoutMs = this.addJitter(30000); // ~30s lockout
+          const lockoutMs = this.addJitter(30000);
           provider.rateLimitedUntil = Date.now() + lockoutMs;
           this.logger.warn(
             `Provider #${providerIdx} overloaded, locked out for ${Math.round(lockoutMs / 1000)}s`,
           );
         }
-        // Check if we should continue trying
+
         if (this.isRetryableError(error) && attemptCount < maxAttempts) {
-          // Add delay before trying next provider (with jitter)
           const switchDelay = this.addJitter(this.PROVIDER_SWITCH_DELAY_MS);
           this.logger.debug(
             `Waiting ${switchDelay}ms before trying next provider...`,
@@ -627,7 +654,7 @@ export class GeminiService {
           await this.sleep(switchDelay);
           continue;
         }
-        // Non-retryable error or exhausted attempts
+
         if (!this.isRetryableError(error)) {
           this.logger.error(
             `Non-retryable error from provider #${providerIdx}:`,
@@ -637,10 +664,27 @@ export class GeminiService {
         }
       }
     }
-    // All attempts exhausted
+
+    // ══════════════════════════════════════════════════════════════
+    // Check if ALL providers are access-denied before giving up
+    // ══════════════════════════════════════════════════════════════
+    const allDenied = this.apiProviders.every(
+      (p) => p.rateLimitedUntil > Date.now() + 23 * 60 * 60 * 1000,
+    );
+
+    if (allDenied) {
+      this.logger.error(
+        'ALL providers have been access-denied (403). Check your API keys — they may be revoked or billing has lapsed.',
+      );
+      throw new Error(
+        'All API keys are access-denied (403 Forbidden). Please check your API key configuration.',
+      );
+    }
+
     this.logger.error(`All ${maxAttempts} provider attempts failed`);
     throw lastError || new Error('All providers failed');
   }
+
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
