@@ -1396,6 +1396,17 @@ export class LibreTranslationService {
 
     const animalTranslations: Record<Language, Record<string, string>> = {
       [Language.SPANISH]: {
+        Snail: 'Caracol',
+        Snails: 'Caracoles',
+        Worm: 'Gusano',
+        Worms: 'Gusanos',
+        Quail: 'Codorniz',
+        Frog: 'Rana',
+        Frogs: 'Ranas',
+        Shrimp: 'Camarón',
+        Crab: 'Cangrejo',
+        Catfish: 'Bagre',
+        Tilapia: 'Tilapia',
         Chicken: 'Pollo',
         Chickens: 'Pollos',
         Cow: 'Vaca',
@@ -1421,6 +1432,17 @@ export class LibreTranslationService {
         Livestock: 'Ganado',
       },
       [Language.FRENCH]: {
+        Snail: 'Escargot',
+        Snails: 'Escargots',
+        Worm: 'Ver',
+        Worms: 'Vers',
+        Quail: 'Caille',
+        Frog: 'Grenouille',
+        Frogs: 'Grenouilles',
+        Shrimp: 'Crevette',
+        Crab: 'Crabe',
+        Catfish: 'Poisson-chat',
+        Tilapia: 'Tilapia',
         Chicken: 'Poulet',
         Chickens: 'Poulets',
         Cow: 'Vache',
@@ -1446,6 +1468,17 @@ export class LibreTranslationService {
         Livestock: 'Bétail',
       },
       [Language.GERMAN]: {
+        Snail: 'Schnecken',
+        Snails: 'Schnecken',
+        Worm: 'Wurm',
+        Worms: 'Würmer',
+        Quail: 'Wachtel',
+        Frog: 'Frosch',
+        Frogs: 'Frösche',
+        Shrimp: 'Garnele',
+        Crab: 'Krabbe',
+        Catfish: 'Wels',
+        Tilapia: 'Tilapia',
         Chicken: 'Huhn',
         Chickens: 'Hühner',
         Cow: 'Kuh',
@@ -1471,6 +1504,17 @@ export class LibreTranslationService {
         Livestock: 'Vieh',
       },
       [Language.ITALIAN]: {
+        Snail: 'Lumaca',
+        Snails: 'Lumache',
+        Worm: 'Verme',
+        Worms: 'Vermi',
+        Quail: 'Quaglia',
+        Frog: 'Rana',
+        Frogs: 'Rane',
+        Shrimp: 'Gambero',
+        Crab: 'Granchio',
+        Catfish: 'Pesce gatto',
+        Tilapia: 'Tilapia',
         Chicken: 'Pollo',
         Chickens: 'Polli',
         Cow: 'Mucca',
@@ -1499,7 +1543,13 @@ export class LibreTranslationService {
     };
 
     const translations = animalTranslations[targetLanguage] || {};
-    return translations[word] || translations[word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()] || null;
+    return (
+      translations[word] ||
+      translations[
+        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+      ] ||
+      null
+    );
   }
 
   /**
