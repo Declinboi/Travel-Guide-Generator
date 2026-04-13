@@ -1430,7 +1430,7 @@ WRITING FORMAT: SCENE-FIRST NARRATIVE
 Structure each section by opening with a specific farm moment or hands-on scenario, then unpack the practical details.
 
 STRUCTURE:
-- Write 25-28 paragraphs covering all sections and subsections
+- Write 30-35 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a vivid farm moment: early morning chores, something going wrong, a seasonal task
 - After the scene, pivot to practical guidance that builds from what you showed
@@ -1464,7 +1464,7 @@ WRITING FORMAT: DIRECT INSTRUCTION
 Structure each section as clear, actionable guidance. Lead with what to do, follow with why and how.
 
 STRUCTURE:
-- Write 25-28 paragraphs covering all sections and subsections
+- Write 30-35 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose, but with an imperative, instructional voice
 - Open each section with a direct instruction or action step
 - Follow with the reasoning, materials needed, and specific details
@@ -1498,7 +1498,7 @@ WRITING FORMAT: PROBLEM-SOLUTION
 Structure each section around a common farming problem, mistake, or challenge, then provide the solution.
 
 STRUCTURE:
-- Write 25-28 paragraphs covering all sections and subsections
+- Write 30-35 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section by naming a specific problem farmers face (especially beginners)
 - Then deliver the solution with specific, actionable details and numbers
@@ -1532,7 +1532,7 @@ WRITING FORMAT: COMPARISON-CONTRAST
 Structure each section around choices, methods, and trade-offs. Help readers pick the right approach for their situation.
 
 STRUCTURE:
-- Write 25-28 paragraphs covering all sections and subsections
+- Write 30-35 paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section by framing a decision or presenting method options
 - Compare options honestly with specific trade-offs (cost, labor, results, scale)
