@@ -1030,7 +1030,7 @@ That was six years ago. I've been back eleven times since.
 This isn't the guide that tells you to "experience the magic." There is no magic. There's heat, and traffic, and the best $1.50 noodle soup you'll ever eat at a stall with no name on a street you can't pronounce. That's better than magic. That's real.
 """
 
-Write the complete Introduction chapter now:`;
+Write in plain english language the complete Introduction chapter now:`;
   }
 
   private buildFarmingIntroPrompt(
@@ -1076,7 +1076,7 @@ That was nine years ago. I've raised over four thousand birds since.
 This book isn't going to tell you farming is a beautiful lifestyle choice. Some mornings it is — frost on the fence posts, coffee steam mixing with your breath, the quiet before the rooster starts up. Other mornings you're pulling a dead lamb at 3 AM in freezing rain. Both of those are farming. This book covers both.
 """
 
-Write the complete Introduction chapter now:`;
+Write in plain english language the complete Introduction chapter now:`;
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1197,7 +1197,7 @@ ${formatInstructions}
 
 ${sharedRules}
 
-Write the complete chapter now:`;
+Write in plain english language the complete chapter now:`;
   }
 
   private getTravelFormatInstructions(format: ChapterFormat): string {
@@ -1419,7 +1419,7 @@ ${formatInstructions}
 
 ${sharedRules}
 
-Write the complete chapter now:`;
+Write in plain english language the complete chapter now:`;
   }
 
   private getFarmingFormatInstructions(format: ChapterFormat): string {
@@ -1634,7 +1634,7 @@ WHAT TO AVOID:
     subtitle: string,
     conclusionChapter: ChapterOutline,
   ): string {
-    return `Write the Conclusion chapter for this travel guide:
+    return `Write in plain english language the Conclusion chapter for this travel guide:
 
 Title: "${title}"
 Subtitle: "${subtitle}"
@@ -1713,7 +1713,7 @@ Write the complete Conclusion chapter now:`;
     subtitle: string,
     conclusionChapter: ChapterOutline,
   ): string {
-    return `Write the Conclusion chapter for this farming guide:
+    return `Write in plain english language the Conclusion chapter for this farming guide:
 
 Title: "${title}"
 Subtitle: "${subtitle}"
