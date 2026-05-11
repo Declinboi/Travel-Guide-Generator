@@ -778,7 +778,7 @@ export class PdfService {
         const image = chapterImages[section.imageIndex];
 
         try {
-          doc.moveDown(0.5);
+          doc.moveDown(0.3);
 
           const imageHeight = 182.16;
           const totalSpaceNeeded = imageHeight + 80;
@@ -788,12 +788,12 @@ export class PdfService {
             doc.page.height - doc.page.margins.bottom
           ) {
             doc.addPage();
-            doc.moveDown(0.5);
+            doc.moveDown(0.3);
           }
 
           await this.insertImage(doc, image, redisCache);
 
-          doc.moveDown(0.5);
+          doc.moveDown(0.3);
 
           if (global.gc) {
             global.gc();
