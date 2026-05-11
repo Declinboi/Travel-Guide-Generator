@@ -610,7 +610,7 @@ export class PdfService {
           align: 'left',
           lineGap: 5,
         });
-        doc.moveDown(0.5);
+        doc.moveDown(0.3);
       } else {
         doc.fontSize(11).font(bodyFont).text(trimmed, {
           align: 'left',
@@ -942,7 +942,7 @@ export class PdfService {
       doc.fontSize(30).font(titleFont).text(mapTitle, {
         align: 'center',
       });
-      doc.moveDown(0.5);
+      doc.moveDown(0.3);
 
       // GET FROM REDIS
       imageBuffer = await redisCache.getImage(mapImage.url);
