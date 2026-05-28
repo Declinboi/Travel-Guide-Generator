@@ -868,27 +868,257 @@ GOOD section titles (specific, practical):
 - "The Cheapest Fence That Actually Keeps Coyotes Out"
 - "What Nobody Tells You About Raising Meat Birds"`;
 
-    const prompt = `Create a detailed ${numberOfChapters}-chapter outline for a ${contentType === 'farming' ? 'farming/agriculture' : 'travel'} guide book.
+    const outlineSystemPrompt =
+      contentType === 'farming'
+        ? 'You are a book editor specializing in practical farming and agriculture guides. Return only valid JSON. No markdown, no backticks, no explanation — raw JSON only.'
+        : 'You are a book editor specializing in travel guide book structure. Return only valid JSON. No markdown, no backticks, no explanation — raw JSON only.';
+
+    // Split large outlines into two halves to stay within token limits
+    const useChunkedGeneration = numberOfChapters > 8;
+    const MAX_OUTLINE_ATTEMPTS = 3;
+
+    if (useChunkedGeneration) {
+      return await this.generateBookOutlineChunked(
+        title,
+        subtitle,
+        numberOfChapters,
+        contentType,
+        exampleTitles,
+        outlineSystemPrompt,
+      );
+    }
+
+    // ── Single-pass generation for ≤8 chapters ──────────────────
+    const prompt = this.buildOutlinePrompt(
+      title,
+      subtitle,
+      numberOfChapters,
+      1,
+      numberOfChapters,
+      contentType,
+      exampleTitles,
+    );
+
+    for (let attempt = 1; attempt <= MAX_OUTLINE_ATTEMPTS; attempt++) {
+      this.logger.log(
+        `Generating book outline (attempt ${attempt}/${MAX_OUTLINE_ATTEMPTS})...`,
+      );
+
+      const response = await this.generateText(prompt, {
+        systemPrompt: outlineSystemPrompt,
+        contentType,
+      });
+
+      const outline = this.parseAndValidateOutline(
+        response,
+        numberOfChapters,
+        attempt,
+        MAX_OUTLINE_ATTEMPTS,
+      );
+
+      if (outline) {
+        return { title, subtitle, author: '', chapters: outline.chapters };
+      }
+
+      if (attempt < MAX_OUTLINE_ATTEMPTS) {
+        this.logger.warn(
+          `Outline attempt ${attempt} failed. Retrying in 3s...`,
+        );
+        await this.sleep(3000);
+      }
+    }
+
+    throw new Error(
+      `Failed to generate a valid book outline after ${MAX_OUTLINE_ATTEMPTS} attempts`,
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CHUNKED GENERATION — For books with >8 chapters
+  // Splits into two halves, generates each separately, merges
+  // ═══════════════════════════════════════════════════════════════
+  private async generateBookOutlineChunked(
+    title: string,
+    subtitle: string,
+    numberOfChapters: number,
+    contentType: ContentType,
+    exampleTitles: string,
+    outlineSystemPrompt: string,
+  ): Promise<BookOutlineDto> {
+    const half = Math.ceil(numberOfChapters / 2);
+    const MAX_OUTLINE_ATTEMPTS = 3;
+
+    this.logger.log(
+      `Outline too large (${numberOfChapters} chapters) — generating in two chunks: [1-${half}] and [${half + 1}-${numberOfChapters}]`,
+    );
+
+    // ── Chunk 1: chapters 1 → half ───────────────────────────────
+    const promptChunk1 = this.buildOutlinePrompt(
+      title,
+      subtitle,
+      numberOfChapters,
+      1,
+      half,
+      contentType,
+      exampleTitles,
+    );
+
+    let chunk1Chapters: ChapterOutline[] | null = null;
+
+    for (let attempt = 1; attempt <= MAX_OUTLINE_ATTEMPTS; attempt++) {
+      this.logger.log(
+        `Generating outline chunk 1/2 (chapters 1-${half}), attempt ${attempt}/${MAX_OUTLINE_ATTEMPTS}...`,
+      );
+
+      const response = await this.generateText(promptChunk1, {
+        systemPrompt: outlineSystemPrompt,
+        contentType,
+      });
+
+      const parsed = this.parseAndValidateOutline(
+        response,
+        half,
+        attempt,
+        MAX_OUTLINE_ATTEMPTS,
+      );
+
+      if (parsed) {
+        chunk1Chapters = parsed.chapters;
+        break;
+      }
+
+      if (attempt < MAX_OUTLINE_ATTEMPTS) {
+        await this.sleep(3000);
+      }
+    }
+
+    if (!chunk1Chapters) {
+      throw new Error('Failed to generate outline chunk 1 after all attempts');
+    }
+
+    // ── Chunk 2: chapters half+1 → numberOfChapters ──────────────
+    const chunk2Count = numberOfChapters - half;
+    const promptChunk2 = this.buildOutlinePrompt(
+      title,
+      subtitle,
+      numberOfChapters,
+      half + 1,
+      numberOfChapters,
+      contentType,
+      exampleTitles,
+    );
+
+    let chunk2Chapters: ChapterOutline[] | null = null;
+
+    for (let attempt = 1; attempt <= MAX_OUTLINE_ATTEMPTS; attempt++) {
+      this.logger.log(
+        `Generating outline chunk 2/2 (chapters ${half + 1}-${numberOfChapters}), attempt ${attempt}/${MAX_OUTLINE_ATTEMPTS}...`,
+      );
+
+      const response = await this.generateText(promptChunk2, {
+        systemPrompt: outlineSystemPrompt,
+        contentType,
+      });
+
+      const parsed = this.parseAndValidateOutline(
+        response,
+        chunk2Count,
+        attempt,
+        MAX_OUTLINE_ATTEMPTS,
+      );
+
+      if (parsed) {
+        chunk2Chapters = parsed.chapters;
+        break;
+      }
+
+      if (attempt < MAX_OUTLINE_ATTEMPTS) {
+        await this.sleep(3000);
+      }
+    }
+
+    if (!chunk2Chapters) {
+      throw new Error('Failed to generate outline chunk 2 after all attempts');
+    }
+
+    // ── Merge chunks and fix chapter numbers ─────────────────────
+    const allChapters: ChapterOutline[] = [
+      ...chunk1Chapters,
+      ...chunk2Chapters,
+    ].map((chapter, idx) => ({
+      ...chapter,
+      chapterNumber: idx + 1,
+    }));
+
+    this.logger.log(
+      `Outline chunks merged successfully: ${allChapters.length} chapters total`,
+    );
+
+    return { title, subtitle, author: '', chapters: allChapters };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PROMPT BUILDER — Generates prompt for a specific chapter range
+  // ═══════════════════════════════════════════════════════════════
+  private buildOutlinePrompt(
+    title: string,
+    subtitle: string,
+    totalChapters: number,
+    fromChapter: number,
+    toChapter: number,
+    contentType: ContentType,
+    exampleTitles: string,
+  ): string {
+    const chapterCount = toChapter - fromChapter + 1;
+    const isFirstChunk = fromChapter === 1;
+    const isLastChunk = toChapter === totalChapters;
+    const isFullOutline = isFirstChunk && isLastChunk;
+
+    let chapterRules = '';
+
+    if (isFullOutline) {
+      chapterRules = `
+3. Chapter 1: Introduction
+4. Chapters 2-${totalChapters - 1}: Main content chapters
+5. Chapter ${totalChapters}: Conclusion`;
+    } else if (isFirstChunk) {
+      chapterRules = `
+3. Chapter 1: Introduction
+4. Chapters 2-${toChapter}: Main content chapters (Part 1 of the book)
+NOTE: This is the FIRST HALF of a ${totalChapters}-chapter book. Do NOT include a conclusion chapter here.`;
+    } else if (isLastChunk) {
+      chapterRules = `
+3. Chapters ${fromChapter}-${toChapter - 1}: Main content chapters (Part 2 of the book)
+4. Chapter ${toChapter}: Conclusion
+NOTE: This is the SECOND HALF of a ${totalChapters}-chapter book. Number chapters starting from ${fromChapter}.`;
+    } else {
+      chapterRules = `
+3. Chapters ${fromChapter}-${toChapter}: Main content chapters
+NOTE: This is a middle section of a ${totalChapters}-chapter book. Number chapters starting from ${fromChapter}.`;
+    }
+
+    return `Create a detailed outline for chapters ${fromChapter} through ${toChapter} of a ${contentType === 'farming' ? 'farming/agriculture' : 'travel'} guide book.
 
 Book Title: "${title}"
 Subtitle: "${subtitle}"
+Total book length: ${totalChapters} chapters
+Generate: EXACTLY ${chapterCount} chapters (chapters ${fromChapter}-${toChapter})
 
 REQUIREMENTS:
-1. Generate EXACTLY ${numberOfChapters} chapters total
-2. Chapter 1: Introduction
-3. Chapters 2-${numberOfChapters - 1}: Main content chapters
-4. Chapter ${numberOfChapters}: Conclusion
-5. Each chapter should have 2 to 5 sections (vary it — not every chapter needs the same count)
-6. Each section should have 2 to 4 subsections (vary these too)
-7. Section and subsection titles should sound like a human wrote them — no generic filler
+1. Generate EXACTLY ${chapterCount} chapters
+2. Number chapters from ${fromChapter} to ${toChapter}${chapterRules}
+6. Each chapter should have 2 to 5 sections (vary it — not every chapter needs the same count)
+7. Each section should have 2 to 4 subsections (vary these too)
+8. Every subsection must be a non-empty string — no blank entries
+9. Section and subsection titles should sound like a human wrote them — no generic filler
 ${exampleTitles}
 
 OUTPUT FORMAT (JSON):
 {
   "chapters": [
     {
-      "chapterNumber": 1,
-      "chapterTitle": "Introduction",
+      "chapterNumber": ${fromChapter},
+      "chapterTitle": "A specific chapter title",
       "sections": [
         {
           "sectionTitle": "A specific interesting title",
@@ -899,68 +1129,159 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-Generate ALL ${numberOfChapters} chapters. Return complete valid JSON.`;
+Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Return complete valid JSON only.`;
+  }
 
-    const outlineSystemPrompt =
-      contentType === 'farming'
-        ? 'You are a book editor specializing in practical farming and agriculture guides. Return only valid JSON.'
-        : 'You are a book editor specializing in travel guide book structure. Return only valid JSON.';
-
-    const response = await this.generateText(prompt, {
-      systemPrompt: outlineSystemPrompt,
-      contentType,
-    });
-
-    const cleanedResponse = response
-      .replace(/\`\`\`json/g, '')
-      .replace(/\`\`\`/g, '')
+  // ═══════════════════════════════════════════════════════════════
+  // JSON PARSER — Tries clean parse, then repair, then partial salvage
+  // ═══════════════════════════════════════════════════════════════
+  private parseAndValidateOutline(
+    response: string,
+    expectedChapters: number,
+    attempt: number,
+    maxAttempts: number,
+  ): { chapters: ChapterOutline[] } | null {
+    // Strip markdown code fences if present
+    const cleaned = response
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/gi, '')
       .trim();
 
-    let outline;
-    try {
-      outline = JSON.parse(cleanedResponse);
-    } catch (error) {
-      this.logger.error('Failed to parse outline JSON:', cleanedResponse);
-      throw new Error('Invalid JSON response from AI model');
+    // ── Attempt 1: clean parse ────────────────────────────────────
+    let outline = this.tryParseJson(cleaned);
+
+    // ── Attempt 2: repair truncated JSON ─────────────────────────
+    if (!outline) {
+      this.logger.warn(
+        `Attempt ${attempt}: Clean JSON parse failed — trying repair...`,
+      );
+      outline = this.tryRepairJson(cleaned);
+    }
+
+    if (!outline) {
+      this.logger.error(
+        `Attempt ${attempt}/${maxAttempts}: Could not parse or repair outline JSON. ` +
+          `Response tail: ...${cleaned.slice(-200)}`,
+      );
+      return null;
     }
 
     if (!outline.chapters || !Array.isArray(outline.chapters)) {
-      throw new Error('Invalid outline structure: chapters array missing');
+      this.logger.error(
+        `Attempt ${attempt}/${maxAttempts}: Outline missing chapters array`,
+      );
+      return null;
     }
 
-    if (outline.chapters.length !== numberOfChapters) {
+    // ── Chapter count check ───────────────────────────────────────
+    if (outline.chapters.length < expectedChapters) {
       this.logger.warn(
-        `AI generated ${outline.chapters.length} chapters instead of ${numberOfChapters}. Adjusting...`,
+        `Attempt ${attempt}/${maxAttempts}: Got ${outline.chapters.length} chapters, expected ${expectedChapters}`,
       );
-
-      if (outline.chapters.length < numberOfChapters) {
+      // Only hard-fail on last attempt — partial outlines on early attempts → retry
+      if (attempt === maxAttempts) {
         throw new Error(
-          `AI generated only ${outline.chapters.length} chapters instead of ${numberOfChapters}. Please retry.`,
+          `AI generated only ${outline.chapters.length} chapters instead of ${expectedChapters} after ${maxAttempts} attempts`,
         );
       }
-
-      outline.chapters = outline.chapters.slice(0, numberOfChapters);
+      return null;
     }
 
+    // Trim if too many chapters came back
+    if (outline.chapters.length > expectedChapters) {
+      this.logger.warn(
+        `Got ${outline.chapters.length} chapters, trimming to ${expectedChapters}`,
+      );
+      outline.chapters = outline.chapters.slice(0, expectedChapters);
+    }
+
+    // ── Structural validation + cleanup ──────────────────────────
     outline.chapters.forEach((chapter: ChapterOutline, idx: number) => {
       if (!chapter.sections || !Array.isArray(chapter.sections)) {
         throw new Error(`Chapter ${idx + 1} missing sections array`);
       }
+
       chapter.sections.forEach((section: any, secIdx: number) => {
         if (!section.subsections || !Array.isArray(section.subsections)) {
           throw new Error(
             `Chapter ${idx + 1}, Section ${secIdx + 1} missing subsections array`,
           );
         }
+
+        // Filter out blank subsections (model sometimes emits "")
+        section.subsections = section.subsections.filter(
+          (s: any) => typeof s === 'string' && s.trim().length > 0,
+        );
+
+        if (section.subsections.length === 0) {
+          throw new Error(
+            `Chapter ${idx + 1}, Section ${secIdx + 1} has no valid subsections after filtering`,
+          );
+        }
       });
     });
 
-    return {
-      title,
-      subtitle,
-      author: '',
-      chapters: outline.chapters,
-    };
+    return outline;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // HELPERS — JSON parse + repair
+  // ═══════════════════════════════════════════════════════════════
+  private tryParseJson(raw: string): any | null {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  private tryRepairJson(raw: string): any | null {
+    try {
+      // Remove trailing commas before ] or }
+      let repaired = raw.replace(/,\s*([}\]])/g, '$1');
+
+      // Close any unclosed strings (truncation mid-string)
+      // Count unmatched quotes — if odd, the string was cut off; close it
+      const quoteCount = (repaired.match(/(?<!\\)"/g) || []).length;
+      if (quoteCount % 2 !== 0) {
+        repaired = repaired.trimEnd() + '"';
+      }
+
+      // Close unclosed arrays and objects by tracking the stack
+      const stack: string[] = [];
+      let inString = false;
+      let escape = false;
+
+      for (const ch of repaired) {
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch === '\\' && inString) {
+          escape = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
+
+        if (ch === '{' || ch === '[') stack.push(ch);
+        if (ch === '}' || ch === ']') stack.pop();
+      }
+
+      // Close open structures in reverse order
+      for (const open of [...stack].reverse()) {
+        repaired += open === '{' ? '}' : ']';
+      }
+
+      const result = JSON.parse(repaired);
+      this.logger.warn('JSON repair succeeded — response was truncated');
+      return result;
+    } catch {
+      return null;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════

@@ -8,10 +8,17 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* .npmrc ./
 
-RUN npm install -g pnpm@latest && \
-    pnpm install --frozen-lockfile
+COPY pnpm-workspace.yaml ./
+
+RUN npm install -g pnpm@9.15.0 && \
+    pnpm config set store-dir /root/.pnpm-store && \
+    echo "=== pnpm version ===" && pnpm --version && \
+    echo "=== pnpm config ===" && pnpm config list && \
+    echo "=== .npmrc ===" && cat .npmrc && \
+    echo "=== workspace yaml ===" && cat pnpm-workspace.yaml && \
+    pnpm install --frozen-lockfile 
 
 COPY . .
 
@@ -30,9 +37,16 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* .npmrc ./
 
-RUN npm install -g pnpm@latest && \
+COPY pnpm-workspace.yaml ./
+
+RUN npm install -g pnpm@9.15.0 && \
+    pnpm config set store-dir /root/.pnpm-store && \
+    echo "=== pnpm version ===" && pnpm --version && \
+    echo "=== pnpm config ===" && pnpm config list && \
+    echo "=== .npmrc ===" && cat .npmrc && \
+    echo "=== workspace yaml ===" && cat pnpm-workspace.yaml && \
     pnpm install --prod --frozen-lockfile && \
     pnpm store prune
 

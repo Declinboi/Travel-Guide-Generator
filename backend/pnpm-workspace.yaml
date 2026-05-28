@@ -1,0 +1,10 @@
+packages:
+  - "."
+onlyBuiltDependencies:
+  - bcrypt
+  - sharp
+  - msgpackr-extract
+  - protobufjs
+  - "@nestjs/core"
+  - "@scarf/scarf"
+  - unrs-resolver
