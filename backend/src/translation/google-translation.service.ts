@@ -21,6 +21,11 @@ interface TranslationValidation {
   score: number;
 }
 
+interface SourceLanguageProtection {
+  processed: string;
+  placeholders: Map<string, string>;
+}
+
 @Injectable()
 export class LibreTranslationService {
   private readonly logger = new Logger(LibreTranslationService.name);
@@ -41,10 +46,10 @@ export class LibreTranslationService {
       this.configService.get<string>('LIBRETRANSLATE_API_KEY') || null;
     this.timeout =
       this.configService.get<number>('LIBRETRANSLATE_TIMEOUT') || 120000;
-    this.maxRetries = 5; // API request retries
-    this.translationRetries = 3; // Translation quality retries
-    this.chunkSize = 800; // Smaller chunks for better context
-    this.qualityThreshold = 50; // Realistic threshold
+    this.maxRetries = 5;
+    this.translationRetries = 3;
+    this.chunkSize = 800;
+    this.qualityThreshold = 50;
 
     this.axiosInstance = axios.create({
       baseURL: this.apiUrl,
@@ -91,8 +96,15 @@ export class LibreTranslationService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // PREPROCESSING — protect technical tokens that must never be translated.
+  // We do NOT protect non-English spans here; that is handled separately by
+  // protectNonEnglishSpans() which is only called for body content, never for
+  // metadata.
+  // ---------------------------------------------------------------------------
+
   /**
-   * Minimal preprocessing - only preserve what absolutely can't be translated
+   * Protect URLs, emails, and code blocks so LibreTranslate leaves them alone.
    */
   private preprocessText(text: string): {
     processed: string;
@@ -102,68 +114,320 @@ export class LibreTranslationService {
     let processed = text;
     let counter = 0;
 
-    // Preserve URLs
+    // URLs
     const urlRegex = /https?:\/\/[^\s]+/g;
     processed = processed.replace(urlRegex, (match) => {
-      const placeholder = `URLPLACEHOLDER${counter}`;
-      placeholders.set(placeholder, match);
-      counter++;
-      return placeholder;
+      const key = `URLPLACEHOLDER${counter++}`;
+      placeholders.set(key, match);
+      return key;
     });
 
-    // Preserve email addresses
+    // Emails
     const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
     processed = processed.replace(emailRegex, (match) => {
-      const placeholder = `EMAILPLACEHOLDER${counter}`;
-      placeholders.set(placeholder, match);
-      counter++;
-      return placeholder;
+      const key = `EMAILPLACEHOLDER${counter++}`;
+      placeholders.set(key, match);
+      return key;
     });
 
-    // Preserve code blocks
+    // Fenced code blocks
     const codeBlockRegex = /```[\s\S]*?```/g;
     processed = processed.replace(codeBlockRegex, (match) => {
-      const placeholder = `CODEBLOCKPLACEHOLDER${counter}`;
-      placeholders.set(placeholder, match);
-      counter++;
-      return placeholder;
+      const key = `CODEBLOCKPLACEHOLDER${counter++}`;
+      placeholders.set(key, match);
+      return key;
     });
 
-    // Preserve inline code
+    // Inline code
     const inlineCodeRegex = /`[^`\n]{1,50}`/g;
     processed = processed.replace(inlineCodeRegex, (match) => {
-      const placeholder = `CODEPLACEHOLDER${counter}`;
-      placeholders.set(placeholder, match);
-      counter++;
-      return placeholder;
+      const key = `CODEPLACEHOLDER${counter++}`;
+      placeholders.set(key, match);
+      return key;
     });
 
     return { processed, placeholders };
   }
 
   /**
-   * Restore placeholders after translation
+   * Restore all placeholders after translation.
    */
   private postprocessText(
     text: string,
     placeholders: Map<string, string>,
   ): string {
     let result = text;
-
-    placeholders.forEach((original, placeholder) => {
-      const escapedPlaceholder = placeholder.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        '\\$&',
-      );
-      result = result.replace(new RegExp(escapedPlaceholder, 'g'), original);
+    placeholders.forEach((original, key) => {
+      const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      result = result.replace(new RegExp(escaped, 'g'), original);
     });
-
     return result;
   }
 
+  // ---------------------------------------------------------------------------
+  // NON-ENGLISH SOURCE PROTECTION (body content only, never metadata)
+  //
+  // KEY RULE: We ONLY protect spans that are detectably NOT English with high
+  // confidence. English text must always flow through to LibreTranslate.
+  // We use a strict confidence threshold (≥ 0.85) and require the detected
+  // language to be something other than English before protecting any span.
+  // ---------------------------------------------------------------------------
+
   /**
-   * Validate translation quality
+   * Detect the language of a short sample via LibreTranslate /detect.
+   * Returns null when detection fails or the sample is too short.
    */
+  private async detectLanguageCode(
+    text: string,
+  ): Promise<{ language: string; confidence: number } | null> {
+    // Strip URLs/emails to get a clean signal
+    const clean = text
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '')
+      .trim();
+
+    if (clean.length < 10) return null;
+
+    try {
+      const detected = await this.detectLanguage(clean.slice(0, 500));
+      const best = Array.isArray(detected) ? detected[0] : null;
+      if (!best?.language) return null;
+      return {
+        language: String(best.language).toLowerCase(),
+        confidence: Number(best.confidence ?? best.score ?? 0),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Return true ONLY when the text is verifiably non-English with high
+   * confidence.  English text always returns false so it passes through to
+   * LibreTranslate unchanged.
+   *
+   * Rules:
+   *  1. If the text contains unambiguous non-English-Latin diacritics
+   *     (À–Ö, Ø–ö, ø–ÿ, ¿, ¡) AND detection confirms non-English → protect.
+   *  2. If detection returns a non-English language with confidence ≥ 0.85
+   *     AND the text has zero English function words → protect.
+   *  3. Everything else → do NOT protect.
+   */
+  private async isDefinitelyNonEnglish(text: string): Promise<boolean> {
+    const trimmed = text.trim();
+    if (trimmed.length < 8 || /^\W+$/.test(trimmed)) return false;
+
+    const hasDiacritics = /[À-ÖØ-öø-ÿ¿¡]/.test(trimmed);
+    const englishFunctionWords =
+      /\b(the|and|is|are|was|were|be|been|being|have|has|had|do|does|did|will|would|shall|should|may|might|must|can|could|this|that|these|those|with|for|from|into|onto|upon|about|above|below|after|before|during|through|between|among|because|although|however|therefore|moreover|furthermore|nevertheless|consequently)\b/i;
+
+    const hasEnglishWords = englishFunctionWords.test(trimmed);
+
+    // If there are clear English words → English, pass through
+    if (hasEnglishWords) return false;
+
+    const detected = await this.detectLanguageCode(trimmed);
+    if (!detected) return false;
+
+    if (detected.language === 'en') return false;
+
+    // Require very high confidence + diacritics, or extremely high confidence alone
+    if (hasDiacritics && detected.confidence >= 0.8) return true;
+    if (!hasDiacritics && detected.confidence >= 0.9) return true;
+
+    return false;
+  }
+
+  /**
+   * Scan body content for non-English spans and protect them from translation.
+   * Only paragraph-level and sentence-level spans that are definitively
+   * non-English are protected.  Inline quoted strings are left alone because
+   * they are usually short and detection is unreliable at that granularity.
+   *
+   * This method must NOT be called for metadata translation.
+   */
+  private async protectNonEnglishSpans(
+    text: string,
+  ): Promise<SourceLanguageProtection> {
+    const placeholders = new Map<string, string>();
+    let counter = 0;
+
+    const protect = (value: string): string => {
+      const key = `NONENGLISHSOURCE${counter++}`;
+      placeholders.set(key, value);
+      return key;
+    };
+
+    // --- Paragraph-level protection (most reliable) ---
+    const paragraphs = text.split(/(\n{2,})/);
+    for (let i = 0; i < paragraphs.length; i++) {
+      const part = paragraphs[i];
+      // Skip separators and already-protected spans
+      if (!part || /^\n+$/.test(part) || part.includes('NONENGLISHSOURCE')) {
+        continue;
+      }
+      if (await this.isDefinitelyNonEnglish(part)) {
+        this.logger.debug(
+          `Protecting non-English paragraph (${part.length} chars)`,
+        );
+        paragraphs[i] = protect(part);
+      }
+    }
+    let processed = paragraphs.join('');
+
+    // --- Sentence-level protection (only inside unprotected paragraphs) ---
+    // Split on sentence boundaries but keep the delimiters
+    const sentenceRegex = /([^.!?\n]+[.!?]+)/g;
+    const parts = processed.split(sentenceRegex);
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (!part || part.includes('NONENGLISHSOURCE')) continue;
+      const wordCount = part.trim().split(/\s+/).filter(Boolean).length;
+      if (wordCount < 5) continue; // Too short for reliable detection
+      if (await this.isDefinitelyNonEnglish(part)) {
+        this.logger.debug(
+          `Protecting non-English sentence: "${part.slice(0, 60)}..."`,
+        );
+        parts[i] = protect(part);
+      }
+    }
+    processed = parts.join('');
+
+    if (placeholders.size > 0) {
+      this.logger.log(
+        `Protected ${placeholders.size} non-English span(s) from translation`,
+      );
+    }
+
+    return { processed, placeholders };
+  }
+
+  // ---------------------------------------------------------------------------
+  // TRANSLATION QUALITY VALIDATION
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Expanded set of English words that should NOT appear in a proper
+   * translation.  We check these against the translated output; if too many
+   * remain the translation is penalised.
+   */
+  private readonly ENGLISH_CONTENT_WORDS = new Set([
+    'about',
+    'after',
+    'against',
+    'also',
+    'among',
+    'and',
+    'around',
+    'because',
+    'before',
+    'between',
+    'book',
+    'bring',
+    'carry',
+    'chapter',
+    'check',
+    'choose',
+    'cost',
+    'costs',
+    'cover',
+    'covers',
+    'daily',
+    'during',
+    'each',
+    'early',
+    'evening',
+    'every',
+    'farming',
+    'field',
+    'fields',
+    'find',
+    'follow',
+    'food',
+    'fresh',
+    'from',
+    'getting',
+    'give',
+    'good',
+    'great',
+    'grow',
+    'guide',
+    'have',
+    'help',
+    'here',
+    'high',
+    'hour',
+    'hours',
+    'important',
+    'include',
+    'into',
+    'keep',
+    'know',
+    'large',
+    'late',
+    'learn',
+    'local',
+    'long',
+    'look',
+    'make',
+    'many',
+    'market',
+    'meal',
+    'meals',
+    'morning',
+    'most',
+    'much',
+    'need',
+    'night',
+    'only',
+    'open',
+    'other',
+    'people',
+    'pick',
+    'place',
+    'places',
+    'plan',
+    'price',
+    'prices',
+    'provide',
+    'readers',
+    'ready',
+    'section',
+    'should',
+    'small',
+    'some',
+    'start',
+    'stay',
+    'take',
+    'than',
+    'that',
+    'their',
+    'there',
+    'these',
+    'they',
+    'this',
+    'ticket',
+    'time',
+    'tips',
+    'today',
+    'together',
+    'travel',
+    'under',
+    'until',
+    'using',
+    'visit',
+    'water',
+    'when',
+    'where',
+    'which',
+    'while',
+    'with',
+    'without',
+    'worth',
+    'would',
+    'your',
+  ]);
+
   private validateTranslationQuality(
     original: string,
     translated: string,
@@ -172,23 +436,31 @@ export class LibreTranslationService {
     const issues: string[] = [];
     let score = 100;
 
-    // Check 1: Empty translation
+    // Check 1: Empty result
     if (!translated || translated.trim().length === 0) {
-      issues.push('Translation is empty');
-      return { isValid: false, issues, score: 0 };
+      return { isValid: false, issues: ['Translation is empty'], score: 0 };
     }
 
-    // Check 2: Identical to original
-    const origTrim = original.trim();
-    const transTrim = translated.trim();
+    // Normalise for comparison — strip placeholder tokens
+    const stripPlaceholders = (t: string) =>
+      t
+        .replace(
+          /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE)PLACEHOLDER\d+\b/gi,
+          '',
+        )
+        .trim();
 
-    if (origTrim === transTrim && origTrim.length > 10) {
-      issues.push('Translation is identical to original text');
+    const origClean = stripPlaceholders(original).toLowerCase();
+    const transClean = stripPlaceholders(translated).toLowerCase();
+
+    // Check 2: Completely identical after stripping placeholders
+    if (origClean === transClean && origClean.length > 10) {
+      issues.push('Translation is identical to original');
       score -= 60;
     }
 
-    // Check 3: Length validation
-    const lengthRatio = translated.length / original.length;
+    // Check 3: Length ratio
+    const lengthRatio = translated.length / Math.max(original.length, 1);
     if (lengthRatio < 0.2) {
       issues.push(`Translation too short (${(lengthRatio * 100).toFixed(0)}%)`);
       score -= 40;
@@ -199,19 +471,35 @@ export class LibreTranslationService {
       score -= 15;
     }
 
-    // Check 4: Language-specific character detection
-    const hasTranslation = this.checkIfTranslated(
-      original,
-      translated,
-      targetLanguage,
-    );
-    if (!hasTranslation) {
-      issues.push('Text does not appear to be translated');
-      score -= 50;
+    // Check 4: Language markers (skip for English target)
+    if (targetLanguage !== Language.ENGLISH) {
+      if (!this.hasTargetLanguageMarkers(transClean, targetLanguage)) {
+        issues.push('Missing target-language markers');
+        score -= 30;
+      }
+    }
+
+    // Check 5: Untranslated English content words (non-English targets only)
+    if (targetLanguage !== Language.ENGLISH) {
+      const remaining = this.countRemainingEnglishWords(original, translated);
+
+      if (remaining.count >= 10) {
+        issues.push(
+          `Many English words remain untranslated (${remaining.count}): ${remaining.sample.join(', ')}`,
+        );
+        score -= 40;
+      } else if (remaining.count >= 5) {
+        issues.push(
+          `Some English words remain untranslated (${remaining.count}): ${remaining.sample.join(', ')}`,
+        );
+        score -= 20;
+      } else if (remaining.count >= 2) {
+        score -= 8;
+      }
     }
 
     this.logger.debug(
-      `Translation quality for ${targetLanguage}: Score=${score}, LengthRatio=${lengthRatio.toFixed(2)}`,
+      `Quality [${targetLanguage}]: score=${score}, ratio=${lengthRatio.toFixed(2)}`,
     );
 
     return {
@@ -222,135 +510,132 @@ export class LibreTranslationService {
   }
 
   /**
-   * Check if text was actually translated
+   * Count English content words that still appear in the translated text.
+   * We compare lowercase tokens and exclude proper nouns (all-caps or
+   * title-case words that also appear in the original).
    */
-  private checkIfTranslated(
+  private countRemainingEnglishWords(
     original: string,
     translated: string,
-    targetLanguage: Language,
-  ): boolean {
-    // Remove placeholders for comparison
-    const cleanOriginal = original
-      .replace(/URLPLACEHOLDER\d+/g, '')
-      .replace(/EMAILPLACEHOLDER\d+/g, '')
-      .replace(/CODEPLACEHOLDER\d+/g, '')
-      .toLowerCase()
-      .trim();
+  ): { count: number; sample: string[] } {
+    const stripPlaceholders = (t: string) =>
+      t.replace(
+        /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE)PLACEHOLDER\d+\b/gi,
+        '',
+      );
 
-    const cleanTranslated = translated
-      .replace(/URLPLACEHOLDER\d+/g, '')
-      .replace(/EMAILPLACEHOLDER\d+/g, '')
-      .replace(/CODEPLACEHOLDER\d+/g, '')
-      .toLowerCase()
-      .trim();
+    const origWords = new Set(
+      stripPlaceholders(original)
+        .toLowerCase()
+        .match(/\b[a-z]{4,}\b/g) || [],
+    );
 
-    // If identical after cleanup, translation failed
-    if (cleanOriginal === cleanTranslated) {
-      return false;
+    const transTokens = new Set(
+      stripPlaceholders(translated)
+        .toLowerCase()
+        .match(/\b[a-z]{4,}\b/g) || [],
+    );
+
+    // Proper nouns: title-case words in the original that we expect to stay
+    const properNouns = new Set(
+      (original.match(/\b[A-Z][a-z]{2,}\b/g) || []).map((w) => w.toLowerCase()),
+    );
+
+    const remaining: string[] = [];
+    for (const word of origWords) {
+      if (properNouns.has(word)) continue;
+      if (!this.ENGLISH_CONTENT_WORDS.has(word)) continue;
+      if (transTokens.has(word)) remaining.push(word);
     }
 
-    // Check for language-specific characters
-    return this.hasLanguageSpecificCharacters(cleanTranslated, targetLanguage);
+    return { count: remaining.length, sample: remaining.slice(0, 12) };
   }
 
   /**
-   * Check for language-specific characters
+   * Check for target-language signals. We require at least ONE of:
+   *  - a language-specific character/diacritic, OR
+   *  - a high-frequency function word specific to the language.
    */
-  private hasLanguageSpecificCharacters(
-    text: string,
-    language: Language,
-  ): boolean {
-    const languagePatterns: Record<Language, RegExp> = {
-      [Language.FRENCH]: /[àâæçéèêëïîôùûüÿœ]/i,
-      [Language.GERMAN]: /[äöüßÄÖÜ]/,
-      [Language.SPANISH]: /[áéíóúüñ¿¡]/i,
-      [Language.ITALIAN]: /[àèéìíîòóùú]/i,
-      [Language.ENGLISH]: /./,
+  private hasTargetLanguageMarkers(text: string, language: Language): boolean {
+    if (language === Language.ENGLISH) return true;
+
+    const patterns: Record<Language, RegExp[]> = {
+      [Language.FRENCH]: [
+        /[àâæçéèêëïîôùûüÿœ]/i,
+        /\b(le|la|les|des|du|un|une|et|avec|pour|dans|sur|vous|nous|est|sont|pas|plus|très|ce|cette|ces|qui|que|au|aux)\b/i,
+      ],
+      [Language.GERMAN]: [
+        /[äöüßÄÖÜ]/,
+        /\b(der|die|das|den|dem|ein|eine|und|oder|mit|für|auf|ist|sind|nicht|auch|sie|ihre|wenn|zum|zur|von|bei|nach)\b/i,
+      ],
+      [Language.SPANISH]: [
+        /[áéíóúüñ¿¡]/i,
+        /\b(el|la|los|las|un|una|unos|unas|y|con|para|por|en|de|que|es|son|no|más|esta|este|como|lo|se|del)\b/i,
+      ],
+      [Language.ITALIAN]: [
+        /[àèéìíîòóùú]/i,
+        /\b(il|lo|la|gli|le|un|una|uno|e|con|per|di|che|è|sono|non|più|questo|questa|come|nel|nella|del|della)\b/i,
+      ],
+      [Language.ENGLISH]: [/./],
     };
 
-    const pattern = languagePatterns[language];
-
-    // For non-English languages, expect to see accented characters
-    if (language !== Language.ENGLISH && text.length > 20) {
-      return pattern.test(text);
-    }
-
-    return true;
+    return (patterns[language] ?? []).some((p) => p.test(text));
   }
 
-  /**
-   * Split text into chunks
-   */
+  // ---------------------------------------------------------------------------
+  // CHUNKING
+  // ---------------------------------------------------------------------------
+
   private splitTextIntoChunks(text: string): string[] {
-    if (text.length <= this.chunkSize) {
-      return [text];
-    }
+    if (text.length <= this.chunkSize) return [text];
 
     const chunks: string[] = [];
     const paragraphs = text.split(/\n\n+/);
     let currentChunk = '';
 
     for (const paragraph of paragraphs) {
-      const potentialChunk = currentChunk
-        ? currentChunk + '\n\n' + paragraph
+      const candidate = currentChunk
+        ? `${currentChunk}\n\n${paragraph}`
         : paragraph;
 
-      if (potentialChunk.length <= this.chunkSize) {
-        currentChunk = potentialChunk;
+      if (candidate.length <= this.chunkSize) {
+        currentChunk = candidate;
       } else {
-        if (currentChunk) {
-          chunks.push(currentChunk);
-        }
+        if (currentChunk) chunks.push(currentChunk);
 
         if (paragraph.length > this.chunkSize) {
+          // Split paragraph by sentences
           const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
           let sentenceChunk = '';
 
           for (const sentence of sentences) {
-            const potentialSentenceChunk = sentenceChunk
-              ? sentenceChunk + ' ' + sentence
+            const sc = sentenceChunk
+              ? `${sentenceChunk} ${sentence}`
               : sentence;
-
-            if (potentialSentenceChunk.length <= this.chunkSize) {
-              sentenceChunk = potentialSentenceChunk;
+            if (sc.length <= this.chunkSize) {
+              sentenceChunk = sc;
             } else {
-              if (sentenceChunk) {
-                chunks.push(sentenceChunk.trim());
-              }
-
+              if (sentenceChunk) chunks.push(sentenceChunk.trim());
               if (sentence.length > this.chunkSize) {
+                // Word-level split as last resort
                 const words = sentence.split(/\s+/);
                 let wordChunk = '';
-
                 for (const word of words) {
-                  const potentialWordChunk = wordChunk
-                    ? wordChunk + ' ' + word
-                    : word;
-
-                  if (potentialWordChunk.length <= this.chunkSize) {
-                    wordChunk = potentialWordChunk;
+                  const wc = wordChunk ? `${wordChunk} ${word}` : word;
+                  if (wc.length <= this.chunkSize) {
+                    wordChunk = wc;
                   } else {
-                    if (wordChunk) {
-                      chunks.push(wordChunk.trim());
-                    }
+                    if (wordChunk) chunks.push(wordChunk.trim());
                     wordChunk = word;
                   }
                 }
-
-                if (wordChunk) {
-                  sentenceChunk = wordChunk;
-                } else {
-                  sentenceChunk = '';
-                }
+                sentenceChunk = wordChunk;
               } else {
                 sentenceChunk = sentence;
               }
             }
           }
-
-          if (sentenceChunk) {
-            chunks.push(sentenceChunk.trim());
-          }
+          if (sentenceChunk) chunks.push(sentenceChunk.trim());
           currentChunk = '';
         } else {
           currentChunk = paragraph;
@@ -358,296 +643,257 @@ export class LibreTranslationService {
       }
     }
 
-    if (currentChunk) {
-      chunks.push(currentChunk);
-    }
-
-    return chunks.filter((chunk) => chunk.trim().length > 0);
+    if (currentChunk) chunks.push(currentChunk);
+    return chunks.filter((c) => c.trim().length > 0);
   }
 
+  // ---------------------------------------------------------------------------
+  // CORE TRANSLATION (body content)
+  // ---------------------------------------------------------------------------
+
   /**
-   * Core translation with retry mechanism
+   * Translate a single text string with retry logic.
+   *
+   * Pipeline per attempt:
+   *  1. Protect non-English spans (body only — keeps foreign quotes intact)
+   *  2. Protect technical tokens (URLs, emails, code)
+   *  3. POST to LibreTranslate with source='en'  ← always English source
+   *  4. Restore all placeholders
+   *  5. Validate quality; retry if needed
    */
   private async translateWithRetry(
     text: string,
     targetLanguage: Language,
     options: TranslationOptions = {},
   ): Promise<string> {
-    const {
-      format = 'text',
-      preserveFormatting = true,
-      autoDetectSource = false,
-      strictMode = false,
-    } = options;
-
+    const { format = 'text', preserveFormatting = true } = options;
     const targetLangCode = this.getLanguageCode(targetLanguage);
-    const sourceLanguage = autoDetectSource ? 'auto' : 'en';
+
+    // Always use 'en' as source — we only translate English content.
+    // Non-English spans are protected by protectNonEnglishSpans() below.
+    const SOURCE_LANG = 'en';
 
     let bestTranslation = text;
     let bestScore = 0;
-    const attemptResults: {
-      translation: string;
-      score: number;
-      attempt: number;
-    }[] = [];
+    const attemptLog: string[] = [];
 
-    // Try up to 3 times
     for (let attempt = 1; attempt <= this.translationRetries; attempt++) {
       try {
         this.logger.log(
-          `Translation attempt ${attempt}/${this.translationRetries} for ${targetLanguage}`,
+          `Translation attempt ${attempt}/${this.translationRetries} → ${targetLanguage}`,
         );
 
-        // Minimal preprocessing
-        const { processed, placeholders } = preserveFormatting
-          ? this.preprocessText(text)
-          : { processed: text, placeholders: new Map() };
+        // Step 1: protect non-English spans inside the body
+        const nonEnglishProtection = await this.protectNonEnglishSpans(text);
 
-        // Make translation request
+        // Step 2: protect technical tokens
+        const { processed, placeholders } = preserveFormatting
+          ? this.preprocessText(nonEnglishProtection.processed)
+          : {
+              processed: nonEnglishProtection.processed,
+              placeholders: new Map<string, string>(),
+            };
+
+        // Step 3: translate
         const response = await this.retryRequest<LibreTranslateResponse>(() =>
           this.axiosInstance.post('/translate', {
             q: processed,
-            source: sourceLanguage,
+            source: SOURCE_LANG,
             target: targetLangCode,
-            format: format,
+            format,
           }),
         );
 
-        const translated = response.data.translatedText;
-        const final = this.postprocessText(translated, placeholders);
+        const rawTranslated = response.data.translatedText;
 
-        // Validate quality
+        // Step 4: restore placeholders
+        const restoredTech = this.postprocessText(rawTranslated, placeholders);
+        const final = this.postprocessText(
+          restoredTech,
+          nonEnglishProtection.placeholders,
+        );
+
+        // Step 5: validate
         const validation = this.validateTranslationQuality(
           text,
           final,
           targetLanguage,
         );
-
-        attemptResults.push({
-          translation: final,
-          score: validation.score,
-          attempt,
-        });
+        attemptLog.push(`#${attempt}:${validation.score}`);
 
         this.logger.log(
-          `Attempt ${attempt}: Quality score ${validation.score}/100`,
+          `Attempt ${attempt}: score=${validation.score}/100 ${
+            validation.issues.length
+              ? '| Issues: ' + validation.issues.join('; ')
+              : ''
+          }`,
         );
 
-        if (validation.issues.length > 0) {
-          this.logger.warn(`Issues: ${validation.issues.join('; ')}`);
-        }
-
-        // Track best translation
         if (validation.score > bestScore) {
           bestScore = validation.score;
           bestTranslation = final;
         }
 
-        // Accept high-quality translations immediately
+        // Accept high-quality immediately
         if (validation.score >= 85) {
-          this.logger.log(
-            `✓ High-quality translation on attempt ${attempt} (score: ${validation.score})`,
-          );
+          this.logger.log(`✓ High-quality translation on attempt ${attempt}`);
           return final;
         }
 
-        // Accept good-enough translations if not in strict mode
-        if (!strictMode && validation.score >= 60) {
-          this.logger.log(
-            `✓ Acceptable translation on attempt ${attempt} (score: ${validation.score})`,
-          );
+        // Accept good-enough in non-strict mode
+        if (validation.score >= 60) {
+          this.logger.log(`✓ Acceptable translation on attempt ${attempt}`);
           return final;
         }
 
-        // In strict mode, accept valid translations
-        if (strictMode && validation.isValid) {
-          this.logger.log(
-            `✓ Valid translation on attempt ${attempt} (score: ${validation.score})`,
-          );
-          return final;
-        }
-
-        // Wait before retry
         if (attempt < this.translationRetries) {
-          const delay = 1500 * attempt; // 1.5s, 3s
-          this.logger.log(
-            `Score ${validation.score} not satisfactory, retrying in ${delay}ms...`,
+          const delay = 1500 * attempt;
+          this.logger.warn(
+            `Score ${validation.score} insufficient, retrying in ${delay}ms…`,
           );
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          await new Promise((r) => setTimeout(r, delay));
         }
       } catch (error) {
         this.logger.error(`Attempt ${attempt} failed: ${error.message}`);
-
-        if (attempt === this.translationRetries) {
-          throw error;
-        }
-
-        const delay = 2000 * attempt;
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        if (attempt === this.translationRetries) throw error;
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
       }
     }
 
-    // Use best translation from all attempts
-    if (bestScore > 0 && bestScore >= 30) {
-      this.logger.warn(
-        `Using best translation from ${this.translationRetries} attempts (score: ${bestScore})`,
-      );
-      this.logger.debug(
-        `Scores: ${attemptResults.map((r) => `#${r.attempt}:${r.score}`).join(', ')}`,
-      );
+    this.logger.debug(`Attempt scores: ${attemptLog.join(', ')}`);
+
+    if (bestScore >= 30) {
+      this.logger.warn(`Using best translation (score: ${bestScore})`);
       return bestTranslation;
     }
 
-    // Complete failure - return original
-    this.logger.error(
-      `All ${this.translationRetries} attempts failed. Returning original text.`,
-    );
+    this.logger.error('All translation attempts failed — returning original.');
     return text;
   }
 
+  // ---------------------------------------------------------------------------
+  // PUBLIC API
+  // ---------------------------------------------------------------------------
+
   /**
-   * Main translation method
+   * Translate a single text block from English to the target language.
    */
   async translateText(
     text: string,
     targetLanguage: Language,
     options: TranslationOptions = {},
   ): Promise<string> {
-    if (!text || text.trim().length === 0) {
-      return '';
-    }
+    if (!text || text.trim().length === 0) return '';
 
     try {
       this.logger.log(
-        `Starting translation to ${targetLanguage} (${text.length} chars)`,
+        `Starting translation → ${targetLanguage} (${text.length} chars)`,
       );
 
-      // Check if chunking is needed
       if (text.length > this.chunkSize) {
-        this.logger.log(
-          `Text length ${text.length} exceeds chunk size, splitting...`,
-        );
+        this.logger.log('Text exceeds chunk size — splitting…');
         const chunks = this.splitTextIntoChunks(text);
-        this.logger.log(`Created ${chunks.length} chunks`);
+        this.logger.log(`Created ${chunks.length} chunk(s)`);
 
         const translatedChunks: string[] = [];
 
         for (let i = 0; i < chunks.length; i++) {
-          this.logger.log(`Translating chunk ${i + 1}/${chunks.length}...`);
-
+          this.logger.log(`Chunk ${i + 1}/${chunks.length}…`);
           try {
-            const chunkTranslation = await this.translateWithRetry(
+            const result = await this.translateWithRetry(
               chunks[i],
               targetLanguage,
               options,
             );
-            translatedChunks.push(chunkTranslation);
-          } catch (error) {
+            translatedChunks.push(result);
+          } catch (err) {
             this.logger.error(
-              `Chunk ${i + 1} failed after retries: ${error.message}`,
+              `Chunk ${i + 1} failed: ${err.message} — using original`,
             );
-            // Use original chunk as fallback
             translatedChunks.push(chunks[i]);
           }
 
-          // Brief pause between chunks
           if (i < chunks.length - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 300));
+            await new Promise((r) => setTimeout(r, 300));
           }
         }
 
+        // Preserve the original paragraph separators between chunks
         const final = translatedChunks.join('\n\n');
         this.logger.log(
-          `✓ Completed chunked translation: ${final.length} chars`,
+          `✓ Chunked translation complete: ${final.length} chars`,
         );
         return final;
       }
 
-      // Single translation
       return await this.translateWithRetry(text, targetLanguage, options);
     } catch (error) {
       this.logger.error(
-        `Fatal translation error for ${targetLanguage}: ${error.message}`,
+        `Fatal translation error [${targetLanguage}]: ${error.message}`,
       );
       throw error;
     }
   }
 
   /**
-   * Batch translate multiple texts
+   * Translate multiple texts in small concurrent batches.
    */
   async translateBatch(
     texts: string[],
     targetLanguage: Language,
     options: TranslationOptions = {},
   ): Promise<string[]> {
-    if (texts.length === 0) {
-      return [];
-    }
+    if (texts.length === 0) return [];
 
-    try {
-      const textIndexMap: { text: string; index: number }[] = [];
-      texts.forEach((text, index) => {
-        if (text && text.trim().length > 0) {
-          textIndexMap.push({ text, index });
-        }
-      });
+    const indexed = texts
+      .map((text, index) => ({ text, index }))
+      .filter(({ text }) => text && text.trim().length > 0);
 
-      const concurrencyLimit = 2;
-      const results: string[] = new Array(texts.length).fill('');
-      let successCount = 0;
-      let failureCount = 0;
+    const CONCURRENCY = 2;
+    const results: string[] = new Array(texts.length).fill('');
+    let successCount = 0;
+    let failureCount = 0;
 
-      for (let i = 0; i < textIndexMap.length; i += concurrencyLimit) {
-        const batch = textIndexMap.slice(i, i + concurrencyLimit);
+    for (let i = 0; i < indexed.length; i += CONCURRENCY) {
+      const batch = indexed.slice(i, i + CONCURRENCY);
 
-        const promises = batch.map(async ({ text, index }) => {
+      const settled = await Promise.all(
+        batch.map(async ({ text, index }) => {
           try {
             const translation = await this.translateText(
               text,
               targetLanguage,
               options,
             );
-            return { index, translation, success: true };
-          } catch (error) {
-            this.logger.error(`Batch item ${index} failed: ${error.message}`);
-            return { index, translation: text, success: false };
+            return { index, translation, ok: true };
+          } catch (err) {
+            this.logger.error(`Batch item ${index} failed: ${err.message}`);
+            return { index, translation: text, ok: false };
           }
-        });
-
-        const batchResults = await Promise.all(promises);
-        batchResults.forEach(({ index, translation, success }) => {
-          results[index] = translation;
-          if (success) {
-            successCount++;
-          } else {
-            failureCount++;
-          }
-        });
-
-        this.logger.log(
-          `Batch: ${Math.min(i + concurrencyLimit, textIndexMap.length)}/${textIndexMap.length} ` +
-            `(Success: ${successCount}, Failed: ${failureCount})`,
-        );
-
-        if (i + concurrencyLimit < textIndexMap.length) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
-      }
-
-      this.logger.log(
-        `Batch complete: ${successCount} successful, ${failureCount} failed`,
+        }),
       );
 
-      return results;
-    } catch (error) {
-      this.logger.error(`Batch error: ${error.message}`);
-      throw error;
+      settled.forEach(({ index, translation, ok }) => {
+        results[index] = translation;
+        ok ? successCount++ : failureCount++;
+      });
+
+      this.logger.log(
+        `Batch progress: ${Math.min(i + CONCURRENCY, indexed.length)}/${indexed.length} ` +
+          `(✓${successCount} ✗${failureCount})`,
+      );
+
+      if (i + CONCURRENCY < indexed.length) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
+
+    this.logger.log(`Batch done: ${successCount} OK, ${failureCount} failed`);
+    return results;
   }
 
   /**
-   * Translate chapters sequentially
+   * Translate an ordered array of chapter objects sequentially.
    */
   async translateChapters(
     chapters: any[],
@@ -655,22 +901,20 @@ export class LibreTranslationService {
     onProgress?: (current: number, total: number) => void,
     options: TranslationOptions = {},
   ): Promise<any[]> {
+    this.logger.log(
+      `Translating ${chapters.length} chapters → ${targetLanguage}…`,
+    );
+
     const translatedChapters: Array<{
       title: string;
       content: string;
       order: number;
     }> = [];
-
-    this.logger.log(
-      `Translating ${chapters.length} chapters to ${targetLanguage}...`,
-    );
-
     let successCount = 0;
     let failureCount = 0;
 
     for (let i = 0; i < chapters.length; i++) {
       const chapter = chapters[i];
-
       try {
         this.logger.log(
           `Chapter ${i + 1}/${chapters.length}: "${chapter.title}"`,
@@ -694,45 +938,35 @@ export class LibreTranslationService {
         });
 
         successCount++;
-        this.logger.log(`✓ Chapter ${i + 1} completed`);
-
-        if (onProgress) {
-          onProgress(i + 1, chapters.length);
-        }
-
-        if (i < chapters.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-      } catch (error) {
+        this.logger.log(`✓ Chapter ${i + 1} done`);
+      } catch (err) {
         failureCount++;
-        this.logger.error(`✗ Chapter ${i + 1} failed: ${error.message}`);
-
-        // Fallback to original
+        this.logger.error(`✗ Chapter ${i + 1} failed: ${err.message}`);
         translatedChapters.push({
           title: chapter.title,
           content: chapter.content,
           order: chapter.order,
         });
+      }
 
-        if (onProgress) {
-          onProgress(i + 1, chapters.length);
-        }
+      onProgress?.(i + 1, chapters.length);
+
+      if (i < chapters.length - 1) {
+        await new Promise((r) => setTimeout(r, 500));
       }
     }
 
-    this.logger.log(
-      `Chapters complete: ${successCount} successful, ${failureCount} failed`,
-    );
-
+    this.logger.log(`Chapters: ${successCount} ✓, ${failureCount} ✗`);
     return translatedChapters;
   }
 
-  /**
-   * CRITICAL: Translate metadata with MANDATORY retry until successful
-   * This method will retry until title and subtitle are properly translated
-   *
-   * NEW FIX: Use fallback translation when LibreTranslate returns identical text
-   */
+  // ---------------------------------------------------------------------------
+  // METADATA TRANSLATION
+  // NOTE: Metadata translation intentionally does NOT call protectNonEnglishSpans.
+  // Titles and subtitles are assumed to be English and must always be fully
+  // translated.  The non-English protection layer would only interfere here.
+  // ---------------------------------------------------------------------------
+
   async translateMetadata(
     title: string,
     subtitle: string,
@@ -740,42 +974,29 @@ export class LibreTranslationService {
     options: TranslationOptions = {},
   ): Promise<{ title: string; subtitle: string }> {
     this.logger.log(
-      `Translating metadata to ${targetLanguage}: "${title}" | "${subtitle}"`,
+      `Translating metadata → ${targetLanguage}: "${title}" | "${subtitle}"`,
     );
 
     let attempts = 0;
-    const maxAttempts = 3; // Reduced since we have fallback
+    const maxAttempts = 3;
     let bestResult: { title: string; subtitle: string } | null = null;
     let bestScore = 0;
 
     while (attempts < maxAttempts) {
       attempts++;
-
       try {
-        this.logger.log(
-          `Metadata translation attempt ${attempts}/${maxAttempts}`,
-        );
+        this.logger.log(`Metadata attempt ${attempts}/${maxAttempts}`);
 
-        // Direct translation - proper nouns like "Georgia" should stay unchanged
+        // Metadata goes through a DIRECT translation — no non-English protection,
+        // no body-content chunking logic.  source is always 'en'.
         const [translatedTitle, translatedSubtitle] = await Promise.all([
-          this.translateText(title, targetLanguage, {
-            ...options,
-            format: 'text',
-            strictMode: false,
-            preserveFormatting: false,
-          }),
+          this.translateMetadataField(title, targetLanguage, options),
           subtitle
-            ? this.translateText(subtitle, targetLanguage, {
-                ...options,
-                format: 'text',
-                strictMode: false,
-                preserveFormatting: false,
-              })
+            ? this.translateMetadataField(subtitle, targetLanguage, options)
             : Promise.resolve(''),
         ]);
 
-        // CRITICAL CHECK: If title translation is below 80%, use fallback
-        // CRITICAL CHECK: If title translation is below 80%, use fallback
+        // Post-process title
         let finalTitle = translatedTitle;
         const { percentage, unchangedWords } = this.getTranslationPercentage(
           title,
@@ -783,12 +1004,14 @@ export class LibreTranslationService {
         );
 
         this.logger.log(
-          `Title translation percentage: ${percentage.toFixed(0)}% (unchanged: ${unchangedWords.join(', ') || 'none'})`,
+          `Title translation: ${percentage.toFixed(0)}% translated (unchanged: ${
+            unchangedWords.join(', ') || 'none'
+          })`,
         );
 
         if (percentage < 80) {
           this.logger.warn(
-            `Title translation below 80% (${percentage.toFixed(0)}%) - merging with fallback`,
+            `Title below 80% translated — applying fallback merge`,
           );
           finalTitle = this.mergeWithFallback(
             title,
@@ -797,112 +1020,78 @@ export class LibreTranslationService {
           );
         }
 
-        // ADDITIONAL CHECK: Verify no animal names were silently dropped during translation
-        // e.g. "Snail farming Guide" → "Guida all'agricoltura" (Snail was dropped, not translated)
         finalTitle = this.injectMissingAnimalTranslations(
           title,
           finalTitle,
           targetLanguage,
         );
 
-        // Validate that title was translated
-        const titleValidation = this.validateMetadataTranslation(
+        const titleVal = this.validateMetadataTranslation(
           title,
           finalTitle,
           targetLanguage,
         );
-
-        // Validate subtitle if present
-        const subtitleValidation = subtitle
+        const subtitleVal = subtitle
           ? this.validateMetadataTranslation(
               subtitle,
               translatedSubtitle,
               targetLanguage,
             )
-          : { isValid: true, score: 100, issues: [] };
+          : { isValid: true, score: 100, issues: [] as string[] };
 
-        // Calculate combined score
-        const combinedScore = subtitle
-          ? (titleValidation.score + subtitleValidation.score) / 2
-          : titleValidation.score;
+        const combined = subtitle
+          ? (titleVal.score + subtitleVal.score) / 2
+          : titleVal.score;
 
-        // Track best result
-        if (combinedScore > bestScore) {
-          bestScore = combinedScore;
-          bestResult = {
-            title: finalTitle,
-            subtitle: translatedSubtitle,
-          };
-        }
-
-        // Log details
         this.logger.log(
-          `  Title: "${title}" → "${finalTitle}" (score: ${titleValidation.score})`,
+          `  Title: "${title}" → "${finalTitle}" (score: ${titleVal.score})`,
         );
         if (subtitle) {
           this.logger.log(
-            `  Subtitle: "${subtitle}" → "${translatedSubtitle}" (score: ${subtitleValidation.score})`,
+            `  Subtitle: "${subtitle}" → "${translatedSubtitle}" (score: ${subtitleVal.score})`,
           );
         }
-        this.logger.log(`  Combined score: ${combinedScore}/100`);
+        this.logger.log(`  Combined: ${combined}/100`);
 
-        // Accept if both are valid (score >= 60)
-        if (titleValidation.isValid && subtitleValidation.isValid) {
-          this.logger.log(
-            `✓ Metadata translated successfully on attempt ${attempts}`,
-          );
-          return {
-            title: finalTitle,
-            subtitle: translatedSubtitle,
-          };
+        if (combined > bestScore) {
+          bestScore = combined;
+          bestResult = { title: finalTitle, subtitle: translatedSubtitle };
         }
 
-        // Log validation issues
-        if (!titleValidation.isValid) {
-          this.logger.warn(
-            `Title issues: ${titleValidation.issues.join(', ')}`,
-          );
-        }
-        if (subtitle && !subtitleValidation.isValid) {
-          this.logger.warn(
-            `Subtitle issues: ${subtitleValidation.issues.join(', ')}`,
-          );
+        if (titleVal.isValid && subtitleVal.isValid) {
+          this.logger.log(`✓ Metadata translated on attempt ${attempts}`);
+          return { title: finalTitle, subtitle: translatedSubtitle };
         }
 
-        // Wait before retry
+        if (!titleVal.isValid)
+          this.logger.warn(`Title issues: ${titleVal.issues.join(', ')}`);
+        if (subtitle && !subtitleVal.isValid)
+          this.logger.warn(`Subtitle issues: ${subtitleVal.issues.join(', ')}`);
+
         if (attempts < maxAttempts) {
-          const delay = 1000 * attempts; // 1s, 2s
-          this.logger.log(
-            `Retrying in ${delay}ms... (best score so far: ${bestScore})`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          const delay = 1000 * attempts;
+          this.logger.log(`Retrying in ${delay}ms (best: ${bestScore})…`);
+          await new Promise((r) => setTimeout(r, delay));
         }
-      } catch (error) {
+      } catch (err) {
         this.logger.error(
-          `Metadata translation attempt ${attempts} failed: ${error.message}`,
+          `Metadata attempt ${attempts} failed: ${err.message}`,
         );
-
         if (attempts < maxAttempts) {
-          const delay = 1500 * attempts;
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          await new Promise((r) => setTimeout(r, 1500 * attempts));
         }
       }
     }
 
-    // After all attempts, use best result if score is decent (>= 35)
-    // Lowered threshold because subtitle alone can be good
     if (bestResult && bestScore >= 35) {
-      this.logger.warn(
-        `✓ Using best translation from ${maxAttempts} attempts (score: ${bestScore})`,
-      );
+      this.logger.warn(`Using best metadata result (score: ${bestScore})`);
       return bestResult;
     }
 
-    // Last resort: Try fallback for both
+    // Last resort: word-by-word fallback
     this.logger.error(
-      `⚠️ All ${maxAttempts} metadata translation attempts failed. Trying fallback...`,
+      'All metadata attempts failed — trying word-by-word fallback…',
     );
-
     try {
       const fallbackTitle = await this.fallbackTranslateTitle(
         title,
@@ -911,43 +1100,53 @@ export class LibreTranslationService {
       const fallbackSubtitle = subtitle
         ? await this.fallbackTranslateTitle(subtitle, targetLanguage)
         : '';
-
-      // Validate fallback
-      const titleValidation = this.validateMetadataTranslation(
+      const val = this.validateMetadataTranslation(
         title,
         fallbackTitle,
         targetLanguage,
       );
-
-      if (titleValidation.score >= 50) {
-        this.logger.log(
-          `✓ Fallback translation successful (score: ${titleValidation.score})`,
-        );
-        return {
-          title: fallbackTitle,
-          subtitle: fallbackSubtitle,
-        };
+      if (val.score >= 50) {
+        this.logger.log(`✓ Fallback successful (score: ${val.score})`);
+        return { title: fallbackTitle, subtitle: fallbackSubtitle };
       }
-    } catch (error) {
-      this.logger.error(`Fallback translation failed: ${error.message}`);
+    } catch (err) {
+      this.logger.error(`Fallback failed: ${err.message}`);
     }
 
-    // Complete failure - return original
     this.logger.error(
-      `❌ All translation methods exhausted. Using original text.`,
+      '❌ All translation methods exhausted — returning original.',
     );
-
     return { title, subtitle };
   }
 
   /**
-   * Detect animal names in the original title that were DROPPED (not translated)
-   * by LibreTranslate and inject their correct translation into the result.
-   *
-   * Example: "Snail farming Guide" → "Guida all'agricoltura"
-   *   - "Snail" was silently dropped → inject "Lumache" → "Guida delle Lumache all'agricoltura"
-   *   - but we prepend it at the front to preserve natural word order
+   * Translate a single metadata field directly via LibreTranslate.
+   * No body-content protection is applied — always translates from English.
    */
+  private async translateMetadataField(
+    text: string,
+    targetLanguage: Language,
+    options: TranslationOptions,
+  ): Promise<string> {
+    const { format = 'text' } = options;
+    const targetLangCode = this.getLanguageCode(targetLanguage);
+
+    const response = await this.retryRequest<LibreTranslateResponse>(() =>
+      this.axiosInstance.post('/translate', {
+        q: text,
+        source: 'en',
+        target: targetLangCode,
+        format,
+      }),
+    );
+
+    return response.data.translatedText;
+  }
+
+  // ---------------------------------------------------------------------------
+  // METADATA HELPERS (unchanged from original except minor cleanup)
+  // ---------------------------------------------------------------------------
+
   private injectMissingAnimalTranslations(
     original: string,
     translated: string,
@@ -1081,56 +1280,43 @@ export class LibreTranslationService {
     };
 
     const translations = animalTranslations[targetLanguage] || {};
-    const originalWords = original.split(/\s+/);
     let result = translated;
     const injected: string[] = [];
 
-    for (const word of originalWords) {
-      const cleanWord = word.replace(/[^a-zA-Z]/g, '');
-      if (!cleanWord) continue;
+    for (const word of original.split(/\s+/)) {
+      const clean = word.replace(/[^a-zA-Z]/g, '');
+      if (!clean) continue;
+      const key = clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+      const tgt = translations[key] || translations[clean];
+      if (!tgt) continue;
 
-      // Look up the animal translation for this word
-      const animalKey =
-        cleanWord.charAt(0).toUpperCase() + cleanWord.slice(1).toLowerCase();
-      const animalTranslated =
-        translations[animalKey] || translations[cleanWord];
-      if (!animalTranslated) continue;
-
-      // Check if neither the English original NOR the translated animal word
-      // appears in the current translated result (case-insensitive)
-      const englishPresent = new RegExp(`\\b${cleanWord}\\b`, 'i').test(result);
-      const translationPresent = new RegExp(
-        animalTranslated.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+      const engPresent = new RegExp(`\\b${clean}\\b`, 'i').test(result);
+      const tgtPresent = new RegExp(
+        tgt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
         'i',
       ).test(result);
 
-      if (!englishPresent && !translationPresent) {
-        // The animal was silently dropped — inject it
+      if (!engPresent && !tgtPresent) {
         this.logger.warn(
-          `Animal "${cleanWord}" was dropped by LibreTranslate. Injecting "${animalTranslated}" into title.`,
+          `Animal "${clean}" dropped by LibreTranslate — injecting "${tgt}"`,
         );
-        injected.push(animalTranslated);
+        injected.push(tgt);
       }
     }
 
     if (injected.length > 0) {
-      // Prepend the missing animal translations (they belong at the start of the title)
       result = `${injected.join(' ')} ${result}`;
-      this.logger.log(
-        `Injected missing animals: "${translated}" → "${result}"`,
-      );
+      this.logger.log(`Injected: "${translated}" → "${result}"`);
     }
 
     return result;
   }
-  /**
-   * Get fallback word translation from dictionary
-   */
+
   private getFallbackWord(
     word: string,
     targetLanguage: Language,
   ): string | null {
-    const titleWordTranslations: Record<Language, Record<string, string>> = {
+    const dict: Record<Language, Record<string, string>> = {
       [Language.SPANISH]: {
         travel: 'de Viaje',
         guide: 'Guía',
@@ -1198,228 +1384,77 @@ export class LibreTranslationService {
       },
       [Language.ENGLISH]: {},
     };
-
-    const translations = titleWordTranslations[targetLanguage] || {};
-    return translations[word.toLowerCase()] || null;
+    const map = dict[targetLanguage] || {};
+    return map[word.toLowerCase()] || null;
   }
-
-  /**
-   * Merge LibreTranslate result with fallback for untranslated words
-   */
-  // private mergeWithFallback(
-  //   original: string,
-  //   libreTranslated: string,
-  //   targetLanguage: Language,
-  // ): string {
-  //   const origWords = original.split(/\s+/);
-  //   let result = libreTranslated;
-  //   const isFarming = this.isFarmingContext(original);
-
-  //   this.logger.debug(
-  //     `Merging translations - Original: "${original}", LibreTranslate: "${libreTranslated}", FarmingContext: ${isFarming}`,
-  //   );
-
-  //   for (const origWord of origWords) {
-  //     // Skip numbers and very short words
-  //     if (/^\d+$/.test(origWord) || origWord.length <= 2) continue;
-
-  //     // Check if this word appears unchanged in the translation (case-insensitive)
-  //     const wordRegex = new RegExp(`\\b${origWord}\\b`, 'i');
-  //     if (wordRegex.test(result)) {
-  //       // Try animal translation first (only in farming context)
-  //       let fallbackWord = this.getAnimalTranslation(
-  //         origWord,
-  //         targetLanguage,
-  //         isFarming,
-  //       );
-
-  //       // If no animal translation, try regular fallback
-  //       if (!fallbackWord) {
-  //         fallbackWord = this.getFallbackWord(origWord, targetLanguage);
-  //       }
-
-  //       if (
-  //         fallbackWord &&
-  //         fallbackWord.toLowerCase() !== origWord.toLowerCase()
-  //       ) {
-  //         result = result.replace(wordRegex, fallbackWord);
-  //         this.logger.debug(`  Replaced "${origWord}" with "${fallbackWord}"`);
-  //       }
-  //     }
-  //   }
-
-  //   this.logger.log(`Merged result: "${result}"`);
-  //   return result;
-  // }
 
   private mergeWithFallback(
     original: string,
     libreTranslated: string,
     targetLanguage: Language,
   ): string {
-    const origWords = original.split(/\s+/);
     const isFarming = this.isFarmingContext(original);
+    const origWords = original.split(/\s+/);
 
     this.logger.debug(
-      `Merging translations - Original: "${original}", LibreTranslate: "${libreTranslated}", FarmingContext: ${isFarming}`,
+      `mergeWithFallback: "${original}" | libre="${libreTranslated}" | farming=${isFarming}`,
     );
 
-    // Build a word-by-word replacement map from original → translated
-    let result = libreTranslated;
-    const resultWords = result.split(/\s+/);
+    const finalWords = libreTranslated.split(/\s+/).map((resultWord) => {
+      const clean = resultWord.replace(/[^a-zA-Z]/g, '');
+      if (!clean || clean.length <= 2 || /^\d+$/.test(clean)) return resultWord;
 
-    // Check EVERY word in the result — not just ones that match original
-    // LibreTranslate may have partially translated some words
-    const finalWords = resultWords.map((resultWord) => {
-      // Skip short words, numbers, punctuation
-      const cleanWord = resultWord.replace(/[^a-zA-Z]/g, '');
-      if (!cleanWord || cleanWord.length <= 2 || /^\d+$/.test(cleanWord)) {
-        return resultWord;
-      }
-
-      // 1. Try animal translation
-      const animalTranslation = this.getAnimalTranslation(
-        cleanWord,
+      const animal = this.getAnimalTranslation(
+        clean,
         targetLanguage,
         isFarming,
       );
-      if (
-        animalTranslation &&
-        animalTranslation.toLowerCase() !== cleanWord.toLowerCase()
-      ) {
-        this.logger.debug(
-          `  Replaced "${cleanWord}" with animal translation "${animalTranslation}"`,
-        );
-        return resultWord.replace(cleanWord, animalTranslation);
-      }
+      if (animal && animal.toLowerCase() !== clean.toLowerCase())
+        return resultWord.replace(clean, animal);
 
-      // 2. Try regular fallback word
-      const fallbackWord = this.getFallbackWord(cleanWord, targetLanguage);
-      if (
-        fallbackWord &&
-        fallbackWord.toLowerCase() !== cleanWord.toLowerCase()
-      ) {
-        this.logger.debug(
-          `  Replaced "${cleanWord}" with fallback "${fallbackWord}"`,
-        );
-        return resultWord.replace(cleanWord, fallbackWord);
-      }
+      const fallback = this.getFallbackWord(clean, targetLanguage);
+      if (fallback && fallback.toLowerCase() !== clean.toLowerCase())
+        return resultWord.replace(clean, fallback);
 
-      // 3. Check if this word still exists unchanged in original
-      //    and has a known translation we can apply
-      // 3. Check if this word still exists unchanged in original
-      //    and has a known translation we can apply
       const origMatch = origWords.find(
-        (w) => w.toLowerCase() === cleanWord.toLowerCase(),
+        (w) => w.toLowerCase() === clean.toLowerCase(),
       );
       if (origMatch) {
-        // Still English — try one more time with animal dict
-        const animalRetry = this.getAnimalTranslation(
+        const retry = this.getAnimalTranslation(
           origMatch,
           targetLanguage,
           isFarming,
         );
-        if (
-          animalRetry &&
-          animalRetry.toLowerCase() !== origMatch.toLowerCase()
-        ) {
-          this.logger.debug(
-            `  Replaced unchanged "${cleanWord}" with "${animalRetry}"`,
-          );
-          return resultWord.replace(cleanWord, animalRetry);
-        }
-      }
-
-      // 4. Stem/variant match: word may be a partial translation of an original word
-      //    e.g. "farming" → LibreTranslate returned "Farm" (English partial)
-      //    Check if cleanWord is a stem/prefix of any original word or vice versa
-      const stemMatch = origWords.find((w) => {
-        const wLower = w.toLowerCase();
-        const cLower = cleanWord.toLowerCase();
-        return (
-          wLower !== cLower &&
-          (wLower.startsWith(cLower) || cLower.startsWith(wLower))
-        );
-      });
-      if (stemMatch) {
-        // Try fallback for the original word (e.g. "farming")
-        const stemFallback = this.getFallbackWord(stemMatch, targetLanguage);
-        if (
-          stemFallback &&
-          stemFallback.toLowerCase() !== stemMatch.toLowerCase() &&
-          stemFallback.toLowerCase() !== cleanWord.toLowerCase()
-        ) {
-          this.logger.debug(
-            `  Stem match: replaced partial "${cleanWord}" (from "${stemMatch}") with "${stemFallback}"`,
-          );
-          return resultWord.replace(new RegExp(cleanWord, 'i'), stemFallback);
-        }
-
-        // Also try animal dict for the stem match
-        if (isFarming) {
-          const stemAnimal = this.getAnimalTranslation(
-            stemMatch,
-            targetLanguage,
-            true,
-          );
-          if (
-            stemAnimal &&
-            stemAnimal.toLowerCase() !== stemMatch.toLowerCase()
-          ) {
-            this.logger.debug(
-              `  Stem animal match: replaced "${cleanWord}" (from "${stemMatch}") with "${stemAnimal}"`,
-            );
-            return resultWord.replace(new RegExp(cleanWord, 'i'), stemAnimal);
-          }
-        }
+        if (retry && retry.toLowerCase() !== origMatch.toLowerCase())
+          return resultWord.replace(clean, retry);
       }
 
       return resultWord;
     });
 
-    result = finalWords.join(' ');
-    this.logger.log(`Merged result: "${result}"`);
+    const result = finalWords.join(' ');
+    this.logger.log(`mergeWithFallback result: "${result}"`);
     return result;
   }
 
-  /**
-   * Check translation percentage and return details
-   */
   private getTranslationPercentage(
     original: string,
     translated: string,
   ): { percentage: number; unchangedWords: string[] } {
-    const getTranslatableWords = (text: string): string[] => {
-      return text.split(/\s+/).filter((w) => w.length > 2 && !/^\d+$/.test(w));
-    };
+    const words = (t: string) =>
+      t.split(/\s+/).filter((w) => w.length > 2 && !/^\d+$/.test(w));
 
-    const origWords = getTranslatableWords(original);
-    const transWordsLower = getTranslatableWords(translated).map((w) =>
-      w.toLowerCase(),
-    );
+    const origWords = words(original);
+    const transSet = new Set(words(translated).map((w) => w.toLowerCase()));
 
-    if (origWords.length === 0) {
-      return { percentage: 100, unchangedWords: [] };
-    }
+    if (origWords.length === 0) return { percentage: 100, unchangedWords: [] };
 
-    const unchangedWords: string[] = [];
-    for (const word of origWords) {
-      if (transWordsLower.includes(word.toLowerCase())) {
-        unchangedWords.push(word);
-      }
-    }
-
-    const translatedCount = origWords.length - unchangedWords.length;
-    const percentage = (translatedCount / origWords.length) * 100;
-
-    return { percentage, unchangedWords };
+    const unchanged = origWords.filter((w) => transSet.has(w.toLowerCase()));
+    const pct =
+      ((origWords.length - unchanged.length) / origWords.length) * 100;
+    return { percentage: pct, unchangedWords: unchanged };
   }
-  /**
-   * Validate metadata translation - IMPROVED LOGIC for proper nouns
-   *
-   * KEY INSIGHT: If the title comes back 100% identical, LibreTranslate failed completely.
-   * We need to manually translate the non-proper-noun parts.
-   */
+
   private validateMetadataTranslation(
     original: string,
     translated: string,
@@ -1428,136 +1463,73 @@ export class LibreTranslationService {
     const issues: string[] = [];
     let score = 100;
 
-    // Check 1: Empty translation
-    if (!translated || translated.trim().length === 0) {
-      issues.push('Translation is empty');
-      return { isValid: false, issues, score: 0 };
-    }
+    if (!translated || translated.trim().length === 0)
+      return { isValid: false, issues: ['Empty translation'], score: 0 };
 
     const origLower = original.toLowerCase().trim();
     const transLower = translated.toLowerCase().trim();
 
-    // Check 2: Completely identical (LibreTranslate failed completely)
     if (origLower === transLower) {
-      issues.push('Translation is completely identical to original');
-      return { isValid: false, issues, score: 0 };
+      return { isValid: false, issues: ['Identical to original'], score: 0 };
     }
 
-    // Check 3: Analyze word-by-word for proper nouns
-    const originalWords = original.split(/\s+/);
-    const translatedWords = translated.split(/\s+/);
+    const origWords = original.split(/\s+/);
+    const transWords = translated.split(/\s+/);
 
-    // Identify proper nouns (words starting with capital letter)
-    const properNouns = new Set<string>();
-    originalWords.forEach((word, index) => {
-      // Capitalized words (after first word) are likely proper nouns
-      if (/^[A-Z]/.test(word) && /^[A-Z][a-z]/.test(word)) {
-        properNouns.add(word.toLowerCase());
-      }
-      // Also include standalone years/numbers
-      if (/^\d{4}$/.test(word)) {
-        properNouns.add(word);
-      }
-    });
+    const properNouns = new Set(
+      origWords
+        .filter((w) => /^[A-Z][a-z]/.test(w))
+        .map((w) => w.toLowerCase()),
+    );
 
-    // Count translated vs unchanged words (excluding proper nouns)
-    const originalWordsLower = originalWords.map((w) => w.toLowerCase());
-    const translatedWordsLower = translatedWords.map((w) => w.toLowerCase());
+    const origLowerWords = origWords.map((w) => w.toLowerCase());
+    const transLowerWords = transWords.map((w) => w.toLowerCase());
 
     let translatedCount = 0;
     let unchangedCount = 0;
-    let properNounMatches = 0;
 
-    translatedWordsLower.forEach((word) => {
-      if (word.length <= 2) return; // Skip articles like "de", "of", "a"
+    for (const w of transLowerWords) {
+      if (w.length <= 2) continue;
+      if (properNouns.has(w)) continue;
+      origLowerWords.includes(w) ? unchangedCount++ : translatedCount++;
+    }
 
-      // Is this a proper noun that should stay the same?
-      if (properNouns.has(word)) {
-        properNounMatches++;
-        return;
-      }
-
-      // Did this word get translated?
-      if (originalWordsLower.includes(word)) {
-        unchangedCount++;
-      } else {
-        translatedCount++;
-      }
-    });
-
-    // Calculate expected translations
-    // Total words - proper nouns - articles = words that should translate
-    const totalNonProperNouns = originalWordsLower.filter(
+    const totalNonProper = origLowerWords.filter(
       (w) => w.length > 2 && !properNouns.has(w),
     ).length;
 
-    const expectedTranslations = Math.max(
-      1,
-      Math.floor(totalNonProperNouns * 0.5),
-    ); // At least 50% should translate
-
-    this.logger.debug(
-      `Metadata analysis: ${translatedCount} translated, ${unchangedCount} unchanged, ${properNouns.size} proper nouns, ${properNounMatches} proper noun matches`,
-    );
-
-    // Check 4: Ensure sufficient translation occurred
-    if (translatedCount < expectedTranslations) {
+    const expected = Math.max(1, Math.floor(totalNonProper * 0.5));
+    if (translatedCount < expected) {
       issues.push(
-        `Insufficient translation: only ${translatedCount} words translated (expected ${expectedTranslations})`,
+        `Insufficient translation: ${translatedCount} words translated (expected ≥ ${expected})`,
       );
       score -= 40;
     }
 
-    // Check 5: Language-specific character validation
     if (targetLanguage !== Language.ENGLISH && translatedCount > 0) {
-      if (!this.hasLanguageSpecificCharacters(transLower, targetLanguage)) {
-        issues.push('Missing language-specific characters');
-        score -= 20; // Reduced penalty - might not have accents
+      if (!this.hasTargetLanguageMarkers(transLower, targetLanguage)) {
+        issues.push('Missing target-language markers');
+        score -= 20;
       }
     }
 
-    // Check 6: Length validation (should be somewhat similar)
-    const lengthRatio = translated.length / original.length;
-    if (lengthRatio < 0.5 || lengthRatio > 2.5) {
-      issues.push(`Unusual length ratio: ${(lengthRatio * 100).toFixed(0)}%`);
+    const lenRatio = translated.length / Math.max(original.length, 1);
+    if (lenRatio < 0.5 || lenRatio > 2.5) {
+      issues.push(`Unusual length ratio: ${(lenRatio * 100).toFixed(0)}%`);
       score -= 15;
     }
 
-    // For metadata, accept score >= 60 as valid
-    const isValid = score >= 60;
-
-    this.logger.debug(
-      `Metadata validation: score=${score}, valid=${isValid}, issues=${issues.length}`,
-    );
-
-    return {
-      isValid,
-      issues,
-      score: Math.max(0, score),
-    };
+    return { isValid: score >= 60, issues, score: Math.max(0, score) };
   }
 
-  /**
-   * FALLBACK: Manually translate title when LibreTranslate fails
-   *
-   * This handles cases like "Georgia Travel Guide 2026" where LibreTranslate
-   * returns it completely unchanged.
-   */
   private async fallbackTranslateTitle(
     title: string,
     targetLanguage: Language,
   ): Promise<string> {
-    this.logger.log(`Attempting fallback translation for: "${title}"`);
-
+    this.logger.log(`Word-by-word fallback for: "${title}"`);
     const isFarming = this.isFarmingContext(title);
-    this.logger.debug(`Farming context detected: ${isFarming}`);
 
-    // Split into words
-    const words = title.split(/\s+/);
-    const translatedWords: string[] = [];
-
-    // Known translations for common title words
-    const titleWordTranslations: Record<Language, Record<string, string>> = {
+    const dict: Record<Language, Record<string, string>> = {
       [Language.SPANISH]: {
         Travel: 'de Viaje',
         Guide: 'Guía',
@@ -1626,98 +1598,62 @@ export class LibreTranslationService {
       [Language.ENGLISH]: {},
     };
 
-    const translations = titleWordTranslations[targetLanguage] || {};
+    const translations = dict[targetLanguage] || {};
+    const words = title.split(/\s+/);
+    const result: string[] = [];
 
     for (const word of words) {
-      // Is it a number/year? Keep it
       if (/^\d+$/.test(word)) {
-        translatedWords.push(word);
+        result.push(word);
         continue;
       }
 
-      // Check for animal translation first (only in farming context)
-      const animalTranslation = this.getAnimalTranslation(
-        word,
-        targetLanguage,
-        isFarming,
-      );
-      if (animalTranslation) {
-        translatedWords.push(animalTranslation);
+      const animal = this.getAnimalTranslation(word, targetLanguage, isFarming);
+      if (animal) {
+        result.push(animal);
         continue;
       }
 
-      // Is it a proper noun (capitalized)?
       if (/^[A-Z][a-z]+$/.test(word) && word.length > 2) {
-        // Check if it's in our dictionary (like "Travel", "Farming")
-        if (translations[word]) {
-          translatedWords.push(translations[word]);
-        } else {
-          // It's a proper noun like "Georgia" - keep it
-          translatedWords.push(word);
-        }
+        result.push(translations[word] ?? word);
         continue;
       }
 
-      // Check dictionary for lowercase version
-      const translated = translations[word] || translations[word.toLowerCase()];
-      if (translated) {
-        translatedWords.push(translated);
-      } else {
-        // Unknown word - try to translate just this word
-        try {
-          const result = await this.translateText(word, targetLanguage, {
-            format: 'text',
-            preserveFormatting: false,
-          });
-          translatedWords.push(result !== word ? result : word);
-        } catch {
-          translatedWords.push(word); // Fallback to original
-        }
+      const fallback = translations[word] || translations[word.toLowerCase()];
+      if (fallback) {
+        result.push(fallback);
+        continue;
+      }
+
+      try {
+        const r = await this.translateMetadataField(word, targetLanguage, {
+          format: 'text',
+        });
+        result.push(r !== word ? r : word);
+      } catch {
+        result.push(word);
       }
     }
 
-    const result = translatedWords.join(' ');
-    this.logger.log(`Fallback result: "${title}" → "${result}"`);
-
-    return result;
+    const final = result.join(' ');
+    this.logger.log(`Fallback: "${title}" → "${final}"`);
+    return final;
   }
 
-  /**
-   * Check if title is farming-related context
-   */
   private isFarmingContext(title: string): boolean {
-    const farmingKeywords = [
-      'farm',
-      'farming',
-      'agriculture',
-      'agricultural',
-      'crop',
-      'crops',
-      'harvest',
-      'livestock',
-      'poultry',
-      'raising',
-      'breeding',
-      'husbandry',
-    ];
-    const lowerTitle = title.toLowerCase();
-    return farmingKeywords.some((keyword) => lowerTitle.includes(keyword));
+    return /\b(farm(?:ing)?|agriculture|agricultural|crop|crops|harvest|livestock|poultry|raising|breeding|husbandry)\b/i.test(
+      title,
+    );
   }
 
-  /**
-   * Get animal translation (only for farming context)
-   */
   private getAnimalTranslation(
     word: string,
     targetLanguage: Language,
     isFarmingContext: boolean,
   ): string | null {
-    // Only translate animals in farming context
-    if (!isFarmingContext) {
-      return null;
-    }
+    if (!isFarmingContext) return null;
 
-    const animalTranslations: Record<Language, Record<string, string>> = {
+    const dict: Record<Language, Record<string, string>> = {
       [Language.SPANISH]: {
         Snail: 'Caracol',
         Snails: 'Caracoles',
@@ -1869,19 +1805,15 @@ export class LibreTranslationService {
       [Language.ENGLISH]: {},
     };
 
-    const translations = animalTranslations[targetLanguage] || {};
-    return (
-      translations[word] ||
-      translations[
-        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-      ] ||
-      null
-    );
+    const map = dict[targetLanguage] || {};
+    const key = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    return map[key] || map[word] || null;
   }
 
-  /**
-   * Get supported languages
-   */
+  // ---------------------------------------------------------------------------
+  // LANGUAGE UTILITIES
+  // ---------------------------------------------------------------------------
+
   async getSupportedLanguages(): Promise<any[]> {
     try {
       const response = await this.axiosInstance.get('/languages');
@@ -1892,9 +1824,6 @@ export class LibreTranslationService {
     }
   }
 
-  /**
-   * Detect language
-   */
   async detectLanguage(text: string): Promise<any[]> {
     try {
       const response = await this.axiosInstance.post('/detect', { q: text });
@@ -1905,52 +1834,40 @@ export class LibreTranslationService {
     }
   }
 
-  /**
-   * Map Language enum to LibreTranslate codes
-   */
   private getLanguageCode(language: Language): string {
-    const languageMap: Record<Language, string> = {
+    const map: Record<Language, string> = {
       [Language.ENGLISH]: 'en',
       [Language.GERMAN]: 'de',
       [Language.FRENCH]: 'fr',
       [Language.SPANISH]: 'es',
       [Language.ITALIAN]: 'it',
     };
-    return languageMap[language] || 'en';
+    return map[language] ?? 'en';
   }
 
-  /**
-   * Retry API requests with exponential backoff
-   */
   private async retryRequest<T>(
     requestFn: () => Promise<{ data: T }>,
     retries: number = this.maxRetries,
   ): Promise<{ data: T }> {
     let lastError: any;
-
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         return await requestFn();
       } catch (error) {
         lastError = error;
-
         if (attempt < retries) {
           const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
           this.logger.warn(
-            `API retry in ${delay}ms (attempt ${attempt + 1}/${retries})`,
+            `API retry in ${delay}ms (${attempt + 1}/${retries})`,
           );
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          await new Promise((r) => setTimeout(r, delay));
         }
       }
     }
-
     this.logger.error(`API failed after ${retries} retries`);
     throw lastError;
   }
 
-  /**
-   * Public validation method
-   */
   async validateTranslation(
     original: string,
     translated: string,

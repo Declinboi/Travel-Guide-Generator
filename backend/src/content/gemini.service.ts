@@ -175,6 +175,18 @@ const SENTENCE_UNIFORMITY_PATTERNS = [
   /(?:^|\. )You (?:can|will|should|might) /g,
 ];
 
+interface RefinementContext {
+  bookTitle?: string;
+  bookSubtitle?: string;
+  chapterTitle?: string;
+  chapterOutline?: ChapterOutline;
+}
+
+interface AuthenticityIssue {
+  issue: string;
+  instruction: string;
+}
+
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
@@ -441,6 +453,43 @@ export class GeminiService {
         : TRAVEL_AI_TELL_PATTERNS;
 
     return [...SHARED_AI_TELL_PATTERNS, ...domainPatterns];
+  }
+
+  private buildBookPromise(title: string, subtitle: string): string {
+    const subtitleLine = subtitle?.trim()
+      ? `Subtitle promise: ${subtitle.trim()}`
+      : 'Subtitle promise: no subtitle was provided, so infer the core destination and reader promise from the title only.';
+
+    return `BOOK PROMISE AND FACT CONTRACT:
+- Title: ${title}
+- ${subtitleLine}
+- Treat the title and subtitle as the contract with the reader. Every chapter must clearly serve that promise.
+- Identify the exact destination, route, region, topic, year, audience, count, or special angle named in the title/subtitle, then keep returning to it.
+- If the subtitle promises a count such as "20 adventures", "7 days", "family guide", "local secrets", or a route from one place to another, the outline and chapters must honor that exact promise.
+- Do not drift into a generic country/city overview. If a detail does not help this specific book, leave it out.
+- Use accurate, named details. Prefer stable facts: real neighborhoods, stations, museums, markets, trails, ferries, parks, dishes, local terms, seasons, and practical constraints.
+- Do not invent exact opening hours, phone numbers, legal rules, prices, or transit schedules. If exact data can change, give a careful planning range and tell readers to confirm before booking.
+- Never fabricate personal experience that depends on impossible access. Use grounded travel-writer observations, but keep them plausible and useful.`;
+  }
+
+  private buildTravelGuidebookQualityRules(): string {
+    return `REAL GUIDEBOOK STANDARD:
+- Write like a finished commercial guidebook chapter, not scattered notes.
+- Use clear section headings from the outline, then write polished paragraphs under them.
+- Each section should answer the reader's practical questions: why go, where exactly, best timing, time needed, cost range, booking/transport notes, who should skip it, and what mistake to avoid.
+- Include decision-making language: "choose this if...", "skip it if...", "do this before...", "leave extra time for...".
+- Keep factual claims modest when they may change. Say "usually", "often", "expect", or "check before you go" where appropriate.
+- No placeholder phrases, no TODO-style notes, no filler transitions, no generic praise.`;
+  }
+
+  private buildFarmingGuidebookQualityRules(): string {
+    return `REAL FARMING GUIDEBOOK STANDARD:
+- Write like a finished practical farming chapter, not scattered notes or textbook summaries.
+- Use clear section headings from the outline, then write polished paragraphs under them.
+- Each section should answer the reader's working questions: what to do, when to do it, what tools/materials are needed, what it costs, what can go wrong, and how to know it is working.
+- Include decision-making language: "start with...", "skip this unless...", "choose this if...", "do this before...", "watch for...".
+- Keep factual claims honest. Climate, prices, laws, disease pressure, suppliers, and yields vary by location, so use careful ranges and tell readers what to verify locally.
+- No placeholder phrases, no motivational filler, no academic padding, no generic praise.`;
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -715,6 +764,362 @@ export class GeminiService {
     return result.trim();
   }
 
+  private countMatches(text: string, pattern: RegExp): number {
+    return text.match(pattern)?.length || 0;
+  }
+
+  private getRepeatedParagraphStarts(text: string): string[] {
+    const starts = text
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.trim().match(/^["']?([A-Za-z]{3,})\b/)?.[1])
+      .filter((word): word is string => Boolean(word))
+      .map((word) => word.toLowerCase());
+
+    const counts = new Map<string, number>();
+    for (const start of starts) {
+      counts.set(start, (counts.get(start) || 0) + 1);
+    }
+
+    return [...counts.entries()]
+      .filter(([, count]) => count >= 4)
+      .map(([word]) => word);
+  }
+
+  private getTravelAuthenticityIssues(text: string): AuthenticityIssue[] {
+    const issues: AuthenticityIssue[] = [];
+    const paragraphs = text.split(/\n{2,}/).filter((p) => p.trim().length > 0);
+    const lower = text.toLowerCase();
+    const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+    const headingCount = this.countMatches(text, /^[A-Z][^\n]{3,80}$/gm);
+    const practicalSignalCount = this.countMatches(
+      lower,
+      /\b(cost|costs|price|ticket|tickets|book|booking|reserve|reservation|cash|card|atm|bus|train|tram|metro|taxi|ferry|walk|walking|drive|parking|queue|entrance|station|airport|hours|morning|afternoon|evening|season|rain|summer|winter|spring|autumn|fall|closed|open|minutes|hours|kilomet|km|mile|stairs|crowd|crowds|market|museum|neighborhood|district|street|route|trail|beach|restaurant|cafe)\b/g,
+    );
+    const namedPlaceSignalCount = this.countMatches(
+      text,
+      /\b([A-Z][a-z]+(?:\s+(?:de|del|da|do|dos|das|la|le|du|of|the|and|[A-Z][a-z]+)){1,4})\b/g,
+    );
+    const noteLikeCount = this.countMatches(
+      text,
+      /^\s*(?:[-*•]|\d+[.)]|#{1,6}\s)/gm,
+    );
+    const genericPhraseCount = this.countMatches(
+      lower,
+      /\b(rich history|vibrant culture|must-see|hidden gem|something for everyone|breathtaking views|stunning scenery|local culture|unique experience|memorable experience|explore the area|immerse yourself|perfect destination|travelers will find|worth noting|in this chapter|this section|as mentioned earlier)\b/g,
+    );
+    const secondPersonPatternCount = this.countMatches(
+      text,
+      /(?:^|[.!?]\s+)You (?:can|will|should|might|may|could)\b/g,
+    );
+    const repeatedStarts = this.getRepeatedParagraphStarts(text);
+
+    if (wordCount > 700 && headingCount < 2) {
+      issues.push({
+        issue: 'few scannable guidebook headings',
+        instruction:
+          'Add natural guidebook section headings from the outline so the chapter feels edited and easy to use.',
+      });
+    }
+
+    if (paragraphs.length > 12 && practicalSignalCount < paragraphs.length) {
+      issues.push({
+        issue: 'not enough practical guidebook details',
+        instruction:
+          'Add more planning details: timing, cost ranges, transport, booking notes, queues, difficulty, and clear recommendations.',
+      });
+    }
+
+    if (paragraphs.length > 10 && namedPlaceSignalCount < 8) {
+      issues.push({
+        issue: 'not enough named, destination-specific anchors',
+        instruction:
+          'Add stable named anchors such as neighborhoods, streets, stations, markets, museums, parks, trailheads, dishes, beaches, or day-trip towns.',
+      });
+    }
+
+    if (noteLikeCount >= 5) {
+      issues.push({
+        issue: 'content looks like notes or an outline',
+        instruction:
+          'Convert note-like bullets and fragments into finished prose, keeping only polished headings where they help readers scan.',
+      });
+    }
+
+    if (genericPhraseCount >= 3) {
+      issues.push({
+        issue: 'generic travel-brochure phrasing',
+        instruction:
+          'Replace generic praise with exact details, honest trade-offs, and concrete reader advice.',
+      });
+    }
+
+    if (secondPersonPatternCount >= 8) {
+      issues.push({
+        issue: 'repetitive AI-like sentence rhythm',
+        instruction:
+          'Vary sentence openings and rhythm. Mix direct verdicts, observations, named places, short fragments, and practical explanation.',
+      });
+    }
+
+    if (repeatedStarts.length > 0) {
+      issues.push({
+        issue: `repeated paragraph starts: ${repeatedStarts.join(', ')}`,
+        instruction:
+          'Rewrite paragraph openings so the chapter sounds edited by a human, not generated from a template.',
+      });
+    }
+
+    return issues;
+  }
+
+  private getFarmingAuthenticityIssues(text: string): AuthenticityIssue[] {
+    const issues: AuthenticityIssue[] = [];
+    const paragraphs = text.split(/\n{2,}/).filter((p) => p.trim().length > 0);
+    const lower = text.toLowerCase();
+    const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+    const headingCount = this.countMatches(text, /^[A-Z][^\n]{3,80}$/gm);
+    const numberSignalCount = this.countMatches(
+      text,
+      /\b\d+(?:[.,]\d+)?(?:\s?(?:%|dollars?|usd|cents?|lb|lbs|pounds?|oz|ounces?|kg|g|grams?|tons?|acres?|sq\s?ft|feet|foot|inches?|cm|mm|days?|weeks?|months?|years?|hours?|minutes?|degrees?|f|c|gallons?|liters?|quarts?|bushels?|bales?|birds?|chicks?|cows?|goats?|sheep|pigs?|rows?|plants?|seeds?))\b/gi,
+    );
+    const practicalSignalCount = this.countMatches(
+      lower,
+      /\b(cost|costs|budget|price|feed|seed|seeds|soil|compost|manure|fertilizer|lime|ph|water|irrigation|drip|hose|fence|fencing|gate|coop|brooder|lamp|tractor|tiller|shovel|hoe|rake|bucket|trough|bedding|pasture|rotation|harvest|plant|planting|transplant|germination|spacing|temperature|disease|pest|predator|permit|regulation|extension|veterinarian|supplier|hatchery|yield|profit|loss|labor|hours|season|spring|summer|fall|autumn|winter)\b/g,
+    );
+    const cropAnimalToolSignalCount = this.countMatches(
+      lower,
+      /\b(tomato|corn|maize|pepper|lettuce|cabbage|carrot|onion|potato|cassava|yam|rice|beans|wheat|alfalfa|clover|orchard|layers?|broilers?|chickens?|hens?|roosters?|cattle|calves|cows?|goats?|sheep|lambs?|pigs?|sows?|bees?|hives?|rabbits?|ducklings?|turkeys?|breed|variety|cultivar|hardware cloth|heat lamp|waterer|feeder|electric netting|rototiller|broadfork)\b/g,
+    );
+    const noteLikeCount = this.countMatches(
+      text,
+      /^\s*(?:[-*•]|\d+[.)]|#{1,6}\s)/gm,
+    );
+    const textbookPhraseCount = this.countMatches(
+      lower,
+      /\b(sustainable practices|holistic approach|best practices|robust system|optimize productivity|maximize potential|integrated approach|agricultural ecosystem|foster growth|ensure success|empower farmers|unlock the potential|journey toward|rewarding endeavor|in this chapter|this section|it is important to note|proper management is essential)\b/g,
+    );
+    const secondPersonPatternCount = this.countMatches(
+      text,
+      /(?:^|[.!?]\s+)You (?:can|will|should|might|may|could)\b/g,
+    );
+    const repeatedStarts = this.getRepeatedParagraphStarts(text);
+
+    if (wordCount > 700 && headingCount < 2) {
+      issues.push({
+        issue: 'few scannable farming-guide headings',
+        instruction:
+          'Add natural working-guide headings from the outline so the chapter feels edited and usable in the field.',
+      });
+    }
+
+    if (paragraphs.length > 12 && practicalSignalCount < paragraphs.length) {
+      issues.push({
+        issue: 'not enough hands-on farming details',
+        instruction:
+          'Add more working details: tools, materials, timing, labor, costs, spacing, feed/water needs, mistakes, and troubleshooting.',
+      });
+    }
+
+    if (paragraphs.length > 10 && numberSignalCount < 8) {
+      issues.push({
+        issue: 'not enough specific numbers',
+        instruction:
+          'Add practical ranges and measurements: days, weeks, pounds, spacing, temperatures, setup costs, yields, daily labor, or replacement intervals.',
+      });
+    }
+
+    if (paragraphs.length > 10 && cropAnimalToolSignalCount < 8) {
+      issues.push({
+        issue: 'not enough crop, animal, tool, or material specificity',
+        instruction:
+          'Name specific crops, breeds, varieties, tools, materials, pests, diseases, or farm systems relevant to the title/subtitle.',
+      });
+    }
+
+    if (noteLikeCount >= 5) {
+      issues.push({
+        issue: 'content looks like notes or an outline',
+        instruction:
+          'Convert note-like bullets and fragments into finished prose, keeping only polished headings where they help readers scan.',
+      });
+    }
+
+    if (textbookPhraseCount >= 3) {
+      issues.push({
+        issue: 'generic textbook or AI farming phrasing',
+        instruction:
+          'Replace academic padding with plain farm language, exact trade-offs, field checks, and real consequences.',
+      });
+    }
+
+    if (secondPersonPatternCount >= 8) {
+      issues.push({
+        issue: 'repetitive AI-like sentence rhythm',
+        instruction:
+          'Vary sentence openings and rhythm. Mix direct instructions, numbers, field observations, warnings, short verdicts, and practical explanation.',
+      });
+    }
+
+    if (repeatedStarts.length > 0) {
+      issues.push({
+        issue: `repeated paragraph starts: ${repeatedStarts.join(', ')}`,
+        instruction:
+          'Rewrite paragraph openings so the chapter sounds edited by a human, not generated from a template.',
+      });
+    }
+
+    return issues;
+  }
+
+  private getAuthenticityRewritePrompt(
+    text: string,
+    issues: AuthenticityIssue[],
+    refinementContext?: RefinementContext,
+  ): string {
+    const issueList = issues
+      .map(
+        (issue, index) => `${index + 1}. ${issue.issue}: ${issue.instruction}`,
+      )
+      .join('\n');
+
+    const contextBlock =
+      refinementContext?.bookTitle || refinementContext?.bookSubtitle
+        ? `
+BOOK CONTEXT:
+${refinementContext.bookTitle ? `Title: "${refinementContext.bookTitle}"` : ''}
+${refinementContext.bookSubtitle ? `Subtitle: "${refinementContext.bookSubtitle}"` : ''}
+${refinementContext.chapterTitle ? `Chapter: "${refinementContext.chapterTitle}"` : ''}
+${refinementContext.chapterOutline ? `Chapter outline: ${JSON.stringify(refinementContext.chapterOutline, null, 2)}` : ''}
+
+${this.buildBookPromise(refinementContext.bookTitle || '', refinementContext.bookSubtitle || '')}
+`
+        : '';
+
+    return `You are doing the final human editor pass on a travel guide chapter before publication.
+
+The chapter still has these authenticity problems:
+${issueList}
+
+${contextBlock}
+
+EDITORIAL REQUIREMENTS:
+- Make it read like a real guidebook chapter written by an experienced travel writer.
+- Keep the useful facts already present, but remove filler, repetition, and note-like fragments.
+- Add grounded, stable details only when they are safe: named areas, common transport types, seasonal patterns, local foods, common visitor mistakes, and practical ranges.
+- Do not invent exact current opening hours, phone numbers, visa rules, legal rules, or schedules.
+- Make every section useful to a traveler planning the trip promised by the title/subtitle.
+- Use clear headings where helpful, but do not turn the chapter into bullet notes.
+- Return only the finished chapter text.
+
+CHAPTER TO FIX:
+${text}`;
+  }
+
+  private getFarmingAuthenticityRewritePrompt(
+    text: string,
+    issues: AuthenticityIssue[],
+    refinementContext?: RefinementContext,
+  ): string {
+    const issueList = issues
+      .map(
+        (issue, index) => `${index + 1}. ${issue.issue}: ${issue.instruction}`,
+      )
+      .join('\n');
+
+    const contextBlock =
+      refinementContext?.bookTitle || refinementContext?.bookSubtitle
+        ? `
+BOOK CONTEXT:
+${refinementContext.bookTitle ? `Title: "${refinementContext.bookTitle}"` : ''}
+${refinementContext.bookSubtitle ? `Subtitle: "${refinementContext.bookSubtitle}"` : ''}
+${refinementContext.chapterTitle ? `Chapter: "${refinementContext.chapterTitle}"` : ''}
+${refinementContext.chapterOutline ? `Chapter outline: ${JSON.stringify(refinementContext.chapterOutline, null, 2)}` : ''}
+
+${this.buildBookPromise(refinementContext.bookTitle || '', refinementContext.bookSubtitle || '')}
+${this.buildFarmingGuidebookQualityRules()}
+`
+        : '';
+
+    return `You are doing the final human editor pass on a practical farming guide chapter before publication.
+
+The chapter still has these authenticity problems:
+${issueList}
+
+${contextBlock}
+
+EDITORIAL REQUIREMENTS:
+- Make it read like a real farming guide chapter written by someone who has done the work.
+- Keep the useful facts already present, but remove filler, repetition, academic padding, and note-like fragments.
+- Add grounded practical details only when they are safe: tools, materials, timing windows, cost ranges, labor estimates, spacing, feed/water needs, common mistakes, field checks, and troubleshooting signs.
+- Do not invent exact current laws, veterinary instructions, supplier prices, chemical labels, disease protocols, or guaranteed yields.
+- Make every section useful to the farmer, gardener, or homesteader promised by the title/subtitle.
+- Use clear headings where helpful, but do not turn the chapter into bullet notes.
+- Return only the finished chapter text.
+
+CHAPTER TO FIX:
+${text}`;
+  }
+
+  private async enforceTravelAuthenticity(
+    text: string,
+    systemPrompt?: string,
+    refinementContext?: RefinementContext,
+  ): Promise<string> {
+    const issues = this.getTravelAuthenticityIssues(text);
+
+    if (issues.length === 0) {
+      return text;
+    }
+
+    this.logger.warn(
+      `Travel authenticity audit found ${issues.length} issue(s): ${issues
+        .map((issue) => issue.issue)
+        .join('; ')}`,
+    );
+
+    const rewritePrompt = this.getAuthenticityRewritePrompt(
+      text,
+      issues,
+      refinementContext,
+    );
+    const rewritten = await this.generateWithProviderRotation(
+      rewritePrompt,
+      systemPrompt,
+    );
+
+    return this.humanizeText(rewritten, 'travel');
+  }
+
+  private async enforceFarmingAuthenticity(
+    text: string,
+    systemPrompt?: string,
+    refinementContext?: RefinementContext,
+  ): Promise<string> {
+    const issues = this.getFarmingAuthenticityIssues(text);
+
+    if (issues.length === 0) {
+      return text;
+    }
+
+    this.logger.warn(
+      `Farming authenticity audit found ${issues.length} issue(s): ${issues
+        .map((issue) => issue.issue)
+        .join('; ')}`,
+    );
+
+    const rewritePrompt = this.getFarmingAuthenticityRewritePrompt(
+      text,
+      issues,
+      refinementContext,
+    );
+    const rewritten = await this.generateWithProviderRotation(
+      rewritePrompt,
+      systemPrompt,
+    );
+
+    return this.humanizeText(rewritten, 'farming');
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // Multi-turn refinement — domain-aware critique
   // ═══════════════════════════════════════════════════════════════
@@ -722,23 +1127,59 @@ export class GeminiService {
     prompt: string,
     contentType: ContentType,
     systemPrompt?: string,
+    refinementContext?: RefinementContext,
   ): Promise<string> {
     const draft = await this.generateWithProviderRotation(prompt, systemPrompt);
 
     const refinePrompt =
       contentType === 'travel'
-        ? this.getTravelRefinePrompt(draft)
-        : this.getFarmingRefinePrompt(draft);
+        ? this.getTravelRefinePrompt(draft, refinementContext)
+        : this.getFarmingRefinePrompt(draft, refinementContext);
 
     const refined = await this.generateWithProviderRotation(
       refinePrompt,
       systemPrompt,
     );
 
-    return this.humanizeText(refined, contentType);
+    const humanized = this.humanizeText(refined, contentType);
+
+    if (contentType === 'travel') {
+      return await this.enforceTravelAuthenticity(
+        humanized,
+        systemPrompt,
+        refinementContext,
+      );
+    }
+
+    if (contentType === 'farming') {
+      return await this.enforceFarmingAuthenticity(
+        humanized,
+        systemPrompt,
+        refinementContext,
+      );
+    }
+
+    return humanized;
   }
 
-  private getTravelRefinePrompt(draft: string): string {
+  private getTravelRefinePrompt(
+    draft: string,
+    refinementContext?: RefinementContext,
+  ): string {
+    const contextBlock =
+      refinementContext?.bookTitle || refinementContext?.bookSubtitle
+        ? `
+BOOK CONTEXT TO PRESERVE:
+${refinementContext.bookTitle ? `Title: "${refinementContext.bookTitle}"` : ''}
+${refinementContext.bookSubtitle ? `Subtitle: "${refinementContext.bookSubtitle}"` : ''}
+${refinementContext.chapterTitle ? `Chapter: "${refinementContext.chapterTitle}"` : ''}
+${refinementContext.chapterOutline ? `Chapter outline: ${JSON.stringify(refinementContext.chapterOutline, null, 2)}` : ''}
+
+${this.buildBookPromise(refinementContext.bookTitle || '', refinementContext.bookSubtitle || '')}
+${this.buildTravelGuidebookQualityRules()}
+`
+        : '';
+
     return `Here is a draft chapter you wrote. Rewrite it to fix these specific issues:
 
 1. Replace any generic phrases ("hidden gem", "vibrant culture", "bustling streets") with specific concrete details
@@ -748,6 +1189,11 @@ export class GeminiService {
 5. Add one imperfect detail per section (a place that was closed, a dish that was too spicy, rain that ruined a plan) — real travel has friction
 6. Remove any phrase that sounds like a tourism brochure
 7. Replace vague sensory language ("beautiful view") with specific sensory details ("the limestone cliffs dropped straight into water so clear you could count pebbles at ten meters")
+8. Preserve the exact destination, reader promise, route, count, year, and angle from the title/subtitle
+9. Turn note-like passages into finished guidebook prose with useful section headings and practical reader advice
+10. Do not add exact facts that may change unless the draft already had them; use careful ranges and "confirm before you go" wording for changeable details
+
+${contextBlock}
 
 DRAFT TO REWRITE:
 ${draft}
@@ -755,7 +1201,24 @@ ${draft}
 Return ONLY the rewritten text. No commentary.`;
   }
 
-  private getFarmingRefinePrompt(draft: string): string {
+  private getFarmingRefinePrompt(
+    draft: string,
+    refinementContext?: RefinementContext,
+  ): string {
+    const contextBlock =
+      refinementContext?.bookTitle || refinementContext?.bookSubtitle
+        ? `
+BOOK CONTEXT TO PRESERVE:
+${refinementContext.bookTitle ? `Title: "${refinementContext.bookTitle}"` : ''}
+${refinementContext.bookSubtitle ? `Subtitle: "${refinementContext.bookSubtitle}"` : ''}
+${refinementContext.chapterTitle ? `Chapter: "${refinementContext.chapterTitle}"` : ''}
+${refinementContext.chapterOutline ? `Chapter outline: ${JSON.stringify(refinementContext.chapterOutline, null, 2)}` : ''}
+
+${this.buildBookPromise(refinementContext.bookTitle || '', refinementContext.bookSubtitle || '')}
+${this.buildFarmingGuidebookQualityRules()}
+`
+        : '';
+
     return `Here is a draft chapter you wrote. Rewrite it to fix these specific issues:
 
 1. Replace any corporate/academic phrases ("sustainable practices", "holistic approach", "best practices") with plain farmer talk
@@ -766,6 +1229,11 @@ Return ONLY the rewritten text. No commentary.`;
 6. Remove any phrase that sounds like an agriculture textbook or government pamphlet
 7. Replace vague advice ("ensure proper drainage") with specific instructions ("dig a 6-inch trench along the downhill side of each bed, angled at about 2% grade toward your collection point")
 8. Add specific numbers where possible: pounds per acre, days to germination, cost per head, hours of labor
+9. Preserve the exact crop, animal, scale, climate, production goal, budget, timeline, and reader promise from the title/subtitle
+10. Turn note-like passages into finished guidebook prose with useful working-guide headings and field-ready advice
+11. Do not invent exact laws, veterinary instructions, supplier prices, chemical labels, disease protocols, or guaranteed yields
+
+${contextBlock}
 
 DRAFT TO REWRITE:
 ${draft}
@@ -779,10 +1247,12 @@ Return ONLY the rewritten text. No commentary.`;
       refine = false,
       systemPrompt,
       contentType = 'travel' as ContentType,
+      refinementContext,
     }: {
       refine?: boolean;
       systemPrompt?: string;
       contentType?: ContentType;
+      refinementContext?: RefinementContext;
     } = {},
   ): Promise<string> {
     let lastError: any;
@@ -800,6 +1270,7 @@ Return ONLY the rewritten text. No commentary.`;
             prompt,
             contentType,
             systemPrompt,
+            refinementContext,
           );
         } else {
           text = await this.generateWithProviderRotation(prompt, systemPrompt);
@@ -1073,6 +1544,16 @@ GOOD section titles (specific, practical):
     const isFirstChunk = fromChapter === 1;
     const isLastChunk = toChapter === totalChapters;
     const isFullOutline = isFirstChunk && isLastChunk;
+    const domainOutlineRules =
+      contentType === 'travel'
+        ? `10. Each chapter must cover a distinct reader need: arrival/planning, neighborhoods or regions, transport, food, lodging, itineraries, culture, safety, costs, day trips, seasonal advice, and final checklists as relevant to this exact title
+11. Do not create vague chapter titles like "Culture and History" unless the title/subtitle specifically asks for that; use named places, routes, decisions, or traveler problems
+12. If the subtitle names specific places, every named place must appear in the outline in the right part of the book
+13. If the subtitle promises a number of activities/adventures/secrets, distribute them clearly across chapters without padding or duplicate ideas`
+        : `10. Each chapter must cover a distinct reader need: setup, equipment, costs, timeline, daily work, common mistakes, troubleshooting, regulations, seasonal tasks, and final checklists as relevant to this exact title
+11. Do not create vague chapter titles like "Understanding the Basics" unless the title/subtitle specifically asks for that; use named problems, crops, animals, tools, methods, or decisions
+12. If the subtitle names specific crops, animals, scale, climate, or production goals, every named promise must appear in the outline in the right part of the book
+13. If the subtitle promises a count, timeline, or outcome, distribute it clearly across chapters without padding or duplicate ideas`;
 
     let chapterRules = '';
 
@@ -1104,6 +1585,8 @@ Subtitle: "${subtitle}"
 Total book length: ${totalChapters} chapters
 Generate: EXACTLY ${chapterCount} chapters (chapters ${fromChapter}-${toChapter})
 
+${contentType === 'travel' ? this.buildBookPromise(title, subtitle) : ''}
+
 REQUIREMENTS:
 1. Generate EXACTLY ${chapterCount} chapters
 2. Number chapters from ${fromChapter} to ${toChapter}${chapterRules}
@@ -1111,6 +1594,7 @@ REQUIREMENTS:
 7. Each section should have 2 to 4 subsections (vary these too)
 8. Every subsection must be a non-empty string — no blank entries
 9. Section and subsection titles should sound like a human wrote them — no generic filler
+${domainOutlineRules}
 ${exampleTitles}
 
 OUTPUT FORMAT (JSON):
@@ -1308,6 +1792,12 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Ret
       refine: true,
       contentType,
       systemPrompt: this.getSystemPrompt(contentType),
+      refinementContext: {
+        bookTitle: title,
+        bookSubtitle: subtitle,
+        chapterTitle: introChapter.chapterTitle,
+        chapterOutline: introChapter,
+      },
     });
   }
 
@@ -1320,6 +1810,9 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Ret
 
 Title: "${title}"
 Subtitle: "${subtitle}"
+
+${this.buildBookPromise(title, subtitle)}
+${this.buildTravelGuidebookQualityRules()}
 
 Chapter Structure:
 ${JSON.stringify(introChapter, null, 2)}
@@ -1476,6 +1969,12 @@ Write in plain english language the complete Introduction chapter now:`;
       refine: true,
       contentType,
       systemPrompt: this.getSystemPrompt(contentType),
+      refinementContext: {
+        bookTitle,
+        bookSubtitle,
+        chapterTitle: chapterOutline.chapterTitle,
+        chapterOutline,
+      },
     });
   }
 
@@ -1502,6 +2001,8 @@ ${contextData.weatherNotes ? `- Weather: ${contextData.weatherNotes}` : ''}
       : '';
 
     const baseHeader = `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the travel guide "${bookTitle}: ${bookSubtitle} " IN PLAIN ENGLISH LANGUAGE.
+
+${this.buildBookPromise(bookTitle, bookSubtitle)}
 
 Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
@@ -1668,6 +2169,8 @@ My take: first-timers or short-trippers should take the shuttle. If you've got t
 
   private getTravelSharedRules(): string {
     return `
+${this.buildTravelGuidebookQualityRules()}
+
 GUIDE BOOK CONTENT RULES (apply regardless of format):
 - Every section needs: what it is, how to get there, when to go, how long to spend, what it costs, and whether it's worth it
 - Include specific prices, hours, and distances — approximate is fine, vague is not
@@ -1678,6 +2181,10 @@ GUIDE BOOK CONTENT RULES (apply regardless of format):
 - Brief personal anecdotes ONLY when they illustrate something useful
 - Include one local name or phrase per section that readers can actually use
 - Sensory details should help readers recognize places: "look for the blue awning" not just "it smells nice"
+- Use section headings exactly when they help the reader scan the chapter. The chapter should feel edited, coherent, and ready for print.
+- Tie advice back to the destination and reader promise from the title/subtitle at least once per section.
+- If you cannot be certain about a changing detail, write a responsible range or planning note instead of pretending certainty.
+- Prefer named, stable anchors: districts, transit hubs, trailheads, beaches, museums, market streets, common dishes, local holidays, and weather seasons.
 
 PRACTICAL HONESTY:
 - Say when something is overhyped or not worth the effort for most travelers
@@ -1890,6 +2397,8 @@ For backyard flocks under 20 birds, free-choice makes sense. Over 50 birds, rati
 
   private getFarmingSharedRules(): string {
     return `
+${this.buildFarmingGuidebookQualityRules()}
+
 GUIDE BOOK CONTENT RULES (apply regardless of format):
 - Every section needs: what to do, when to do it, what it costs, what equipment you need, and what can go wrong
 - Specific numbers always: pounds, days, dollars, temperatures, spacing, quantities — approximate is fine, vague is not
@@ -1900,6 +2409,10 @@ GUIDE BOOK CONTENT RULES (apply regardless of format):
 - Compare methods with honest trade-offs: "A is cheaper but takes twice as long"
 - Mention specific breeds, varieties, or brands when it matters — and say why
 - Personal anecdotes ONLY when they illustrate a mistake to avoid or a technique that works
+- Use section headings exactly when they help the reader scan the chapter. The chapter should feel edited, coherent, and ready for print.
+- Tie advice back to the crop, animal, scale, climate, production goal, or reader promise from the title/subtitle at least once per section.
+- If a detail varies by region or changes over time, write a responsible range or local verification note instead of pretending certainty.
+- Prefer concrete anchors: breed names, crop varieties, soil signs, tool sizes, feed types, fencing materials, pest symptoms, seasonal windows, and extension-office checks.
 
 PRACTICAL HONESTY:
 - Say when something is overly complicated for the benefit
@@ -1947,6 +2460,12 @@ WHAT TO AVOID:
       refine: true,
       contentType,
       systemPrompt: this.getSystemPrompt(contentType),
+      refinementContext: {
+        bookTitle: title,
+        bookSubtitle: subtitle,
+        chapterTitle: conclusionChapter.chapterTitle,
+        chapterOutline: conclusionChapter,
+      },
     });
   }
 
@@ -1959,6 +2478,9 @@ WHAT TO AVOID:
 
 Title: "${title}"
 Subtitle: "${subtitle}"
+
+${this.buildBookPromise(title, subtitle)}
+${this.buildTravelGuidebookQualityRules()}
 
 Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
@@ -1977,13 +2499,13 @@ MUST-INCLUDE REFERENCE SECTIONS (use clear formatting):
 2. PACKING ESSENTIALS: specific to this destination, not generic travel advice
 3. QUICK PHRASES: 8-10 actually useful local phrases with pronunciation hints
 4. MONEY TIPS: ATM advice, tipping norms, cash vs card, common scams
-5. EMERGENCY CONTACTS: real phone numbers — police, tourist police, embassy, hospitals, your country's emergency line
+5. EMERGENCY CONTACTS: emergency categories readers must verify before travel — police/ambulance/fire, tourist police or visitor help line if the destination has one, nearest embassy/consulate, major hospitals, travel insurance number
 6. LAST-MINUTE REMINDERS: things easily forgotten, based on common mistakes
 
 CONTENT APPROACH:
 - Prioritize what readers will actually reference mid-trip
-- Be specific: "download Grab before you land" not "consider ride-sharing apps"
-- Include the non-obvious: what to photocopy, which cards work, what's closed on which days
+- Be specific: "download the main local taxi app before you land" not "consider ride-sharing apps"; name an app only when it is clearly relevant to the destination
+- Include the non-obvious: what to photocopy, card/cash patterns, common closure days, and what must be confirmed before booking
 - Quick verdicts on common questions: "Is the tourist bus worth it? No. Here's why."
 - Acknowledge different trip lengths: "If you only have 3 days, prioritize X"
 - One brief "I wish I'd known" paragraph — 3-4 specific things, not a long list
@@ -2119,6 +2641,8 @@ Write the complete Conclusion chapter now:`;
       contentType === 'travel'
         ? `Write an "About This Book" blurb for a travel guide titled "${title}" and subtitle "${subtitle}".
 
+${this.buildBookPromise(title, subtitle)}
+
 4-6 short paragraphs. NO generic phrases like "comprehensive guide" or "everything you need to know."
 
 Instead, be specific about:
@@ -2126,6 +2650,7 @@ Instead, be specific about:
 - Who will get the most out of it (solo backpackers? families? first-timers? repeat visitors?)
 - One honest limitation ("This book won't..." or "If you're looking for luxury resort reviews, that's not this")
 - How it's organized for actual trip planning, not armchair reading
+- The exact places, traveler needs, or promised experiences named in the title/subtitle
 
 Tone: confident, direct, slightly informal. Like a back-cover blurb written by the author, not a marketer.`
         : `Write an "About This Book" blurb for a farming guide titled "${title}" and subtitle "${subtitle}".
