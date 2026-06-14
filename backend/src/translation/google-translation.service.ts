@@ -26,6 +26,15 @@ interface SourceLanguageProtection {
   placeholders: Map<string, string>;
 }
 
+interface CompoundSubstitutionResult {
+  // Text with compound animal tokens fully removed; remaining text is
+  // clean English that LibreTranslate can handle without any placeholders.
+  stripped: string;
+  // Ordered list of { position marker, target-language word } pairs so
+  // we can re-insert them into the translated output.
+  extractions: Array<{ marker: string; targetWord: string }>;
+}
+
 @Injectable()
 export class LibreTranslationService {
   private readonly logger = new Logger(LibreTranslationService.name);
@@ -98,14 +107,8 @@ export class LibreTranslationService {
 
   // ---------------------------------------------------------------------------
   // PREPROCESSING — protect technical tokens that must never be translated.
-  // We do NOT protect non-English spans here; that is handled separately by
-  // protectNonEnglishSpans() which is only called for body content, never for
-  // metadata.
   // ---------------------------------------------------------------------------
 
-  /**
-   * Protect URLs, emails, and code blocks so LibreTranslate leaves them alone.
-   */
   private preprocessText(text: string): {
     processed: string;
     placeholders: Map<string, string>;
@@ -114,7 +117,6 @@ export class LibreTranslationService {
     let processed = text;
     let counter = 0;
 
-    // URLs
     const urlRegex = /https?:\/\/[^\s]+/g;
     processed = processed.replace(urlRegex, (match) => {
       const key = `URLPLACEHOLDER${counter++}`;
@@ -122,7 +124,6 @@ export class LibreTranslationService {
       return key;
     });
 
-    // Emails
     const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
     processed = processed.replace(emailRegex, (match) => {
       const key = `EMAILPLACEHOLDER${counter++}`;
@@ -130,7 +131,6 @@ export class LibreTranslationService {
       return key;
     });
 
-    // Fenced code blocks
     const codeBlockRegex = /```[\s\S]*?```/g;
     processed = processed.replace(codeBlockRegex, (match) => {
       const key = `CODEBLOCKPLACEHOLDER${counter++}`;
@@ -138,7 +138,6 @@ export class LibreTranslationService {
       return key;
     });
 
-    // Inline code
     const inlineCodeRegex = /`[^`\n]{1,50}`/g;
     processed = processed.replace(inlineCodeRegex, (match) => {
       const key = `CODEPLACEHOLDER${counter++}`;
@@ -149,9 +148,6 @@ export class LibreTranslationService {
     return { processed, placeholders };
   }
 
-  /**
-   * Restore all placeholders after translation.
-   */
   private postprocessText(
     text: string,
     placeholders: Map<string, string>,
@@ -165,22 +161,117 @@ export class LibreTranslationService {
   }
 
   // ---------------------------------------------------------------------------
-  // NON-ENGLISH SOURCE PROTECTION (body content only, never metadata)
+  // COMPOUND ANIMAL NAME SUBSTITUTION
   //
-  // KEY RULE: We ONLY protect spans that are detectably NOT English with high
-  // confidence. English text must always flow through to LibreTranslate.
-  // We use a strict confidence threshold (≥ 0.85) and require the detected
-  // language to be something other than English before protecting any span.
+  // The core problem: tokens like "Grasscutter(Cane Rat)" break LibreTranslate's
+  // tokeniser across all language pairs. Every placeholder strategy we tried
+  // (ALL-CAPS tokens, notranslate spans, numeric keys) fails for at least one
+  // language — Italian drops ALL-CAPS tokens silently, German translates "CANRAT"
+  // as "ANWENDUNGSBEREICH", and LibreTranslate mangles span tags in French/Spanish
+  // leaving raw `__0__` or `_0____` in the output.
+  //
+  // THE CORRECT APPROACH — extract-translate-reattach:
+  //  1. EXTRACT: Remove the compound token entirely from the input. Send only
+  //     the clean English remainder (e.g. "farming Guide") to LibreTranslate.
+  //  2. TRANSLATE: LibreTranslate translates the clean English without any
+  //     problematic tokens, producing a clean target-language output.
+  //  3. REATTACH: Prepend the known target-language animal name (e.g. "Rohrratte")
+  //     to the translated remainder.
+  //
+  // The animal name is ALREADY KNOWN before translation — it is in the
+  // COMPOUND_ANIMAL_RULES table. There is no need to send it through the engine.
   // ---------------------------------------------------------------------------
 
+  private readonly COMPOUND_ANIMAL_RULES: Record<
+    Language,
+    Array<{ pattern: RegExp; replacement: string }>
+  > = {
+    [Language.SPANISH]: [
+      {
+        pattern: /Grasscutters?\s*\(Cane\s*Rats?\)/gi,
+        replacement: 'Rata de caña',
+      },
+    ],
+    [Language.FRENCH]: [
+      {
+        pattern: /Grasscutters?\s*\(Cane\s*Rats?\)/gi,
+        replacement: 'Rat des cannes',
+      },
+    ],
+    [Language.GERMAN]: [
+      {
+        pattern: /Grasscutters?\s*\(Cane\s*Rats?\)/gi,
+        replacement: 'Rohrratte',
+      },
+    ],
+    [Language.ITALIAN]: [
+      {
+        pattern: /Grasscutters?\s*\(Cane\s*Rats?\)/gi,
+        replacement: 'Ratto della canna',
+      },
+    ],
+    [Language.ENGLISH]: [],
+  };
+
   /**
-   * Detect the language of a short sample via LibreTranslate /detect.
-   * Returns null when detection fails or the sample is too short.
+   * Extract compound animal tokens from `text`, returning:
+   *  - `stripped`: the text with those tokens removed (clean English for LibreTranslate)
+   *  - `extractions`: the target-language words to reattach after translation
+   *
+   * Called before sending to LibreTranslate. After translation, call
+   * reattachCompoundAnimals() to prepend the extracted words.
    */
+  private extractCompoundAnimals(
+    text: string,
+    targetLanguage: Language,
+  ): CompoundSubstitutionResult {
+    const rules = this.COMPOUND_ANIMAL_RULES[targetLanguage] ?? [];
+    let stripped = text;
+    const extractions: Array<{ marker: string; targetWord: string }> = [];
+
+    for (const { pattern, replacement } of rules) {
+      pattern.lastIndex = 0;
+      stripped = stripped.replace(pattern, (match) => {
+        this.logger.log(
+          `Extracting compound animal: "${match}" → will reattach as "${replacement}"`,
+        );
+        extractions.push({ marker: match, targetWord: replacement });
+        return ''; // remove from text entirely
+      });
+    }
+
+    // Collapse any double-spaces left by the removal
+    stripped = stripped.replace(/\s{2,}/g, ' ').trim();
+
+    return { stripped, extractions };
+  }
+
+  /**
+   * After translation, prepend the extracted target-language animal names.
+   * We prepend because the animal name was at the start of the original title.
+   * For body content the animal names are reattached at the front of the
+   * translated chunk — acceptable since the surrounding sentence is translated.
+   */
+  private reattachCompoundAnimals(
+    translated: string,
+    extractions: Array<{ marker: string; targetWord: string }>,
+  ): string {
+    if (extractions.length === 0) return translated;
+    const animalWords = extractions.map((e) => e.targetWord).join(' ');
+    const result = `${animalWords} ${translated}`.trim();
+    this.logger.log(
+      `Reattached compound animals: "${translated}" → "${result}"`,
+    );
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // NON-ENGLISH SOURCE PROTECTION (body content only, never metadata)
+  // ---------------------------------------------------------------------------
+
   private async detectLanguageCode(
     text: string,
   ): Promise<{ language: string; confidence: number } | null> {
-    // Strip URLs/emails to get a clean signal
     const clean = text
       .replace(/https?:\/\/\S+/g, '')
       .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '')
@@ -201,18 +292,6 @@ export class LibreTranslationService {
     }
   }
 
-  /**
-   * Return true ONLY when the text is verifiably non-English with high
-   * confidence.  English text always returns false so it passes through to
-   * LibreTranslate unchanged.
-   *
-   * Rules:
-   *  1. If the text contains unambiguous non-English-Latin diacritics
-   *     (À–Ö, Ø–ö, ø–ÿ, ¿, ¡) AND detection confirms non-English → protect.
-   *  2. If detection returns a non-English language with confidence ≥ 0.85
-   *     AND the text has zero English function words → protect.
-   *  3. Everything else → do NOT protect.
-   */
   private async isDefinitelyNonEnglish(text: string): Promise<boolean> {
     const trimmed = text.trim();
     if (trimmed.length < 8 || /^\W+$/.test(trimmed)) return false;
@@ -221,31 +300,18 @@ export class LibreTranslationService {
     const englishFunctionWords =
       /\b(the|and|is|are|was|were|be|been|being|have|has|had|do|does|did|will|would|shall|should|may|might|must|can|could|this|that|these|those|with|for|from|into|onto|upon|about|above|below|after|before|during|through|between|among|because|although|however|therefore|moreover|furthermore|nevertheless|consequently)\b/i;
 
-    const hasEnglishWords = englishFunctionWords.test(trimmed);
-
-    // If there are clear English words → English, pass through
-    if (hasEnglishWords) return false;
+    if (englishFunctionWords.test(trimmed)) return false;
 
     const detected = await this.detectLanguageCode(trimmed);
     if (!detected) return false;
-
     if (detected.language === 'en') return false;
 
-    // Require very high confidence + diacritics, or extremely high confidence alone
     if (hasDiacritics && detected.confidence >= 0.8) return true;
     if (!hasDiacritics && detected.confidence >= 0.9) return true;
 
     return false;
   }
 
-  /**
-   * Scan body content for non-English spans and protect them from translation.
-   * Only paragraph-level and sentence-level spans that are definitively
-   * non-English are protected.  Inline quoted strings are left alone because
-   * they are usually short and detection is unreliable at that granularity.
-   *
-   * This method must NOT be called for metadata translation.
-   */
   private async protectNonEnglishSpans(
     text: string,
   ): Promise<SourceLanguageProtection> {
@@ -258,14 +324,11 @@ export class LibreTranslationService {
       return key;
     };
 
-    // --- Paragraph-level protection (most reliable) ---
     const paragraphs = text.split(/(\n{2,})/);
     for (let i = 0; i < paragraphs.length; i++) {
       const part = paragraphs[i];
-      // Skip separators and already-protected spans
-      if (!part || /^\n+$/.test(part) || part.includes('NONENGLISHSOURCE')) {
+      if (!part || /^\n+$/.test(part) || part.includes('NONENGLISHSOURCE'))
         continue;
-      }
       if (await this.isDefinitelyNonEnglish(part)) {
         this.logger.debug(
           `Protecting non-English paragraph (${part.length} chars)`,
@@ -275,15 +338,13 @@ export class LibreTranslationService {
     }
     let processed = paragraphs.join('');
 
-    // --- Sentence-level protection (only inside unprotected paragraphs) ---
-    // Split on sentence boundaries but keep the delimiters
     const sentenceRegex = /([^.!?\n]+[.!?]+)/g;
     const parts = processed.split(sentenceRegex);
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
       if (!part || part.includes('NONENGLISHSOURCE')) continue;
       const wordCount = part.trim().split(/\s+/).filter(Boolean).length;
-      if (wordCount < 5) continue; // Too short for reliable detection
+      if (wordCount < 5) continue;
       if (await this.isDefinitelyNonEnglish(part)) {
         this.logger.debug(
           `Protecting non-English sentence: "${part.slice(0, 60)}..."`,
@@ -306,11 +367,6 @@ export class LibreTranslationService {
   // TRANSLATION QUALITY VALIDATION
   // ---------------------------------------------------------------------------
 
-  /**
-   * Expanded set of English words that should NOT appear in a proper
-   * translation.  We check these against the translated output; if too many
-   * remain the translation is penalised.
-   */
   private readonly ENGLISH_CONTENT_WORDS = new Set([
     'about',
     'after',
@@ -436,16 +492,14 @@ export class LibreTranslationService {
     const issues: string[] = [];
     let score = 100;
 
-    // Check 1: Empty result
     if (!translated || translated.trim().length === 0) {
       return { isValid: false, issues: ['Translation is empty'], score: 0 };
     }
 
-    // Normalise for comparison — strip placeholder tokens
     const stripPlaceholders = (t: string) =>
       t
         .replace(
-          /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE)PLACEHOLDER\d+\b/gi,
+          /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE)PLACEHOLDER?\d+\b/gi,
           '',
         )
         .trim();
@@ -453,13 +507,11 @@ export class LibreTranslationService {
     const origClean = stripPlaceholders(original).toLowerCase();
     const transClean = stripPlaceholders(translated).toLowerCase();
 
-    // Check 2: Completely identical after stripping placeholders
     if (origClean === transClean && origClean.length > 10) {
       issues.push('Translation is identical to original');
       score -= 60;
     }
 
-    // Check 3: Length ratio
     const lengthRatio = translated.length / Math.max(original.length, 1);
     if (lengthRatio < 0.2) {
       issues.push(`Translation too short (${(lengthRatio * 100).toFixed(0)}%)`);
@@ -471,7 +523,6 @@ export class LibreTranslationService {
       score -= 15;
     }
 
-    // Check 4: Language markers (skip for English target)
     if (targetLanguage !== Language.ENGLISH) {
       if (!this.hasTargetLanguageMarkers(transClean, targetLanguage)) {
         issues.push('Missing target-language markers');
@@ -479,10 +530,8 @@ export class LibreTranslationService {
       }
     }
 
-    // Check 5: Untranslated English content words (non-English targets only)
     if (targetLanguage !== Language.ENGLISH) {
       const remaining = this.countRemainingEnglishWords(original, translated);
-
       if (remaining.count >= 10) {
         issues.push(
           `Many English words remain untranslated (${remaining.count}): ${remaining.sample.join(', ')}`,
@@ -509,18 +558,13 @@ export class LibreTranslationService {
     };
   }
 
-  /**
-   * Count English content words that still appear in the translated text.
-   * We compare lowercase tokens and exclude proper nouns (all-caps or
-   * title-case words that also appear in the original).
-   */
   private countRemainingEnglishWords(
     original: string,
     translated: string,
   ): { count: number; sample: string[] } {
     const stripPlaceholders = (t: string) =>
       t.replace(
-        /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE)PLACEHOLDER\d+\b/gi,
+        /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE)PLACEHOLDER?\d+\b/gi,
         '',
       );
 
@@ -529,14 +573,11 @@ export class LibreTranslationService {
         .toLowerCase()
         .match(/\b[a-z]{4,}\b/g) || [],
     );
-
     const transTokens = new Set(
       stripPlaceholders(translated)
         .toLowerCase()
         .match(/\b[a-z]{4,}\b/g) || [],
     );
-
-    // Proper nouns: title-case words in the original that we expect to stay
     const properNouns = new Set(
       (original.match(/\b[A-Z][a-z]{2,}\b/g) || []).map((w) => w.toLowerCase()),
     );
@@ -551,11 +592,6 @@ export class LibreTranslationService {
     return { count: remaining.length, sample: remaining.slice(0, 12) };
   }
 
-  /**
-   * Check for target-language signals. We require at least ONE of:
-   *  - a language-specific character/diacritic, OR
-   *  - a high-frequency function word specific to the language.
-   */
   private hasTargetLanguageMarkers(text: string, language: Language): boolean {
     if (language === Language.ENGLISH) return true;
 
@@ -604,7 +640,6 @@ export class LibreTranslationService {
         if (currentChunk) chunks.push(currentChunk);
 
         if (paragraph.length > this.chunkSize) {
-          // Split paragraph by sentences
           const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
           let sentenceChunk = '';
 
@@ -617,7 +652,6 @@ export class LibreTranslationService {
             } else {
               if (sentenceChunk) chunks.push(sentenceChunk.trim());
               if (sentence.length > this.chunkSize) {
-                // Word-level split as last resort
                 const words = sentence.split(/\s+/);
                 let wordChunk = '';
                 for (const word of words) {
@@ -649,18 +683,17 @@ export class LibreTranslationService {
 
   // ---------------------------------------------------------------------------
   // CORE TRANSLATION (body content)
+  //
+  // Pipeline per attempt:
+  //  1. Extract compound animal tokens from the text entirely
+  //  2. Protect non-English spans in the stripped text
+  //  3. Protect technical tokens (URLs, emails, code)
+  //  4. POST clean English to LibreTranslate
+  //  5. Restore tech + non-English placeholders
+  //  6. Reattach the pre-known target-language animal words at the front
+  //  7. Validate quality; retry if needed
   // ---------------------------------------------------------------------------
 
-  /**
-   * Translate a single text string with retry logic.
-   *
-   * Pipeline per attempt:
-   *  1. Protect non-English spans (body only — keeps foreign quotes intact)
-   *  2. Protect technical tokens (URLs, emails, code)
-   *  3. POST to LibreTranslate with source='en'  ← always English source
-   *  4. Restore all placeholders
-   *  5. Validate quality; retry if needed
-   */
   private async translateWithRetry(
     text: string,
     targetLanguage: Language,
@@ -668,9 +701,6 @@ export class LibreTranslationService {
   ): Promise<string> {
     const { format = 'text', preserveFormatting = true } = options;
     const targetLangCode = this.getLanguageCode(targetLanguage);
-
-    // Always use 'en' as source — we only translate English content.
-    // Non-English spans are protected by protectNonEnglishSpans() below.
     const SOURCE_LANG = 'en';
 
     let bestTranslation = text;
@@ -683,10 +713,17 @@ export class LibreTranslationService {
           `Translation attempt ${attempt}/${this.translationRetries} → ${targetLanguage}`,
         );
 
-        // Step 1: protect non-English spans inside the body
-        const nonEnglishProtection = await this.protectNonEnglishSpans(text);
+        // Step 1: extract compound animal tokens — send clean English to LibreTranslate
+        const { stripped, extractions } = this.extractCompoundAnimals(
+          text,
+          targetLanguage,
+        );
 
-        // Step 2: protect technical tokens
+        // Step 2: protect non-English spans in the stripped text
+        const nonEnglishProtection =
+          await this.protectNonEnglishSpans(stripped);
+
+        // Step 3: protect technical tokens
         const { processed, placeholders } = preserveFormatting
           ? this.preprocessText(nonEnglishProtection.processed)
           : {
@@ -694,7 +731,7 @@ export class LibreTranslationService {
               placeholders: new Map<string, string>(),
             };
 
-        // Step 3: translate
+        // Step 4: translate clean English
         const response = await this.retryRequest<LibreTranslateResponse>(() =>
           this.axiosInstance.post('/translate', {
             q: processed,
@@ -706,14 +743,17 @@ export class LibreTranslationService {
 
         const rawTranslated = response.data.translatedText;
 
-        // Step 4: restore placeholders
+        // Step 5: restore placeholders
         const restoredTech = this.postprocessText(rawTranslated, placeholders);
-        const final = this.postprocessText(
+        const restoredNonEn = this.postprocessText(
           restoredTech,
           nonEnglishProtection.placeholders,
         );
 
-        // Step 5: validate
+        // Step 6: reattach pre-known target-language animal names
+        const final = this.reattachCompoundAnimals(restoredNonEn, extractions);
+
+        // Step 7: validate
         const validation = this.validateTranslationQuality(
           text,
           final,
@@ -734,13 +774,11 @@ export class LibreTranslationService {
           bestTranslation = final;
         }
 
-        // Accept high-quality immediately
         if (validation.score >= 85) {
           this.logger.log(`✓ High-quality translation on attempt ${attempt}`);
           return final;
         }
 
-        // Accept good-enough in non-strict mode
         if (validation.score >= 60) {
           this.logger.log(`✓ Acceptable translation on attempt ${attempt}`);
           return final;
@@ -775,9 +813,6 @@ export class LibreTranslationService {
   // PUBLIC API
   // ---------------------------------------------------------------------------
 
-  /**
-   * Translate a single text block from English to the target language.
-   */
   async translateText(
     text: string,
     targetLanguage: Language,
@@ -818,7 +853,6 @@ export class LibreTranslationService {
           }
         }
 
-        // Preserve the original paragraph separators between chunks
         const final = translatedChunks.join('\n\n');
         this.logger.log(
           `✓ Chunked translation complete: ${final.length} chars`,
@@ -835,9 +869,6 @@ export class LibreTranslationService {
     }
   }
 
-  /**
-   * Translate multiple texts in small concurrent batches.
-   */
   async translateBatch(
     texts: string[],
     targetLanguage: Language,
@@ -892,9 +923,6 @@ export class LibreTranslationService {
     return results;
   }
 
-  /**
-   * Translate an ordered array of chapter objects sequentially.
-   */
   async translateChapters(
     chapters: any[],
     targetLanguage: Language,
@@ -936,7 +964,6 @@ export class LibreTranslationService {
           content: translatedContent,
           order: chapter.order,
         });
-
         successCount++;
         this.logger.log(`✓ Chapter ${i + 1} done`);
       } catch (err) {
@@ -962,9 +989,6 @@ export class LibreTranslationService {
 
   // ---------------------------------------------------------------------------
   // METADATA TRANSLATION
-  // NOTE: Metadata translation intentionally does NOT call protectNonEnglishSpans.
-  // Titles and subtitles are assumed to be English and must always be fully
-  // translated.  The non-English protection layer would only interfere here.
   // ---------------------------------------------------------------------------
 
   async translateMetadata(
@@ -987,8 +1011,6 @@ export class LibreTranslationService {
       try {
         this.logger.log(`Metadata attempt ${attempts}/${maxAttempts}`);
 
-        // Metadata goes through a DIRECT translation — no non-English protection,
-        // no body-content chunking logic.  source is always 'en'.
         const [translatedTitle, translatedSubtitle] = await Promise.all([
           this.translateMetadataField(title, targetLanguage, options),
           subtitle
@@ -996,7 +1018,6 @@ export class LibreTranslationService {
             : Promise.resolve(''),
         ]);
 
-        // Post-process title
         let finalTitle = translatedTitle;
         const { percentage, unchangedWords } = this.getTranslationPercentage(
           title,
@@ -1004,9 +1025,7 @@ export class LibreTranslationService {
         );
 
         this.logger.log(
-          `Title translation: ${percentage.toFixed(0)}% translated (unchanged: ${
-            unchangedWords.join(', ') || 'none'
-          })`,
+          `Title translation: ${percentage.toFixed(0)}% translated (unchanged: ${unchangedWords.join(', ') || 'none'})`,
         );
 
         if (percentage < 80) {
@@ -1088,7 +1107,6 @@ export class LibreTranslationService {
       return bestResult;
     }
 
-    // Last resort: word-by-word fallback
     this.logger.error(
       'All metadata attempts failed — trying word-by-word fallback…',
     );
@@ -1120,31 +1138,63 @@ export class LibreTranslationService {
   }
 
   /**
-   * Translate a single metadata field directly via LibreTranslate.
-   * No body-content protection is applied — always translates from English.
+   * Translate a single metadata field via LibreTranslate.
+   *
+   * Pipeline:
+   *  1. extractCompoundAnimals — remove tokens like "Grasscutter(Cane Rat)"
+   *     entirely from the text. LibreTranslate only sees clean English.
+   *  2. POST clean English to /translate with format='text'.
+   *  3. reattachCompoundAnimals — prepend the pre-known target-language animal
+   *     name (e.g. "Rohrratte") to the translated text.
+   *
+   * This approach requires no placeholders, no span tags, and no key formats
+   * that any language model might mangle or translate. The animal name is
+   * looked up from the rules table — never sent through the engine.
    */
   private async translateMetadataField(
     text: string,
     targetLanguage: Language,
     options: TranslationOptions,
   ): Promise<string> {
-    const { format = 'text' } = options;
     const targetLangCode = this.getLanguageCode(targetLanguage);
 
+    // Step 1: remove compound animal tokens — send only clean English
+    const { stripped, extractions } = this.extractCompoundAnimals(
+      text,
+      targetLanguage,
+    );
+
+    if (extractions.length > 0) {
+      this.logger.log(
+        `Compound extractions (metadata): ${extractions
+          .map(
+            (e) =>
+              `"${e.marker}" extracted, will reattach as "${e.targetWord}"`,
+          )
+          .join(', ')}`,
+      );
+    }
+
+    // Step 2: translate the clean English remainder
+    const textToTranslate = stripped || text; // fallback if stripping leaves nothing
     const response = await this.retryRequest<LibreTranslateResponse>(() =>
       this.axiosInstance.post('/translate', {
-        q: text,
+        q: textToTranslate,
         source: 'en',
         target: targetLangCode,
-        format,
+        format: options.format ?? 'text',
       }),
     );
 
-    return response.data.translatedText;
+    // Step 3: reattach the pre-known target-language animal name
+    return this.reattachCompoundAnimals(
+      response.data.translatedText,
+      extractions,
+    );
   }
 
   // ---------------------------------------------------------------------------
-  // METADATA HELPERS (unchanged from original except minor cleanup)
+  // METADATA HELPERS
   // ---------------------------------------------------------------------------
 
   private injectMissingAnimalTranslations(
@@ -1469,9 +1519,8 @@ export class LibreTranslationService {
     const origLower = original.toLowerCase().trim();
     const transLower = translated.toLowerCase().trim();
 
-    if (origLower === transLower) {
+    if (origLower === transLower)
       return { isValid: false, issues: ['Identical to original'], score: 0 };
-    }
 
     const origWords = original.split(/\s+/);
     const transWords = translated.split(/\s+/);
@@ -1486,18 +1535,16 @@ export class LibreTranslationService {
     const transLowerWords = transWords.map((w) => w.toLowerCase());
 
     let translatedCount = 0;
-    let unchangedCount = 0;
 
     for (const w of transLowerWords) {
       if (w.length <= 2) continue;
       if (properNouns.has(w)) continue;
-      origLowerWords.includes(w) ? unchangedCount++ : translatedCount++;
+      origLowerWords.includes(w) ? void 0 : translatedCount++;
     }
 
     const totalNonProper = origLowerWords.filter(
       (w) => w.length > 2 && !properNouns.has(w),
     ).length;
-
     const expected = Math.max(1, Math.floor(totalNonProper * 0.5));
     if (translatedCount < expected) {
       issues.push(
@@ -1690,6 +1737,8 @@ export class LibreTranslationService {
         Fish: 'Pez',
         Poultry: 'Aves de Corral',
         Livestock: 'Ganado',
+        'Grasscutter(Cane Rat)': 'Rata de caña',
+        'Grasscutters(Cane Rats)': 'Ratas de caña',
       },
       [Language.FRENCH]: {
         Snail: 'Escargot',
@@ -1727,6 +1776,8 @@ export class LibreTranslationService {
         Fish: 'Poisson',
         Poultry: 'Volaille',
         Livestock: 'Bétail',
+        'Grasscutter(Cane Rat)': 'Rat des cannes',
+        'Grasscutters(Cane Rats)': 'Rats des cannes',
       },
       [Language.GERMAN]: {
         Snail: 'Schnecken',
@@ -1764,6 +1815,8 @@ export class LibreTranslationService {
         Fish: 'Fisch',
         Poultry: 'Geflügel',
         Livestock: 'Vieh',
+        'Grasscutter(Cane Rat)': 'Rohrratte',
+        'Grasscutters(Cane Rats)': 'Rohrratten',
       },
       [Language.ITALIAN]: {
         Snail: 'Lumaca',
@@ -1801,12 +1854,27 @@ export class LibreTranslationService {
         Fish: 'Pesce',
         Poultry: 'Pollame',
         Livestock: 'Bestiame',
+        'Grasscutter(Cane Rat)': 'Ratto della canna',
+        'Grasscutters(Cane Rats)': 'Ratti della canna',
       },
       [Language.ENGLISH]: {},
     };
 
     const map = dict[targetLanguage] || {};
-    const key = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    const key = word
+      .split(/\s+/)
+      .map((w) => {
+        if (!w) return w;
+        const m = w.match(/[A-Za-zÀ-ÖØ-öø-ÿ]/);
+        if (!m || m.index === undefined) return w.toLowerCase();
+        const idx = m.index;
+        const prefix = w.slice(0, idx);
+        const rest = w.slice(idx);
+        return (
+          prefix + rest.charAt(0).toUpperCase() + rest.slice(1).toLowerCase()
+        );
+      })
+      .join(' ');
     return map[key] || map[word] || null;
   }
 

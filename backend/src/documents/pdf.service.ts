@@ -1471,6 +1471,7 @@ export class PdfService {
       lowerTitle.includes("l'élevage") ||
       lowerTitle.includes('de la') ||
       lowerTitle.includes('pisciculture') ||
+      lowerTitle.includes('guide agricole') ||
       lowerTitle.includes("d'élevage")
     ) {
       return {
