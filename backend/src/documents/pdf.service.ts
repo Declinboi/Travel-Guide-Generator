@@ -1262,16 +1262,20 @@ export class PdfService {
       }
 
       // Remove lines that look like repeated chapter titles at start of content
-      if (
-        index < 5 &&
-        trimmed.length < 100 &&
-        !trimmed.includes('.') &&
-        trimmed.split(' ').length <= 15
-      ) {
-        // Likely a repeated title
+      // if (
+      //   index < 5 &&
+      //   trimmed.length < 100 &&
+      //   !trimmed.includes('.') &&
+      //   trimmed.split(' ').length <= 15
+      // ) {
+      //   // Likely a repeated title
+      //   return false;
+      // }
+
+      if (/^(Chapter|Kapitel|Chapitre|Capitolo|Capítulo)\s+\d+\s*:/i.test(trimmed)) {
         return false;
       }
-
+      
       return true;
     });
 
