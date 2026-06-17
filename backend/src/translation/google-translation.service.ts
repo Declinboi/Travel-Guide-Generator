@@ -869,6 +869,52 @@ export class LibreTranslationService {
     }
   }
 
+  async translateTOCContent(
+    content: string,
+    targetLanguage: Language,
+  ): Promise<string> {
+    const lines = content.split('\n');
+    const translatedLines: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        translatedLines.push(line); // preserve blank lines
+        continue;
+      }
+      try {
+        const translated = await this.translateText(trimmed, targetLanguage, {
+          format: 'text',
+        });
+        // Preserve original leading whitespace (for indentation)
+        const leadingSpace = line.match(/^(\s*)/)?.[1] ?? '';
+        translatedLines.push(leadingSpace + translated);
+      } catch {
+        translatedLines.push(line); // fallback to original
+      }
+      // Small delay to avoid hammering LibreTranslate
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    return translatedLines.join('\n');
+  }
+
+  // Add this to LibreTranslationService
+  private isTableOfContentsChapter(title: string): boolean {
+    const tocKeywords = [
+      'table of contents',
+      'inhaltsverzeichnis',
+      'table des matières',
+      'sommaire',
+      'tabella dei contenuti',
+      'índice',
+      'tabla de contenidos',
+      'cuadro de contenidos',
+    ];
+    const lowerTitle = title.toLowerCase();
+    return tocKeywords.some((keyword) => lowerTitle.includes(keyword));
+  }
+
   async translateBatch(
     texts: string[],
     targetLanguage: Language,
@@ -949,14 +995,12 @@ export class LibreTranslationService {
         );
 
         const [translatedTitle, translatedContent] = await Promise.all([
-          this.translateText(chapter.title, targetLanguage, {
-            ...options,
-            format: 'text',
-          }),
-          this.translateText(chapter.content, targetLanguage, {
-            ...options,
-            format: options.format || 'text',
-          }),
+          this.translateText(chapter.title, targetLanguage, { format: 'text' }),
+          this.isTableOfContentsChapter(chapter.title)
+            ? this.translateTOCContent(chapter.content, targetLanguage) // line-by-line
+            : this.translateText(chapter.content, targetLanguage, {
+                format: options.format || 'text',
+              }),
         ]);
 
         translatedChapters.push({

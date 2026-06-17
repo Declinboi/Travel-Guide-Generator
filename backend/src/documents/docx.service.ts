@@ -970,60 +970,42 @@ export class DocxService {
     bookTitle?: string,
     bookSubtitle?: string,
   ): boolean {
-    // Skip if it's a redundant line
     if (this.isRedundantLine(trimmed)) return true;
 
-    // Skip chapter number lines
-    if (/^Chapter\s+\d+$/i.test(trimmed)) return true;
-    if (/^Kapitel\s+\d+$/i.test(trimmed)) return true;
-    if (/^Chapitre\s+\d+$/i.test(trimmed)) return true;
-    if (/^Capitolo\s+\d+$/i.test(trimmed)) return true;
-
-    // Skip chapter title text that matches the header
-    if (
-      trimmed.length < 100 &&
-      /^(Chapter|Kapitel|Chapitre|Capitolo)\s+\d+/i.test(trimmed) &&
-      trimmed.split(' ').length <= 15
-    ) {
+    // Skip exact "Chapter X" lines (any language)
+    if (/^(Chapter|Kapitel|Chapitre|Capitolo|Capítulo)\s+\d+$/i.test(trimmed))
       return true;
-    }
 
-    // Skip book title/subtitle if they appear in content
+    // Skip lines that START with chapter prefix + number (e.g. "Chapter 1 Introduction")
+    if (
+      /^(Chapter|Kapitel|Chapitre|Capitolo|Capítulo)\s+\d+\s*[:\-]/i.test(
+        trimmed,
+      ) &&
+      trimmed.split(' ').length <= 15
+    )
+      return true;
+
+    // Only skip if it EXACTLY matches book title or subtitle — no fuzzy matching
     if (bookTitle && lowerTrimmed === bookTitle.toLowerCase()) return true;
     if (bookSubtitle && lowerTrimmed === bookSubtitle.toLowerCase())
       return true;
 
-    // Skip title-like content
-    if (
-      trimmed.length < 150 &&
-      !trimmed.includes('.') &&
-      trimmed.split(' ').length <= 15 &&
-      (trimmed === trimmed.toUpperCase() || this.isTitleCase(trimmed))
-    ) {
-      if (
-        bookTitle &&
-        this.similarText(lowerTrimmed, bookTitle.toLowerCase())
-      ) {
-        return true;
-      }
-      if (
-        bookSubtitle &&
-        this.similarText(lowerTrimmed, bookSubtitle.toLowerCase())
-      ) {
-        return true;
-      }
-    }
+    // ❌ REMOVE the broad "title-like content" block entirely — it's what eats
+    // translated subheadings. German nouns are always capitalized, so isTitleCase()
+    // returns true for nearly every German sentence, and similarText() is too loose.
 
     return false;
   }
 
   // 6. NEW helper method - is header section?
   private isHeaderSection(trimmed: string): boolean {
+    const wordCount = trimmed.split(' ').length;
+    // A header: short, no mid-sentence period, ends with nothing or : or ?
     return (
-      trimmed.length < 100 &&
-      !trimmed.includes('.') &&
-      trimmed.split(' ').length <= 10 &&
-      trimmed.split(' ').length > 0
+      wordCount <= 12 &&
+      wordCount > 0 &&
+      !/[.!]$/.test(trimmed) && // don't treat sentences as headers
+      !/\.\s+[A-Za-z]/.test(trimmed) // no mid-text period (body paragraph)
     );
   }
 
@@ -1377,7 +1359,7 @@ export class DocxService {
       ) {
         return false;
       }
-      
+
       return true;
     });
 
@@ -1474,35 +1456,58 @@ export class DocxService {
   }
 
   private cleanTableOfContents(content: string): string {
-    let cleaned = this.cleanContent(content);
+    if (!content) return '';
 
-    // Remove the heading itself if it appears multiple times
-    const lines = cleaned.split('\n');
-    const filtered = lines.filter((line, index) => {
-      const trimmed = line.trim();
-      const lower = trimmed.toLowerCase();
+    // Strip markdown only — never call cleanContent() or removeRedundantChapterReferences()
+    // here. Those methods are designed for chapter body text and will destroy TOC entries
+    // (the index < 5 blunt filter treats every short TOC line as a "repeated title").
+    let cleaned = content;
+    cleaned = cleaned.replace(/\*\*\*(.+?)\*\*\*/g, '$1');
+    cleaned = cleaned.replace(/\*\*(.+?)\*\*/g, '$1');
+    cleaned = cleaned.replace(/\*(.+?)\*/g, '$1');
+    cleaned = cleaned.replace(/___(.+?)___/g, '$1');
+    cleaned = cleaned.replace(/__(.+?)__/g, '$1');
+    cleaned = cleaned.replace(/_(.+?)_/g, '$1');
+    cleaned = cleaned.replace(/~~(.+?)~~/g, '$1');
+    cleaned = cleaned.replace(/`(.+?)`/g, '$1');
+    cleaned = cleaned.replace(/```[\s\S]*?```/g, '');
+    cleaned = cleaned.replace(/^#{1,6}\s+/gm, '');
+    cleaned = cleaned.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+    cleaned = cleaned.replace(/!\[([^\]]*)\]\([^\)]+\)/g, '');
+    cleaned = cleaned.replace(/^>\s+/gm, '');
+    cleaned = cleaned.replace(/\*+/g, '');
+    cleaned = cleaned.replace(/[•●○◦■□▪▫◆◇]/g, '');
+    cleaned = cleaned.replace(/[""]/g, '"');
+    cleaned = cleaned.replace(/['']/g, "'");
+    cleaned = cleaned.replace(/[–—]/g, '-');
+    cleaned = cleaned.replace(/<[^>]*>/g, '');
+    cleaned = cleaned.replace(/  +/g, ' ');
+    cleaned = cleaned.replace(/^[ \t]+|[ \t]+$/gm, '');
 
-      // Skip TOC heading duplicates (keep only if it's very first line)
-      const tocHeadings = [
-        'table of contents',
-        'inhaltsverzeichnis',
-        'table des matières',
-        'sommaire',
-        'tabella dei contenuti',
-        'índice',
-      ];
+    // Remove only the TOC heading itself if it appears in the content body
+    // (we render it separately as a styled title above the entries)
+    const tocHeadings = [
+      'table of contents',
+      'inhaltsverzeichnis',
+      'table des matières',
+      'sommaire',
+      'tabella dei contenuti',
+      'índice',
+      'tabla de contenidos',
+      'indice',
+    ];
 
-      if (tocHeadings.some((heading) => lower.includes(heading))) {
-        // If it's short and looks like just the heading
-        if (trimmed.length < 50) {
-          return false; // Skip it, we add it ourselves
-        }
-      }
-
-      return true;
-    });
-
-    return filtered.join('\n');
+    return cleaned
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return true;
+        const lower = trimmed.toLowerCase();
+        if (tocHeadings.some((h) => lower === h) && trimmed.length < 50)
+          return false;
+        return true;
+      })
+      .join('\n');
   }
 
   // 4. NEW helper - is redundant TOC line?
