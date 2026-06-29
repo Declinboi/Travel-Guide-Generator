@@ -925,9 +925,7 @@ export class DocxService {
       const lowerTrimmed = trimmed.toLowerCase();
 
       // Skip various redundant content
-      if (
-        this.shouldSkipSection(trimmed, lowerTrimmed, bookTitle, bookSubtitle)
-      ) {
+      if (this.shouldSkipSection(trimmed, bookTitle, bookSubtitle)) {
         return;
       }
 
@@ -966,17 +964,14 @@ export class DocxService {
 
   private shouldSkipSection(
     trimmed: string,
-    lowerTrimmed: string,
     bookTitle?: string,
     bookSubtitle?: string,
   ): boolean {
     if (this.isRedundantLine(trimmed)) return true;
 
-    // Skip exact "Chapter X" lines (any language)
     if (/^(Chapter|Kapitel|Chapitre|Capitolo|Capítulo)\s+\d+$/i.test(trimmed))
       return true;
 
-    // Skip lines that START with chapter prefix + number (e.g. "Chapter 1 Introduction")
     if (
       /^(Chapter|Kapitel|Chapitre|Capitolo|Capítulo)\s+\d+\s*[:\-]/i.test(
         trimmed,
@@ -985,14 +980,40 @@ export class DocxService {
     )
       return true;
 
-    // Only skip if it EXACTLY matches book title or subtitle — no fuzzy matching
-    if (bookTitle && lowerTrimmed === bookTitle.toLowerCase()) return true;
-    if (bookSubtitle && lowerTrimmed === bookSubtitle.toLowerCase())
-      return true;
+    // Normalize helper: strip punctuation, collapse spaces, lowercase
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-    // ❌ REMOVE the broad "title-like content" block entirely — it's what eats
-    // translated subheadings. German nouns are always capitalized, so isTitleCase()
-    // returns true for nearly every German sentence, and similarText() is too loose.
+    const normalizedTrimmed = normalize(trimmed);
+
+    if (bookTitle) {
+      const normalizedTitle = normalize(bookTitle);
+      // Exact normalized match OR the line IS contained in the title or vice versa
+      if (
+        normalizedTrimmed === normalizedTitle ||
+        (normalizedTitle.length > 10 &&
+          normalizedTrimmed.includes(normalizedTitle)) ||
+        (normalizedTrimmed.length > 10 &&
+          normalizedTitle.includes(normalizedTrimmed))
+      )
+        return true;
+    }
+
+    if (bookSubtitle) {
+      const normalizedSubtitle = normalize(bookSubtitle);
+      if (
+        normalizedTrimmed === normalizedSubtitle ||
+        (normalizedSubtitle.length > 10 &&
+          normalizedTrimmed.includes(normalizedSubtitle)) ||
+        (normalizedTrimmed.length > 10 &&
+          normalizedSubtitle.includes(normalizedTrimmed))
+      )
+        return true;
+    }
 
     return false;
   }
@@ -1494,6 +1515,7 @@ export class DocxService {
       'tabella dei contenuti',
       'índice',
       'tabla de contenidos',
+      'cuadro de contenidos',
       'indice',
     ];
 

@@ -513,11 +513,12 @@ export class GeminiService {
           provider.client as GoogleGenerativeAI
         ).getGenerativeModel({
           model: provider.model,
+          // Fix 1: In generateWithProvider, increase maxOutputTokens for Gemini
           generationConfig: {
             temperature: 1.0,
             topP: 0.92,
             topK: 50,
-            maxOutputTokens: 8192,
+            maxOutputTokens: 16384, // was 8192 — double it for outline chunks
           },
           systemInstruction: systemPrompt,
         });
@@ -1613,7 +1614,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Return complete valid JSON only.`;
+Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). CRITICAL: Return valid JSON only. Use double quotes for all strings. No single quotes, no trailing commas, no markdown.`;
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1679,17 +1680,40 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Ret
       outline.chapters = outline.chapters.slice(0, expectedChapters);
     }
 
-    // ── Structural validation + cleanup ──────────────────────────
+    // ── Structural validation + auto-repair ──────────────────────
     outline.chapters.forEach((chapter: ChapterOutline, idx: number) => {
+      // Auto-repair missing sections array
       if (!chapter.sections || !Array.isArray(chapter.sections)) {
-        throw new Error(`Chapter ${idx + 1} missing sections array`);
+        this.logger.warn(
+          `Chapter ${idx + 1} missing sections — inserting placeholder`,
+        );
+        chapter.sections = [
+          {
+            sectionTitle: chapter.chapterTitle || 'Overview',
+            subsections: ['Introduction'],
+          },
+        ];
       }
 
       chapter.sections.forEach((section: any, secIdx: number) => {
+        // Auto-repair missing or malformed subsections
         if (!section.subsections || !Array.isArray(section.subsections)) {
-          throw new Error(
-            `Chapter ${idx + 1}, Section ${secIdx + 1} missing subsections array`,
-          );
+          if (
+            typeof section.subsections === 'string' &&
+            section.subsections.trim()
+          ) {
+            // Model returned a string instead of array — wrap it
+            this.logger.warn(
+              `Chapter ${idx + 1}, Section ${secIdx + 1} subsections is a string — wrapping in array`,
+            );
+            section.subsections = [section.subsections.trim()];
+          } else {
+            // Missing entirely — fall back to section title
+            this.logger.warn(
+              `Chapter ${idx + 1}, Section ${secIdx + 1} missing subsections — using section title as fallback`,
+            );
+            section.subsections = [section.sectionTitle || 'Overview'];
+          }
         }
 
         // Filter out blank subsections (model sometimes emits "")
@@ -1697,10 +1721,12 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Ret
           (s: any) => typeof s === 'string' && s.trim().length > 0,
         );
 
+        // Still empty after filtering — use section title
         if (section.subsections.length === 0) {
-          throw new Error(
-            `Chapter ${idx + 1}, Section ${secIdx + 1} has no valid subsections after filtering`,
+          this.logger.warn(
+            `Chapter ${idx + 1}, Section ${secIdx + 1} has no valid subsections after filtering — using section title as fallback`,
           );
+          section.subsections = [section.sectionTitle || 'Overview'];
         }
       });
     });
@@ -1721,8 +1747,11 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Ret
 
   private tryRepairJson(raw: string): any | null {
     try {
+      
       // Remove trailing commas before ] or }
-      let repaired = raw.replace(/,\s*([}\]])/g, '$1');
+      let repaired = this.normalizeSingleQuotes(raw);
+
+      repaired = repaired.replace(/,\s*([}\]])/g, '$1');
 
       // Close any unclosed strings (truncation mid-string)
       // Count unmatched quotes — if odd, the string was cut off; close it
@@ -1768,6 +1797,45 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Ret
     }
   }
 
+  // New helper to add
+  private normalizeSingleQuotes(raw: string): string {
+    // Replace single-quoted keys and values with double-quoted ones
+    // Handles: 'key': 'value', 'key': ['val1', 'val2']
+    // Does NOT touch apostrophes inside words (e.g., "don't", "Albania's")
+    return (
+      raw
+        // Keys: 'word' followed by : → "word":
+        .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'\s*:/g, '"$1":')
+        // Values: : 'value' or , 'value' or [ 'value'
+        .replace(/:\s*'([^'\\]*(?:\\.[^'\\]*)*)'/g, ': "$1"')
+        .replace(/,\s*'([^'\\]*(?:\\.[^'\\]*)*)'/g, ', "$1"')
+        .replace(/\[\s*'([^'\\]*(?:\\.[^'\\]*)*)'/g, '["$1"')
+    );
+  }
+
+  private stripMetaCommentary(text: string): string {
+    const metaPatterns = [
+      /^here'?s?\s+(?:the\s+)?(?:revised|rewritten|updated|edited|final|complete)\s+chapter[^:\n]*:\s*/im,
+      /^here\s+is\s+(?:the\s+)?(?:revised|rewritten|updated|edited|final|complete)\s+chapter[^:\n]*:\s*/im,
+      /^(?:revised|rewritten|updated|edited|final)\s+chapter[^:\n]*:\s*/im,
+      /^ready\s+for\s+publication[^:\n]*:\s*/im,
+      /^here'?s?\s+the\s+introduction[^:\n]*:\s*/im,
+      /^here'?s?\s+your[^:\n]*:\s*/im,
+      /^the\s+following\s+is[^:\n]*:\s*/im,
+    ];
+
+    let result = text.trim();
+    for (const pattern of metaPatterns) {
+      result = result.replace(pattern, '').trim();
+    }
+
+    // Also strip a repeated chapter title if it appears as the very first line
+    // before any real paragraph content (bold heading leak)
+    result = result.replace(/^#{1,6}\s+.+\n+/m, '').trim();
+
+    return result;
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // INTRODUCTION — Separate prompts for Travel vs Farming
   // ═══════════════════════════════════════════════════════════════
@@ -1788,7 +1856,7 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Ret
         ? this.buildTravelIntroPrompt(title, subtitle, introChapter)
         : this.buildFarmingIntroPrompt(title, subtitle, introChapter);
 
-    return await this.generateText(prompt, {
+    const result = await this.generateText(prompt, {
       refine: true,
       contentType,
       systemPrompt: this.getSystemPrompt(contentType),
@@ -1799,6 +1867,8 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). Ret
         chapterOutline: introChapter,
       },
     });
+
+    return this.stripMetaCommentary(result);
   }
 
   private buildTravelIntroPrompt(
@@ -1844,7 +1914,8 @@ That was six years ago. I've been back eleven times since.
 This isn't the guide that tells you to "experience the magic." There is no magic. There's heat, and traffic, and the best $1.50 noodle soup you'll ever eat at a stall with no name on a street you can't pronounce. That's better than magic. That's real.
 """
 
-Write in plain english language the complete Introduction chapter now:`;
+Write in plain english language the complete Introduction chapter now.
+Return ONLY the chapter text. Do NOT include any preamble, meta-commentary, or phrases like "Here's the revised chapter" or "Here's the introduction". Do NOT restate the chapter title as a heading at the start. Begin directly with the opening scene.`;
   }
 
   private buildFarmingIntroPrompt(
@@ -1890,7 +1961,8 @@ That was nine years ago. I've raised over four thousand birds since.
 This book isn't going to tell you farming is a beautiful lifestyle choice. Some mornings it is — frost on the fence posts, coffee steam mixing with your breath, the quiet before the rooster starts up. Other mornings you're pulling a dead lamb at 3 AM in freezing rain. Both of those are farming. This book covers both.
 """
 
-Write in plain english language the complete Introduction chapter now:`;
+Write in plain english language the complete Introduction chapter now.
+Return ONLY the chapter text. Do NOT include any preamble, meta-commentary, or phrases like "Here's the revised chapter" or "Here's the introduction". Do NOT restate the chapter title as a heading at the start. Begin directly with the opening scene.`;
   }
 
   // ═══════════════════════════════════════════════════════════════
