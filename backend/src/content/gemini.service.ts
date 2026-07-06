@@ -37,6 +37,13 @@ const CHAPTER_FORMATS: ChapterFormat[] = [
   'COMPARE_CONTRAST',
 ];
 
+const PLAIN_LANGUAGE_RULES = `PLAIN LANGUAGE REQUIREMENT:
+- Write every generated section in plain English.
+- Use common words and short, clear sentences.
+- Explain ideas the way a helpful person would explain them out loud.
+- Avoid jargon, academic wording, fancy phrasing, and long tangled sentences.
+- If a technical term is needed, explain it right away in simple words.`;
+
 // ═══════════════════════════════════════════════════════════════
 // DUAL SYSTEM PROMPTS — Travel vs Farming
 // ═══════════════════════════════════════════════════════════════
@@ -63,7 +70,9 @@ ABSOLUTELY NEVER use these words/phrases — they are dead giveaways of AI writi
 "boasts", "world-class", "unparalleled", "second to none",
 "comprehensive guide", "everything you need to know", "ultimate guide"
 
-Instead use plain, specific language. Say "good" not "exquisite". Say "cheap" not "budget-friendly". Say "old" not "historic" (unless it actually matters). Be direct.`;
+Instead use plain, specific language. Say "good" not "exquisite". Say "cheap" not "budget-friendly". Say "old" not "historic" (unless it actually matters). Be direct.
+
+${PLAIN_LANGUAGE_RULES}`;
 
 const FARMING_SYSTEM_PROMPT = `You are Dale Hutchins, a practical farming writer with 22 years of hands-on experience — you've raised livestock, managed crop rotations, lost harvests to bad weather, and rebuilt. You write for people who actually get dirt under their nails. Your advice comes from doing, not from textbooks.
 
@@ -88,7 +97,9 @@ ABSOLUTELY NEVER use these words/phrases — they are dead giveaways of AI writi
 "journey" (say "process" or "work"), "passion" (show it, don't say it),
 "empower", "thrive", "flourish"
 
-Instead use plain, direct language. Say "works well" not "proves highly effective". Say "costs less" not "economically viable". Say "tough" not "resilient". Be direct and specific — give numbers, timelines, and amounts.`;
+Instead use plain, direct language. Say "works well" not "proves highly effective". Say "costs less" not "economically viable". Say "tough" not "resilient". Be direct and specific — give numbers, timelines, and amounts.
+
+${PLAIN_LANGUAGE_RULES}`;
 
 // ═══════════════════════════════════════════════════════════════
 // Post-processing patterns — shared + domain-specific
@@ -479,7 +490,9 @@ export class GeminiService {
 - Each section should answer the reader's practical questions: why go, where exactly, best timing, time needed, cost range, booking/transport notes, who should skip it, and what mistake to avoid.
 - Include decision-making language: "choose this if...", "skip it if...", "do this before...", "leave extra time for...".
 - Keep factual claims modest when they may change. Say "usually", "often", "expect", or "check before you go" where appropriate.
-- No placeholder phrases, no TODO-style notes, no filler transitions, no generic praise.`;
+- No placeholder phrases, no TODO-style notes, no filler transitions, no generic praise.
+
+${PLAIN_LANGUAGE_RULES}`;
   }
 
   private buildFarmingGuidebookQualityRules(): string {
@@ -489,7 +502,9 @@ export class GeminiService {
 - Each section should answer the reader's working questions: what to do, when to do it, what tools/materials are needed, what it costs, what can go wrong, and how to know it is working.
 - Include decision-making language: "start with...", "skip this unless...", "choose this if...", "do this before...", "watch for...".
 - Keep factual claims honest. Climate, prices, laws, disease pressure, suppliers, and yields vary by location, so use careful ranges and tell readers what to verify locally.
-- No placeholder phrases, no motivational filler, no academic padding, no generic praise.`;
+- No placeholder phrases, no motivational filler, no academic padding, no generic praise.
+
+${PLAIN_LANGUAGE_RULES}`;
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -1010,6 +1025,7 @@ EDITORIAL REQUIREMENTS:
 - Do not invent exact current opening hours, phone numbers, visa rules, legal rules, or schedules.
 - Make every section useful to a traveler planning the trip promised by the title/subtitle.
 - Use clear headings where helpful, but do not turn the chapter into bullet notes.
+- Keep the final chapter in plain English: common words, clear sentences, no jargon, no fancy phrasing.
 - Return only the finished chapter text.
 
 CHAPTER TO FIX:
@@ -1055,6 +1071,7 @@ EDITORIAL REQUIREMENTS:
 - Do not invent exact current laws, veterinary instructions, supplier prices, chemical labels, disease protocols, or guaranteed yields.
 - Make every section useful to the farmer, gardener, or homesteader promised by the title/subtitle.
 - Use clear headings where helpful, but do not turn the chapter into bullet notes.
+- Keep the final chapter in plain English: common words, clear sentences, no jargon, no academic phrasing.
 - Return only the finished chapter text.
 
 CHAPTER TO FIX:
@@ -1193,6 +1210,7 @@ ${this.buildTravelGuidebookQualityRules()}
 8. Preserve the exact destination, reader promise, route, count, year, and angle from the title/subtitle
 9. Turn note-like passages into finished guidebook prose with useful section headings and practical reader advice
 10. Do not add exact facts that may change unless the draft already had them; use careful ranges and "confirm before you go" wording for changeable details
+11. Keep every rewritten paragraph in plain English: common words, clear sentences, no jargon, no fancy phrasing
 
 ${contextBlock}
 
@@ -1233,6 +1251,7 @@ ${this.buildFarmingGuidebookQualityRules()}
 9. Preserve the exact crop, animal, scale, climate, production goal, budget, timeline, and reader promise from the title/subtitle
 10. Turn note-like passages into finished guidebook prose with useful working-guide headings and field-ready advice
 11. Do not invent exact laws, veterinary instructions, supplier prices, chemical labels, disease protocols, or guaranteed yields
+12. Keep every rewritten paragraph in plain English: common words, clear sentences, no jargon, no academic phrasing
 
 ${contextBlock}
 
@@ -1596,6 +1615,7 @@ REQUIREMENTS:
 8. Every subsection must be a non-empty string — no blank entries
 9. Section and subsection titles should sound like a human wrote them — no generic filler
 ${domainOutlineRules}
+14. Use plain English for all titles, sections, and subsections: common words, direct phrasing, no jargon
 ${exampleTitles}
 
 OUTPUT FORMAT (JSON):
@@ -1914,7 +1934,7 @@ That was six years ago. I've been back eleven times since.
 This isn't the guide that tells you to "experience the magic." There is no magic. There's heat, and traffic, and the best $1.50 noodle soup you'll ever eat at a stall with no name on a street you can't pronounce. That's better than magic. That's real.
 """
 
-Write in plain english language the complete Introduction chapter now.
+Write in plain English language the complete Introduction chapter now.
 Return ONLY the chapter text. Do NOT include any preamble, meta-commentary, or phrases like "Here's the revised chapter" or "Here's the introduction". Do NOT restate the chapter title as a heading at the start. Begin directly with the opening scene.`;
   }
 
@@ -1927,6 +1947,8 @@ Return ONLY the chapter text. Do NOT include any preamble, meta-commentary, or p
 
 Title: "${title}"
 Subtitle: "${subtitle}"
+
+${PLAIN_LANGUAGE_RULES}
 
 Chapter Structure:
 ${JSON.stringify(introChapter, null, 2)}
@@ -1961,7 +1983,7 @@ That was nine years ago. I've raised over four thousand birds since.
 This book isn't going to tell you farming is a beautiful lifestyle choice. Some mornings it is — frost on the fence posts, coffee steam mixing with your breath, the quiet before the rooster starts up. Other mornings you're pulling a dead lamb at 3 AM in freezing rain. Both of those are farming. This book covers both.
 """
 
-Write in plain english language the complete Introduction chapter now.
+Write in plain English language the complete Introduction chapter now.
 Return ONLY the chapter text. Do NOT include any preamble, meta-commentary, or phrases like "Here's the revised chapter" or "Here's the introduction". Do NOT restate the chapter title as a heading at the start. Begin directly with the opening scene.`;
   }
 
@@ -2091,7 +2113,7 @@ ${formatInstructions}
 
 ${sharedRules}
 
-Write in plain english language the complete chapter now:`;
+Write in plain English language the complete chapter now:`;
   }
 
   private getTravelFormatInstructions(format: ChapterFormat): string {
@@ -2319,7 +2341,7 @@ ${formatInstructions}
 
 ${sharedRules}
 
-Write in plain english language the complete chapter now:`;
+Write in plain English language the complete chapter now:`;
   }
 
   private getFarmingFormatInstructions(format: ChapterFormat): string {
@@ -2546,7 +2568,7 @@ WHAT TO AVOID:
     subtitle: string,
     conclusionChapter: ChapterOutline,
   ): string {
-    return `Write in plain english language the Conclusion chapter for this travel guide:
+    return `Write in plain English language the Conclusion chapter for this travel guide:
 
 Title: "${title}"
 Subtitle: "${subtitle}"
@@ -2628,10 +2650,12 @@ Write the complete Conclusion chapter now:`;
     subtitle: string,
     conclusionChapter: ChapterOutline,
   ): string {
-    return `Write in plain english language the Conclusion chapter for this farming guide:
+    return `Write in plain English language the Conclusion chapter for this farming guide:
 
 Title: "${title}"
 Subtitle: "${subtitle}"
+
+${PLAIN_LANGUAGE_RULES}
 
 Chapter Structure:
 ${JSON.stringify(conclusionChapter, null, 2)}
@@ -2714,6 +2738,7 @@ Write the complete Conclusion chapter now:`;
         ? `Write an "About This Book" blurb for a travel guide titled "${title}" and subtitle "${subtitle}".
 
 ${this.buildBookPromise(title, subtitle)}
+${PLAIN_LANGUAGE_RULES}
 
 4-6 short paragraphs. NO generic phrases like "comprehensive guide" or "everything you need to know."
 
@@ -2726,6 +2751,8 @@ Instead, be specific about:
 
 Tone: confident, direct, slightly informal. Like a back-cover blurb written by the author, not a marketer.`
         : `Write an "About This Book" blurb for a farming guide titled "${title}" and subtitle "${subtitle}".
+
+${PLAIN_LANGUAGE_RULES}
 
 4-6 short paragraphs. NO generic phrases like "comprehensive guide" or "everything you need to know."
 
