@@ -338,26 +338,45 @@ export class GeminiService {
   // ══════════════════════════════════════════════════════════════
   // NEW: Network error detection
   // ══════════════════════════════════════════════════════════════
+  private getNestedErrorValues(error: any): string {
+    const values: string[] = [];
+    const seen = new Set<any>();
+    let current = error;
+
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      values.push(
+        current?.message,
+        current?.code,
+        current?.errno,
+        current?.syscall,
+        current?.hostname,
+        current?.name,
+        current?.type,
+      );
+      current = current?.cause;
+    }
+
+    return values.filter(Boolean).join(' ').toLowerCase();
+  }
+
   private isNetworkError(error: any): boolean {
-    const message = error?.message?.toLowerCase() || '';
-    const code = error?.code?.toLowerCase() || '';
+    const errorText = this.getNestedErrorValues(error);
 
     return (
-      message.includes('fetch failed') ||
-      message.includes('econnreset') ||
-      message.includes('etimedout') ||
-      message.includes('econnrefused') ||
-      message.includes('socket hang up') ||
-      message.includes('network') ||
-      message.includes('dns') ||
-      message.includes('getaddrinfo') ||
-      message.includes('enotfound') ||
-      message.includes('enetunreach') ||
-      message.includes('ehostunreach') ||
-      code === 'econnreset' ||
-      code === 'etimedout' ||
-      code === 'econnrefused' ||
-      code === 'enotfound' ||
+      errorText.includes('connection error') ||
+      errorText.includes('fetch failed') ||
+      errorText.includes('eai_again') ||
+      errorText.includes('econnreset') ||
+      errorText.includes('etimedout') ||
+      errorText.includes('econnrefused') ||
+      errorText.includes('socket hang up') ||
+      errorText.includes('network') ||
+      errorText.includes('dns') ||
+      errorText.includes('getaddrinfo') ||
+      errorText.includes('enotfound') ||
+      errorText.includes('enetunreach') ||
+      errorText.includes('ehostunreach') ||
       error?.name === 'AbortError' ||
       error?.name === 'TimeoutError'
     );
@@ -1301,16 +1320,16 @@ Return ONLY the rewritten text. No commentary.`;
         return text;
       } catch (error: any) {
         lastError = error;
-        const is503Error =
-          error?.status === 503 || error?.message?.includes('overloaded');
-        const is429Error =
-          error?.status === 429 || error?.message?.includes('rate limit');
+        const isTransientError =
+          this.isNetworkError(error) ||
+          this.isOverloadError(error) ||
+          this.isRateLimitError(error);
 
-        if (is503Error || is429Error) {
+        if (isTransientError) {
           if (attempt < this.MAX_RETRIES) {
             const delay = this.INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
             this.logger.warn(
-              `All providers overloaded/rate limited (attempt ${attempt}/${this.MAX_RETRIES}). Retrying in ${delay}ms...`,
+              `All providers temporarily unavailable (attempt ${attempt}/${this.MAX_RETRIES}). Retrying in ${delay}ms...`,
             );
             await this.sleep(delay);
             continue;

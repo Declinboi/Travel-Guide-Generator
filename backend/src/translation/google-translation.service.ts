@@ -155,9 +155,48 @@ export class LibreTranslationService {
     let result = text;
     placeholders.forEach((original, key) => {
       const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      result = result.replace(new RegExp(escaped, 'g'), original);
+      result = result.replace(new RegExp(escaped, 'gi'), original);
+
+      const neutralNonEnglishMatch = key.match(/^ZXQNE(\d+)QXZ$/i);
+      if (neutralNonEnglishMatch) {
+        const index = neutralNonEnglishMatch[1];
+        result = result.replace(
+          new RegExp(String.raw`\bZXQNE\s*${index}\s*QXZ\b`, 'gi'),
+          original,
+        );
+      }
+
+      const oldNonEnglishMatch = key.match(/^NONENGLISHSOURCE(\d+)$/i);
+      if (oldNonEnglishMatch) {
+        const index = oldNonEnglishMatch[1];
+        const variants = [
+          String.raw`\bNON\s*ENGLISH\s*SOURCE\s*${index}\b`,
+          String.raw`\bNONGLISH\s*SOURCE\s*${index}\b`,
+          String.raw`\bSOURCE\s*NON\s*ENGLISH\s*${index}\b`,
+          String.raw`\bSOURCE\s*NONGLISH\s*${index}\b`,
+          String.raw`\bENGLISH\s*SOURCE\s*${index}\b`,
+        ];
+
+        for (const variant of variants) {
+          result = result.replace(new RegExp(variant, 'gi'), original);
+        }
+      }
     });
+
+    result = this.removeLeakedTranslationPlaceholders(result);
     return result;
+  }
+
+  private removeLeakedTranslationPlaceholders(text: string): string {
+    return text
+      .replace(/\bNON\s*ENGLISH\s*SOURCE\s*\d+\b/gi, '')
+      .replace(/\bNONGLISH\s*SOURCE\s*\d+\b/gi, '')
+      .replace(/\bSOURCE\s*NON\s*ENGLISH\s*\d+\b/gi, '')
+      .replace(/\bSOURCE\s*NONGLISH\s*\d+\b/gi, '')
+      .replace(/\bZXQNE\s*\d+\s*QXZ\b/gi, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n[ \t]+/g, '\n')
+      .trim();
   }
 
   // ---------------------------------------------------------------------------
@@ -319,7 +358,7 @@ export class LibreTranslationService {
     let counter = 0;
 
     const protect = (value: string): string => {
-      const key = `NONENGLISHSOURCE${counter++}`;
+      const key = `ZXQNE${counter++}QXZ`;
       placeholders.set(key, value);
       return key;
     };
@@ -327,7 +366,7 @@ export class LibreTranslationService {
     const paragraphs = text.split(/(\n{2,})/);
     for (let i = 0; i < paragraphs.length; i++) {
       const part = paragraphs[i];
-      if (!part || /^\n+$/.test(part) || part.includes('NONENGLISHSOURCE'))
+      if (!part || /^\n+$/.test(part) || part.includes('ZXQNE'))
         continue;
       if (await this.isDefinitelyNonEnglish(part)) {
         this.logger.debug(
@@ -342,7 +381,7 @@ export class LibreTranslationService {
     const parts = processed.split(sentenceRegex);
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      if (!part || part.includes('NONENGLISHSOURCE')) continue;
+      if (!part || part.includes('ZXQNE')) continue;
       const wordCount = part.trim().split(/\s+/).filter(Boolean).length;
       if (wordCount < 5) continue;
       if (await this.isDefinitelyNonEnglish(part)) {
@@ -497,12 +536,12 @@ export class LibreTranslationService {
     }
 
     const stripPlaceholders = (t: string) =>
-      t
-        .replace(
-          /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE)PLACEHOLDER?\d+\b/gi,
+      this.removeLeakedTranslationPlaceholders(
+        t.replace(
+          /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE|ZXQNE)PLACEHOLDER?\d+(?:QXZ)?\b/gi,
           '',
-        )
-        .trim();
+        ),
+      ).trim();
 
     const origClean = stripPlaceholders(original).toLowerCase();
     const transClean = stripPlaceholders(translated).toLowerCase();
@@ -563,9 +602,11 @@ export class LibreTranslationService {
     translated: string,
   ): { count: number; sample: string[] } {
     const stripPlaceholders = (t: string) =>
-      t.replace(
-        /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE)PLACEHOLDER?\d+\b/gi,
-        '',
+      this.removeLeakedTranslationPlaceholders(
+        t.replace(
+          /\b(URL|EMAIL|CODE(?:BLOCK)?|NONENGLISHSOURCE|ZXQNE)PLACEHOLDER?\d+(?:QXZ)?\b/gi,
+          '',
+        ),
       );
 
     const origWords = new Set(
