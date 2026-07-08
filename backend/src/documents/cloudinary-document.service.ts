@@ -12,8 +12,9 @@ import * as os from 'os';
 @Injectable()
 export class CloudinaryDocumentService {
   private readonly logger = new Logger(CloudinaryDocumentService.name);
-  private readonly MAX_RETRIES = 3;
-  private readonly RETRY_DELAY_MS = 1000;
+  private readonly MAX_RETRIES = 6;
+  private readonly RETRY_DELAY_MS = 5000;
+  private readonly UPLOAD_TIMEOUT_MS = 300000;
   private readonly IMAGE_QUALITY = 30; // Reduce quality only, no resizing
   private readonly hasGhostscript: boolean;
 
@@ -22,6 +23,9 @@ export class CloudinaryDocumentService {
       cloud_name: this.configService.get('CLOUDINARY_CLOUD_NAME'),
       api_key: this.configService.get('CLOUDINARY_API_KEY'),
       api_secret: this.configService.get('CLOUDINARY_API_SECRET'),
+      timeout:
+        this.configService.get<number>('CLOUDINARY_UPLOAD_TIMEOUT_MS') ||
+        this.UPLOAD_TIMEOUT_MS,
     });
 
     this.hasGhostscript = this.checkGhostscript();
@@ -409,7 +413,11 @@ export class CloudinaryDocumentService {
         );
 
         if (attempt < this.MAX_RETRIES) {
-          await this.sleep(this.RETRY_DELAY_MS * attempt);
+          const delayMs = this.getUploadRetryDelay(attempt);
+          this.logger.warn(
+            `Waiting ${Math.round(delayMs / 1000)}s before retrying upload...`,
+          );
+          await this.sleep(delayMs);
         }
       }
     }
@@ -428,14 +436,25 @@ export class CloudinaryDocumentService {
     format: string;
   }> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const uploadTimeout =
+        this.configService.get<number>('CLOUDINARY_UPLOAD_TIMEOUT_MS') ||
+        this.UPLOAD_TIMEOUT_MS;
+      let localTimeout: NodeJS.Timeout;
+
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           resource_type: resourceType,
           folder: 'documents',
           public_id: this.sanitizeFilename(filename),
           tags: ['generated-document', 'compressed'],
+          timeout: uploadTimeout,
         },
         (error, result) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(localTimeout);
+
           if (error) {
             reject(error);
           } else if (!result) {
@@ -452,8 +471,30 @@ export class CloudinaryDocumentService {
         },
       );
 
+      localTimeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        uploadStream.destroy(
+          new Error(`Cloudinary upload timed out after ${uploadTimeout}ms`),
+        );
+        reject(new Error(`Cloudinary upload timed out after ${uploadTimeout}ms`));
+      }, uploadTimeout + 5000);
+
+      uploadStream.on('error', (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(localTimeout);
+        reject(error);
+      });
+
       Readable.from(buffer).pipe(uploadStream);
     });
+  }
+
+  private getUploadRetryDelay(attempt: number): number {
+    const baseDelay = this.RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+    const jitter = Math.floor(Math.random() * 3000);
+    return Math.min(baseDelay + jitter, 60000);
   }
 
   private sleep(ms: number): Promise<void> {

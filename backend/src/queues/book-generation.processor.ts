@@ -177,7 +177,18 @@ export class BookGenerationProcessor extends WorkerHost {
       );
     }
 
-    await Promise.all(jobPromises);
+    const results = await Promise.allSettled(jobPromises);
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+
+    if (failures.length > 0) {
+      throw new Error(
+        `English document generation failed after all retries: ${failures
+          .map((failure) => failure.reason?.message || String(failure.reason))
+          .join('; ')}`,
+      );
+    }
 
     if (global.gc) global.gc();
     this.logMemory('After English documents');
@@ -199,6 +210,7 @@ export class BookGenerationProcessor extends WorkerHost {
     const types = [DocumentType.PDF, DocumentType.DOCX];
     const totalDocs = targetLanguages.length * types.length; // 4 * 2 = 8
     let completed = 0;
+    const translationFailures: string[] = [];
 
     // Check existing translated documents
     const existingDocs = await this.dataSource
@@ -257,8 +269,23 @@ export class BookGenerationProcessor extends WorkerHost {
 
       // Wait for both PDF and DOCX for this language to complete
       if (languageJobs.length > 0) {
-        await Promise.all(languageJobs);
-        this.logger.log(`✅ Completed ${language} translation (PDF + DOCX)`);
+        const results = await Promise.allSettled(languageJobs);
+        const failures = results.filter(
+          (result): result is PromiseRejectedResult =>
+            result.status === 'rejected',
+        );
+
+        if (failures.length > 0) {
+          for (const failure of failures) {
+            const message = failure.reason?.message || String(failure.reason);
+            translationFailures.push(`${language}: ${message}`);
+            this.logger.error(
+              `⚠️ Translation document failed for ${language}: ${message}`,
+            );
+          }
+        }
+
+        this.logger.log(`✅ Finished ${language} translation batch`);
 
         // Small delay between languages
         if (language !== Language.ITALIAN) {
@@ -268,6 +295,13 @@ export class BookGenerationProcessor extends WorkerHost {
         if (global.gc) global.gc();
         this.logMemory(`After ${language} translation`);
       }
+    }
+
+    if (translationFailures.length > 0) {
+      this.logger.warn(
+        `⚠️ Completed with ${translationFailures.length} translated document failure(s): ${translationFailures.join(' | ')}`,
+      );
+      return;
     }
 
     this.logger.log('✅ All documents translated');

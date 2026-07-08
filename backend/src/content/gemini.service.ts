@@ -22,6 +22,16 @@ interface APIProvider {
   lastErrorType: string | null;
 }
 
+interface GenerationOptions {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  maxOutputTokens?: number;
+  responseMimeType?: 'application/json' | 'text/plain';
+}
+
 type ContentType = 'travel' | 'farming';
 
 type ChapterFormat =
@@ -191,6 +201,7 @@ interface RefinementContext {
   bookSubtitle?: string;
   chapterTitle?: string;
   chapterOutline?: ChapterOutline;
+  isMainChapter?: boolean;
 }
 
 interface AuthenticityIssue {
@@ -530,6 +541,26 @@ ${PLAIN_LANGUAGE_RULES}`;
 ${PLAIN_LANGUAGE_RULES}`;
   }
 
+  private buildMainChapterDepthRules(contentType: ContentType): string {
+    const domainDetail =
+      contentType === 'travel'
+        ? `- For each major place, route, activity, or decision, explain what it is, why it matters, who it suits, what it costs in rough terms, how long it takes, how to do it, and what mistake to avoid.
+- Include enough context for a first-time visitor who knows nothing about the destination, but keep the wording simple and practical.
+- Make the advice correct and careful. Use stable facts and planning ranges. If a detail changes often, tell readers to confirm it instead of pretending certainty.`
+        : `- For each major task, method, tool, animal, crop, or decision, explain what it is, why it matters, what it costs in rough terms, how long it takes, how to do it, how to tell it is working, and what mistake to avoid.
+- Include enough context for a beginner who knows nothing about the topic, but keep the wording simple and practical.
+- Make the advice correct and careful. Use safe ranges and local-verification notes for laws, prices, disease advice, chemical use, suppliers, and yields.`;
+
+    return `MAIN CHAPTER LENGTH AND DEPTH REQUIREMENTS:
+- This is a main content chapter, so make it long, full, and useful. Do not write a short overview.
+- Write 45-55 substantial paragraphs covering every section and subsection in the outline.
+- Each paragraph should usually have 3-5 clear sentences. Short punchy paragraphs are okay sometimes, but most paragraphs need useful detail.
+- Give step-by-step explanations in plain, layman language. Explain terms the first time you use them.
+- Do not pad with fluff. Add real detail: examples, trade-offs, warnings, practical ranges, simple explanations, and clear next steps.
+- Each section should feel complete enough that the reader can act on it without needing another basic guide.
+${domainDetail}`;
+  }
+
   // ══════════════════════════════════════════════════════════════
   // FIXED: Provider calls with timeout using AbortController
   // ══════════════════════════════════════════════════════════════
@@ -537,6 +568,7 @@ ${PLAIN_LANGUAGE_RULES}`;
     provider: APIProvider,
     prompt: string,
     systemPrompt: string = TRAVEL_SYSTEM_PROMPT,
+    options: GenerationOptions = {},
   ): Promise<string> {
     await this.waitForProviderCooldown(provider);
     provider.lastUsedAt = Date.now();
@@ -553,10 +585,11 @@ ${PLAIN_LANGUAGE_RULES}`;
           model: provider.model,
           // Fix 1: In generateWithProvider, increase maxOutputTokens for Gemini
           generationConfig: {
-            temperature: 1.0,
-            topP: 0.92,
-            topK: 50,
-            maxOutputTokens: 16384, // was 8192 — double it for outline chunks
+            temperature: options.temperature ?? 1.0,
+            topP: options.topP ?? 0.92,
+            topK: options.topK ?? 50,
+            maxOutputTokens: options.maxOutputTokens ?? 16384,
+            responseMimeType: options.responseMimeType,
           },
           systemInstruction: systemPrompt,
         });
@@ -581,9 +614,13 @@ ${PLAIN_LANGUAGE_RULES}`;
               { role: 'system', content: systemPrompt },
               { role: 'user', content: prompt },
             ],
-            temperature: 0.9,
-            frequency_penalty: 0.4,
-            presence_penalty: 0.3,
+            temperature: options.temperature ?? 0.9,
+            frequency_penalty: options.frequencyPenalty ?? 0.4,
+            presence_penalty: options.presencePenalty ?? 0.3,
+            response_format:
+              options.responseMimeType === 'application/json'
+                ? { type: 'json_object' }
+                : undefined,
           },
           {
             signal: controller.signal,
@@ -623,6 +660,7 @@ ${PLAIN_LANGUAGE_RULES}`;
   private async generateWithProviderRotation(
     prompt: string,
     systemPrompt?: string,
+    options: GenerationOptions = {},
   ): Promise<string> {
     const maxAttempts = this.apiProviders.length * 2;
     let lastError: any;
@@ -682,6 +720,7 @@ ${PLAIN_LANGUAGE_RULES}`;
           provider,
           prompt,
           systemPrompt,
+          options,
         );
         return result;
       } catch (error: any) {
@@ -771,6 +810,21 @@ ${PLAIN_LANGUAGE_RULES}`;
 
     this.logger.error(`All ${maxAttempts} provider attempts failed`);
     throw lastError || new Error('All providers failed');
+  }
+
+  private async generateOutlineJson(
+    prompt: string,
+    systemPrompt: string,
+  ): Promise<string> {
+    return await this.generateWithProviderRotation(prompt, systemPrompt, {
+      temperature: 0.2,
+      topP: 0.8,
+      topK: 20,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      maxOutputTokens: 16384,
+      responseMimeType: 'application/json',
+    });
   }
 
   private async sleep(ms: number): Promise<void> {
@@ -1033,6 +1087,13 @@ ${refinementContext.chapterOutline ? `Chapter outline: ${JSON.stringify(refineme
 ${this.buildBookPromise(refinementContext.bookTitle || '', refinementContext.bookSubtitle || '')}
 `
         : '';
+    const mainChapterDepthInstruction = refinementContext?.isMainChapter
+      ? `
+MAIN CHAPTER DEPTH TO PRESERVE:
+${this.buildMainChapterDepthRules('travel')}
+- Do not shorten the chapter during this final pass. Expand thin sections with useful, correct, plain-language detail.
+`
+      : '';
 
     return `You are doing the final human editor pass on a travel guide chapter before publication.
 
@@ -1040,6 +1101,7 @@ The chapter still has these authenticity problems:
 ${issueList}
 
 ${contextBlock}
+${mainChapterDepthInstruction}
 
 EDITORIAL REQUIREMENTS:
 - Make it read like a real guidebook chapter written by an experienced travel writer.
@@ -1079,6 +1141,13 @@ ${this.buildBookPromise(refinementContext.bookTitle || '', refinementContext.boo
 ${this.buildFarmingGuidebookQualityRules()}
 `
         : '';
+    const mainChapterDepthInstruction = refinementContext?.isMainChapter
+      ? `
+MAIN CHAPTER DEPTH TO PRESERVE:
+${this.buildMainChapterDepthRules('farming')}
+- Do not shorten the chapter during this final pass. Expand thin sections with useful, correct, plain-language detail.
+`
+      : '';
 
     return `You are doing the final human editor pass on a practical farming guide chapter before publication.
 
@@ -1086,6 +1155,7 @@ The chapter still has these authenticity problems:
 ${issueList}
 
 ${contextBlock}
+${mainChapterDepthInstruction}
 
 EDITORIAL REQUIREMENTS:
 - Make it read like a real farming guide chapter written by someone who has done the work.
@@ -1220,6 +1290,13 @@ ${this.buildBookPromise(refinementContext.bookTitle || '', refinementContext.boo
 ${this.buildTravelGuidebookQualityRules()}
 `
         : '';
+    const mainChapterDepthInstruction = refinementContext?.isMainChapter
+      ? `
+MAIN CHAPTER DEPTH TO PRESERVE:
+${this.buildMainChapterDepthRules('travel')}
+- During this rewrite, do not shorten the chapter. Expand thin sections instead of trimming them.
+`
+      : '';
 
     return `Here is a draft chapter you wrote. Rewrite it to fix these specific issues:
 
@@ -1236,6 +1313,7 @@ ${this.buildTravelGuidebookQualityRules()}
 11. Keep every rewritten paragraph in plain English: common words, clear sentences, no jargon, no fancy phrasing
 
 ${contextBlock}
+${mainChapterDepthInstruction}
 
 DRAFT TO REWRITE:
 ${draft}
@@ -1260,6 +1338,13 @@ ${this.buildBookPromise(refinementContext.bookTitle || '', refinementContext.boo
 ${this.buildFarmingGuidebookQualityRules()}
 `
         : '';
+    const mainChapterDepthInstruction = refinementContext?.isMainChapter
+      ? `
+MAIN CHAPTER DEPTH TO PRESERVE:
+${this.buildMainChapterDepthRules('farming')}
+- During this rewrite, do not shorten the chapter. Expand thin sections instead of trimming them.
+`
+      : '';
 
     return `Here is a draft chapter you wrote. Rewrite it to fix these specific issues:
 
@@ -1277,6 +1362,7 @@ ${this.buildFarmingGuidebookQualityRules()}
 12. Keep every rewritten paragraph in plain English: common words, clear sentences, no jargon, no academic phrasing
 
 ${contextBlock}
+${mainChapterDepthInstruction}
 
 DRAFT TO REWRITE:
 ${draft}
@@ -1384,8 +1470,8 @@ GOOD section titles (specific, practical):
 
     const outlineSystemPrompt =
       contentType === 'farming'
-        ? 'You are a book editor specializing in practical farming and agriculture guides. Return only valid JSON. No markdown, no backticks, no explanation — raw JSON only.'
-        : 'You are a book editor specializing in travel guide book structure. Return only valid JSON. No markdown, no backticks, no explanation — raw JSON only.';
+        ? 'You are a book editor specializing in practical farming and agriculture guides. Return only one valid JSON object. No markdown, no backticks, no comments, no ellipses, no placeholders, no explanation.'
+        : 'You are a book editor specializing in travel guide book structure. Return only one valid JSON object. No markdown, no backticks, no comments, no ellipses, no placeholders, no explanation.';
 
     // Split large outlines into two halves to stay within token limits
     const useChunkedGeneration = numberOfChapters > 8;
@@ -1418,10 +1504,10 @@ GOOD section titles (specific, practical):
         `Generating book outline (attempt ${attempt}/${MAX_OUTLINE_ATTEMPTS})...`,
       );
 
-      const response = await this.generateText(prompt, {
-        systemPrompt: outlineSystemPrompt,
-        contentType,
-      });
+      const response = await this.generateOutlineJson(
+        prompt,
+        outlineSystemPrompt,
+      );
 
       const outline = this.parseAndValidateOutline(
         response,
@@ -1449,7 +1535,7 @@ GOOD section titles (specific, practical):
 
   // ═══════════════════════════════════════════════════════════════
   // CHUNKED GENERATION — For books with >8 chapters
-  // Splits into two halves, generates each separately, merges
+  // Splits into ranges, and recursively shrinks failed ranges.
   // ═══════════════════════════════════════════════════════════════
   private async generateBookOutlineChunked(
     title: string,
@@ -1460,14 +1546,12 @@ GOOD section titles (specific, practical):
     outlineSystemPrompt: string,
   ): Promise<BookOutlineDto> {
     const half = Math.ceil(numberOfChapters / 2);
-    const MAX_OUTLINE_ATTEMPTS = 3;
 
     this.logger.log(
       `Outline too large (${numberOfChapters} chapters) — generating in two chunks: [1-${half}] and [${half + 1}-${numberOfChapters}]`,
     );
 
-    // ── Chunk 1: chapters 1 → half ───────────────────────────────
-    const promptChunk1 = this.buildOutlinePrompt(
+    const chunk1Chapters = await this.generateOutlineRange(
       title,
       subtitle,
       numberOfChapters,
@@ -1475,44 +1559,10 @@ GOOD section titles (specific, practical):
       half,
       contentType,
       exampleTitles,
+      outlineSystemPrompt,
     );
 
-    let chunk1Chapters: ChapterOutline[] | null = null;
-
-    for (let attempt = 1; attempt <= MAX_OUTLINE_ATTEMPTS; attempt++) {
-      this.logger.log(
-        `Generating outline chunk 1/2 (chapters 1-${half}), attempt ${attempt}/${MAX_OUTLINE_ATTEMPTS}...`,
-      );
-
-      const response = await this.generateText(promptChunk1, {
-        systemPrompt: outlineSystemPrompt,
-        contentType,
-      });
-
-      const parsed = this.parseAndValidateOutline(
-        response,
-        half,
-        attempt,
-        MAX_OUTLINE_ATTEMPTS,
-      );
-
-      if (parsed) {
-        chunk1Chapters = parsed.chapters;
-        break;
-      }
-
-      if (attempt < MAX_OUTLINE_ATTEMPTS) {
-        await this.sleep(3000);
-      }
-    }
-
-    if (!chunk1Chapters) {
-      throw new Error('Failed to generate outline chunk 1 after all attempts');
-    }
-
-    // ── Chunk 2: chapters half+1 → numberOfChapters ──────────────
-    const chunk2Count = numberOfChapters - half;
-    const promptChunk2 = this.buildOutlinePrompt(
+    const chunk2Chapters = await this.generateOutlineRange(
       title,
       subtitle,
       numberOfChapters,
@@ -1520,40 +1570,8 @@ GOOD section titles (specific, practical):
       numberOfChapters,
       contentType,
       exampleTitles,
+      outlineSystemPrompt,
     );
-
-    let chunk2Chapters: ChapterOutline[] | null = null;
-
-    for (let attempt = 1; attempt <= MAX_OUTLINE_ATTEMPTS; attempt++) {
-      this.logger.log(
-        `Generating outline chunk 2/2 (chapters ${half + 1}-${numberOfChapters}), attempt ${attempt}/${MAX_OUTLINE_ATTEMPTS}...`,
-      );
-
-      const response = await this.generateText(promptChunk2, {
-        systemPrompt: outlineSystemPrompt,
-        contentType,
-      });
-
-      const parsed = this.parseAndValidateOutline(
-        response,
-        chunk2Count,
-        attempt,
-        MAX_OUTLINE_ATTEMPTS,
-      );
-
-      if (parsed) {
-        chunk2Chapters = parsed.chapters;
-        break;
-      }
-
-      if (attempt < MAX_OUTLINE_ATTEMPTS) {
-        await this.sleep(3000);
-      }
-    }
-
-    if (!chunk2Chapters) {
-      throw new Error('Failed to generate outline chunk 2 after all attempts');
-    }
 
     // ── Merge chunks and fix chapter numbers ─────────────────────
     const allChapters: ChapterOutline[] = [
@@ -1569,6 +1587,88 @@ GOOD section titles (specific, practical):
     );
 
     return { title, subtitle, author: '', chapters: allChapters };
+  }
+
+  private async generateOutlineRange(
+    title: string,
+    subtitle: string,
+    totalChapters: number,
+    fromChapter: number,
+    toChapter: number,
+    contentType: ContentType,
+    exampleTitles: string,
+    outlineSystemPrompt: string,
+  ): Promise<ChapterOutline[]> {
+    const chapterCount = toChapter - fromChapter + 1;
+    const MAX_OUTLINE_ATTEMPTS = 3;
+    const prompt = this.buildOutlinePrompt(
+      title,
+      subtitle,
+      totalChapters,
+      fromChapter,
+      toChapter,
+      contentType,
+      exampleTitles,
+    );
+
+    for (let attempt = 1; attempt <= MAX_OUTLINE_ATTEMPTS; attempt++) {
+      this.logger.log(
+        `Generating outline chapters ${fromChapter}-${toChapter}, attempt ${attempt}/${MAX_OUTLINE_ATTEMPTS}...`,
+      );
+
+      const response = await this.generateOutlineJson(
+        prompt,
+        outlineSystemPrompt,
+      );
+
+      const parsed = this.parseAndValidateOutline(
+        response,
+        chapterCount,
+        attempt,
+        MAX_OUTLINE_ATTEMPTS,
+      );
+
+      if (parsed) {
+        return parsed.chapters;
+      }
+
+      if (attempt < MAX_OUTLINE_ATTEMPTS) {
+        await this.sleep(3000);
+      }
+    }
+
+    if (chapterCount > 1) {
+      const midpoint = Math.floor((fromChapter + toChapter) / 2);
+      this.logger.warn(
+        `Outline chapters ${fromChapter}-${toChapter} failed as one range; splitting into ${fromChapter}-${midpoint} and ${midpoint + 1}-${toChapter}`,
+      );
+
+      const first = await this.generateOutlineRange(
+        title,
+        subtitle,
+        totalChapters,
+        fromChapter,
+        midpoint,
+        contentType,
+        exampleTitles,
+        outlineSystemPrompt,
+      );
+      const second = await this.generateOutlineRange(
+        title,
+        subtitle,
+        totalChapters,
+        midpoint + 1,
+        toChapter,
+        contentType,
+        exampleTitles,
+        outlineSystemPrompt,
+      );
+      return [...first, ...second];
+    }
+
+    throw new Error(
+      `Failed to generate outline chapter ${fromChapter} after all attempts`,
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1641,6 +1741,12 @@ ${domainOutlineRules}
 14. Use plain English for all titles, sections, and subsections: common words, direct phrasing, no jargon
 ${exampleTitles}
 
+JSON RULES:
+- Return one complete JSON object and nothing else
+- Do not include comments, markdown, backticks, notes, or explanations
+- Do not use ellipses, "omitted", "as above", "continue similarly", or placeholder chapters
+- Every chapter, section, and subsection must be fully written out
+
 OUTPUT FORMAT (JSON):
 {
   "chapters": [
@@ -1669,11 +1775,7 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). CRI
     attempt: number,
     maxAttempts: number,
   ): { chapters: ChapterOutline[] } | null {
-    // Strip markdown code fences if present
-    const cleaned = response
-      .replace(/```json\s*/gi, '')
-      .replace(/```\s*/gi, '')
-      .trim();
+    const cleaned = this.extractLikelyJson(response);
 
     // ── Attempt 1: clean parse ────────────────────────────────────
     let outline = this.tryParseJson(cleaned);
@@ -1697,6 +1799,13 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). CRI
     if (!outline.chapters || !Array.isArray(outline.chapters)) {
       this.logger.error(
         `Attempt ${attempt}/${maxAttempts}: Outline missing chapters array`,
+      );
+      return null;
+    }
+
+    if (this.containsOutlinePlaceholders(outline)) {
+      this.logger.error(
+        `Attempt ${attempt}/${maxAttempts}: Outline contains placeholder or editorial text`,
       );
       return null;
     }
@@ -1788,11 +1897,36 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). CRI
     }
   }
 
+  private extractLikelyJson(response: string): string {
+    const withoutFences = response
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/gi, '')
+      .trim();
+    const firstBrace = withoutFences.indexOf('{');
+    const lastBrace = withoutFences.lastIndexOf('}');
+
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      return withoutFences.slice(firstBrace, lastBrace + 1).trim();
+    }
+
+    return withoutFences;
+  }
+
+  private containsOutlinePlaceholders(outline: any): boolean {
+    const serialized = JSON.stringify(outline).toLowerCase();
+    return /\b(omitted|as above|same as above|continue similarly|continued similarly|placeholder|proceeding accordingly|filling in chapters?|chapter \d+ would|would be complete|to be filled|todo|tbd)\b|\.\.\./i.test(
+      serialized,
+    );
+  }
+
   private tryRepairJson(raw: string): any | null {
     try {
-      
       // Remove trailing commas before ] or }
       let repaired = this.normalizeSingleQuotes(raw);
+
+      repaired = repaired
+        .replace(/^\s*\/\/.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '');
 
       repaired = repaired.replace(/,\s*([}\]])/g, '$1');
 
@@ -2091,6 +2225,7 @@ Return ONLY the chapter text. Do NOT include any preamble, meta-commentary, or p
         bookSubtitle,
         chapterTitle: chapterOutline.chapterTitle,
         chapterOutline,
+        isMainChapter: true,
       },
     });
   }
@@ -2120,6 +2255,7 @@ ${contextData.weatherNotes ? `- Weather: ${contextData.weatherNotes}` : ''}
     const baseHeader = `Write Chapter ${chapterOutline.chapterNumber}: "${chapterOutline.chapterTitle}" for the travel guide "${bookTitle}: ${bookSubtitle} " IN PLAIN ENGLISH LANGUAGE.
 
 ${this.buildBookPromise(bookTitle, bookSubtitle)}
+${this.buildMainChapterDepthRules('travel')}
 
 Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
@@ -2147,7 +2283,7 @@ WRITING FORMAT: SCENE-FIRST NARRATIVE
 Structure each section by opening with a specific moment or scene, then unpack the practical details.
 
 STRUCTURE:
-- Write 30-35 paragraphs covering all sections and subsections
+- Write 45-55 substantial paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a vivid 2-3 sentence scene: arriving somewhere, watching something happen, a conversation snippet
 - After the scene, pivot to practical guidance that builds from what you showed
@@ -2181,7 +2317,7 @@ WRITING FORMAT: DIRECT INSTRUCTION
 Structure each section as clear, actionable guidance. Lead with what to do, follow with why and how.
 
 STRUCTURE:
-- Write 30-35 paragraphs covering all sections and subsections
+- Write 45-55 substantial paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose, but with an imperative, instructional voice
 - Open each section with a direct instruction or recommendation
 - Follow with the reasoning, context, and specific details
@@ -2215,7 +2351,7 @@ WRITING FORMAT: PROBLEM-SOLUTION
 Structure each section around a common traveler problem, question, or challenge, then provide the solution.
 
 STRUCTURE:
-- Write 30-35 paragraphs covering all sections and subsections
+- Write 45-55 substantial paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section by naming a specific problem, frustration, or question travelers face
 - Then deliver the solution with specific, actionable details
@@ -2249,7 +2385,7 @@ WRITING FORMAT: COMPARISON-CONTRAST
 Structure each section around choices, trade-offs, and decisions. Help readers pick between options.
 
 STRUCTURE:
-- Write 30-35 paragraphs covering all sections and subsections
+- Write 45-55 substantial paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section by framing a decision or presenting options
 - Compare options honestly with specific trade-offs (cost, time, experience, convenience)
@@ -2353,6 +2489,8 @@ Chapter Structure:
 ${JSON.stringify(chapterOutline, null, 2)}
 ${contextBlock}
 
+${this.buildMainChapterDepthRules('farming')}
+
 PURPOSE: This is a practical farming guide. Every paragraph should help the reader do something, decide something, or avoid a costly mistake.`;
 
     const formatInstructions = this.getFarmingFormatInstructions(format);
@@ -2375,7 +2513,7 @@ WRITING FORMAT: SCENE-FIRST NARRATIVE
 Structure each section by opening with a specific farm moment or hands-on scenario, then unpack the practical details.
 
 STRUCTURE:
-- Write 30-35 paragraphs covering all sections and subsections
+- Write 45-55 substantial paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section with a vivid farm moment: early morning chores, something going wrong, a seasonal task
 - After the scene, pivot to practical guidance that builds from what you showed
@@ -2409,7 +2547,7 @@ WRITING FORMAT: DIRECT INSTRUCTION
 Structure each section as clear, actionable guidance. Lead with what to do, follow with why and how.
 
 STRUCTURE:
-- Write 30-35 paragraphs covering all sections and subsections
+- Write 45-55 substantial paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose, but with an imperative, instructional voice
 - Open each section with a direct instruction or action step
 - Follow with the reasoning, materials needed, and specific details
@@ -2443,7 +2581,7 @@ WRITING FORMAT: PROBLEM-SOLUTION
 Structure each section around a common farming problem, mistake, or challenge, then provide the solution.
 
 STRUCTURE:
-- Write 30-35 paragraphs covering all sections and subsections
+- Write 45-55 substantial paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section by naming a specific problem farmers face (especially beginners)
 - Then deliver the solution with specific, actionable details and numbers
@@ -2477,7 +2615,7 @@ WRITING FORMAT: COMPARISON-CONTRAST
 Structure each section around choices, methods, and trade-offs. Help readers pick the right approach for their situation.
 
 STRUCTURE:
-- Write 30-35 paragraphs covering all sections and subsections
+- Write 45-55 substantial paragraphs covering all sections and subsections
 - NO bullet points, NO numbered lists — everything in flowing prose
 - Open each section by framing a decision or presenting method options
 - Compare options honestly with specific trade-offs (cost, labor, results, scale)

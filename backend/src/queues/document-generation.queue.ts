@@ -36,10 +36,10 @@ export class DocumentGenerationQueue {
           count: 100,
         },
         removeOnFail: false,
-        attempts: 2,
+        attempts: 5,
         backoff: {
           type: 'exponential',
-          delay: 5000,
+          delay: 30000,
         },
       });
 
