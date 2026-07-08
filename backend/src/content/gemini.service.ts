@@ -365,10 +365,13 @@ export class GeminiService {
 
     return (
       errorText.includes('connection error') ||
+      errorText.includes('connectiontimeouterror') ||
       errorText.includes('fetch failed') ||
       errorText.includes('eai_again') ||
       errorText.includes('econnreset') ||
       errorText.includes('etimedout') ||
+      errorText.includes('timed out') ||
+      errorText.includes('timeout') ||
       errorText.includes('econnrefused') ||
       errorText.includes('socket hang up') ||
       errorText.includes('network') ||
@@ -378,7 +381,8 @@ export class GeminiService {
       errorText.includes('enetunreach') ||
       errorText.includes('ehostunreach') ||
       error?.name === 'AbortError' ||
-      error?.name === 'TimeoutError'
+      error?.name === 'TimeoutError' ||
+      error?.name === 'APIConnectionTimeoutError'
     );
   }
   private isRateLimitError(error: any): boolean {
