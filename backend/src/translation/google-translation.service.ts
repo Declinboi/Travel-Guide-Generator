@@ -187,6 +187,40 @@ export class LibreTranslationService {
     return result;
   }
 
+  private hasTranslatableText(text: string): boolean {
+    const stripped = text
+      .replace(/\b(?:URL|EMAIL|CODEBLOCK|CODE)PLACEHOLDER\d+\b/gi, '')
+      .replace(/\bZXQNE\d+QXZ\b/gi, '')
+      .replace(/[^\p{L}\p{N}]+/gu, '')
+      .trim();
+
+    return /[\p{L}]/u.test(stripped);
+  }
+
+  private restoreMissingProtectedSpans(
+    text: string,
+    placeholders: Map<string, string>,
+  ): string {
+    if (placeholders.size === 0) return text;
+
+    let result = text.trim();
+    const missing: string[] = [];
+
+    placeholders.forEach((original) => {
+      if (!result.includes(original)) {
+        missing.push(original);
+      }
+    });
+
+    if (missing.length === 0) return result;
+
+    this.logger.warn(
+      `Restoring ${missing.length} protected non-English span(s) dropped by translator`,
+    );
+
+    return [...missing, result].filter(Boolean).join('\n\n').trim();
+  }
+
   private removeLeakedTranslationPlaceholders(text: string): string {
     return text
       .replace(/\bNON\s*ENGLISH\s*SOURCE\s*\d+\b/gi, '')
@@ -545,6 +579,14 @@ export class LibreTranslationService {
 
     const origClean = stripPlaceholders(original).toLowerCase();
     const transClean = stripPlaceholders(translated).toLowerCase();
+    const languageNeutral = this.isLanguageNeutralText(original);
+
+    if (languageNeutral && origClean === transClean) {
+      this.logger.debug(
+        'Translation unchanged because text is language-neutral',
+      );
+      return { isValid: true, issues: [], score: 100 };
+    }
 
     if (origClean === transClean && origClean.length > 10) {
       issues.push('Translation is identical to original');
@@ -657,6 +699,45 @@ export class LibreTranslationService {
     };
 
     return (patterns[language] ?? []).some((p) => p.test(text));
+  }
+
+  private isLanguageNeutralText(text: string): boolean {
+    const withoutProtectedTokens = this.removeLeakedTranslationPlaceholders(
+      text
+        .replace(/\b(?:URL|EMAIL|CODEBLOCK|CODE)PLACEHOLDER\d+\b/gi, '')
+        .replace(/\bZXQNE\d+QXZ\b/gi, ''),
+    ).trim();
+
+    if (!withoutProtectedTokens) return true;
+    if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(withoutProtectedTokens)) return true;
+
+    const words =
+      withoutProtectedTokens.match(/\b[\p{L}][\p{L}'’-]*\b/gu) || [];
+    if (words.length === 0) return true;
+    if (words.length > 8) return false;
+
+    const lowerWords = words.map((word) => word.toLowerCase());
+    const translatableWords = lowerWords.filter((word) =>
+      this.ENGLISH_CONTENT_WORDS.has(word),
+    );
+
+    if (translatableWords.length > 0) return false;
+
+    const neutralWords = words.filter((word) => {
+      const isAcronym = /^[A-Z0-9]{2,}$/.test(word);
+      const isCapitalized = /^[A-ZÀ-ÖØ-Þ][\p{L}'’-]*$/u.test(word);
+      const hasDigit = /\d/.test(word);
+      return isAcronym || isCapitalized || hasDigit || word.length <= 2;
+    });
+
+    return neutralWords.length / words.length >= 0.75;
+  }
+
+  private normalizeForComparison(text: string): string {
+    return this.removeLeakedTranslationPlaceholders(text)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
   }
 
   // ---------------------------------------------------------------------------
@@ -772,6 +853,24 @@ export class LibreTranslationService {
               placeholders: new Map<string, string>(),
             };
 
+        if (!this.hasTranslatableText(processed)) {
+          const restoredTech = this.postprocessText(processed, placeholders);
+          const restoredNonEn = this.postprocessText(
+            restoredTech,
+            nonEnglishProtection.placeholders,
+          );
+          const final = this.reattachCompoundAnimals(
+            restoredNonEn,
+            extractions,
+          );
+
+          this.logger.log(
+            'No English text left after protection; preserving original/protected text',
+          );
+
+          return final || text;
+        }
+
         // Step 4: translate clean English
         const response = await this.retryRequest<LibreTranslateResponse>(() =>
           this.axiosInstance.post('/translate', {
@@ -790,14 +889,28 @@ export class LibreTranslationService {
           restoredTech,
           nonEnglishProtection.placeholders,
         );
+        const withProtectedSpans = this.restoreMissingProtectedSpans(
+          restoredNonEn,
+          nonEnglishProtection.placeholders,
+        );
 
         // Step 6: reattach pre-known target-language animal names
-        const final = this.reattachCompoundAnimals(restoredNonEn, extractions);
+        const final = this.reattachCompoundAnimals(
+          withProtectedSpans,
+          extractions,
+        );
+        const finalForValidation =
+          targetLanguage !== Language.ENGLISH &&
+          !this.isLanguageNeutralText(text) &&
+          this.normalizeForComparison(text) ===
+            this.normalizeForComparison(final)
+            ? this.mergeWithFallback(text, final, targetLanguage)
+            : final;
 
         // Step 7: validate
         const validation = this.validateTranslationQuality(
           text,
-          final,
+          finalForValidation,
           targetLanguage,
         );
         attemptLog.push(`#${attempt}:${validation.score}`);
@@ -812,17 +925,17 @@ export class LibreTranslationService {
 
         if (validation.score > bestScore) {
           bestScore = validation.score;
-          bestTranslation = final;
+          bestTranslation = finalForValidation;
         }
 
         if (validation.score >= 85) {
           this.logger.log(`✓ High-quality translation on attempt ${attempt}`);
-          return final;
+          return finalForValidation;
         }
 
         if (validation.score >= 60) {
           this.logger.log(`✓ Acceptable translation on attempt ${attempt}`);
-          return final;
+          return finalForValidation;
         }
 
         if (attempt < this.translationRetries) {

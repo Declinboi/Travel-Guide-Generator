@@ -1406,6 +1406,8 @@ Return ONLY the rewritten text. No commentary.`;
           text = this.humanizeText(text, contentType);
         }
 
+        text = this.stripMetaCommentary(text);
+
         this.logger.log('Content generated successfully');
         return text;
       } catch (error: any) {
@@ -1473,22 +1475,11 @@ GOOD section titles (specific, practical):
         ? 'You are a book editor specializing in practical farming and agriculture guides. Return only one valid JSON object. No markdown, no backticks, no comments, no ellipses, no placeholders, no explanation.'
         : 'You are a book editor specializing in travel guide book structure. Return only one valid JSON object. No markdown, no backticks, no comments, no ellipses, no placeholders, no explanation.';
 
-    // Split large outlines into two halves to stay within token limits
-    const useChunkedGeneration = numberOfChapters > 8;
     const MAX_OUTLINE_ATTEMPTS = 3;
 
-    if (useChunkedGeneration) {
-      return await this.generateBookOutlineChunked(
-        title,
-        subtitle,
-        numberOfChapters,
-        contentType,
-        exampleTitles,
-        outlineSystemPrompt,
-      );
-    }
-
-    // ── Single-pass generation for ≤8 chapters ──────────────────
+    // ── Single-pass generation for the whole book ────────────────
+    // Keep the outline in one model call so chapter themes progress naturally
+    // and the second half cannot accidentally repeat the first half.
     const prompt = this.buildOutlinePrompt(
       title,
       subtitle,
@@ -1521,153 +1512,13 @@ GOOD section titles (specific, practical):
       }
 
       if (attempt < MAX_OUTLINE_ATTEMPTS) {
-        this.logger.warn(
-          `Outline attempt ${attempt} failed. Retrying in 3s...`,
-        );
+        this.logger.warn(`Outline attempt ${attempt} failed. Retrying in 3s...`);
         await this.sleep(3000);
       }
     }
 
     throw new Error(
       `Failed to generate a valid book outline after ${MAX_OUTLINE_ATTEMPTS} attempts`,
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════
-  // CHUNKED GENERATION — For books with >8 chapters
-  // Splits into ranges, and recursively shrinks failed ranges.
-  // ═══════════════════════════════════════════════════════════════
-  private async generateBookOutlineChunked(
-    title: string,
-    subtitle: string,
-    numberOfChapters: number,
-    contentType: ContentType,
-    exampleTitles: string,
-    outlineSystemPrompt: string,
-  ): Promise<BookOutlineDto> {
-    const half = Math.ceil(numberOfChapters / 2);
-
-    this.logger.log(
-      `Outline too large (${numberOfChapters} chapters) — generating in two chunks: [1-${half}] and [${half + 1}-${numberOfChapters}]`,
-    );
-
-    const chunk1Chapters = await this.generateOutlineRange(
-      title,
-      subtitle,
-      numberOfChapters,
-      1,
-      half,
-      contentType,
-      exampleTitles,
-      outlineSystemPrompt,
-    );
-
-    const chunk2Chapters = await this.generateOutlineRange(
-      title,
-      subtitle,
-      numberOfChapters,
-      half + 1,
-      numberOfChapters,
-      contentType,
-      exampleTitles,
-      outlineSystemPrompt,
-    );
-
-    // ── Merge chunks and fix chapter numbers ─────────────────────
-    const allChapters: ChapterOutline[] = [
-      ...chunk1Chapters,
-      ...chunk2Chapters,
-    ].map((chapter, idx) => ({
-      ...chapter,
-      chapterNumber: idx + 1,
-    }));
-
-    this.logger.log(
-      `Outline chunks merged successfully: ${allChapters.length} chapters total`,
-    );
-
-    return { title, subtitle, author: '', chapters: allChapters };
-  }
-
-  private async generateOutlineRange(
-    title: string,
-    subtitle: string,
-    totalChapters: number,
-    fromChapter: number,
-    toChapter: number,
-    contentType: ContentType,
-    exampleTitles: string,
-    outlineSystemPrompt: string,
-  ): Promise<ChapterOutline[]> {
-    const chapterCount = toChapter - fromChapter + 1;
-    const MAX_OUTLINE_ATTEMPTS = 3;
-    const prompt = this.buildOutlinePrompt(
-      title,
-      subtitle,
-      totalChapters,
-      fromChapter,
-      toChapter,
-      contentType,
-      exampleTitles,
-    );
-
-    for (let attempt = 1; attempt <= MAX_OUTLINE_ATTEMPTS; attempt++) {
-      this.logger.log(
-        `Generating outline chapters ${fromChapter}-${toChapter}, attempt ${attempt}/${MAX_OUTLINE_ATTEMPTS}...`,
-      );
-
-      const response = await this.generateOutlineJson(
-        prompt,
-        outlineSystemPrompt,
-      );
-
-      const parsed = this.parseAndValidateOutline(
-        response,
-        chapterCount,
-        attempt,
-        MAX_OUTLINE_ATTEMPTS,
-      );
-
-      if (parsed) {
-        return parsed.chapters;
-      }
-
-      if (attempt < MAX_OUTLINE_ATTEMPTS) {
-        await this.sleep(3000);
-      }
-    }
-
-    if (chapterCount > 1) {
-      const midpoint = Math.floor((fromChapter + toChapter) / 2);
-      this.logger.warn(
-        `Outline chapters ${fromChapter}-${toChapter} failed as one range; splitting into ${fromChapter}-${midpoint} and ${midpoint + 1}-${toChapter}`,
-      );
-
-      const first = await this.generateOutlineRange(
-        title,
-        subtitle,
-        totalChapters,
-        fromChapter,
-        midpoint,
-        contentType,
-        exampleTitles,
-        outlineSystemPrompt,
-      );
-      const second = await this.generateOutlineRange(
-        title,
-        subtitle,
-        totalChapters,
-        midpoint + 1,
-        toChapter,
-        contentType,
-        exampleTitles,
-        outlineSystemPrompt,
-      );
-      return [...first, ...second];
-    }
-
-    throw new Error(
-      `Failed to generate outline chapter ${fromChapter} after all attempts`,
     );
   }
 
@@ -1739,6 +1590,9 @@ REQUIREMENTS:
 9. Section and subsection titles should sound like a human wrote them — no generic filler
 ${domainOutlineRules}
 14. Use plain English for all titles, sections, and subsections: common words, direct phrasing, no jargon
+15. Design the whole book as one progressive arc: chapters must build on each other instead of restarting the same ideas
+16. No two chapters may have the same purpose, same main place/topic, or same reader problem
+17. Before returning JSON, mentally check chapter titles and sections for repetition; revise duplicates into distinct angles
 ${exampleTitles}
 
 JSON RULES:
@@ -1994,6 +1848,9 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). CRI
     const metaPatterns = [
       /^here'?s?\s+(?:the\s+)?(?:revised|rewritten|updated|edited|final|complete)\s+chapter[^:\n]*:\s*/im,
       /^here\s+is\s+(?:the\s+)?(?:revised|rewritten|updated|edited|final|complete)\s+chapter[^:\n]*:\s*/im,
+      /^(?:certainly|sure|absolutely)[!.]?\s+here\s+is\s+(?:the\s+)?(?:polished|revised|rewritten|updated|edited|final|complete|guidebook-ready)[\s\S]{0,700}?(?:\n{2,}|$)/i,
+      /^(?:certainly|sure|absolutely)[!.]?\s+here'?s?\s+(?:the\s+)?(?:polished|revised|rewritten|updated|edited|final|complete|guidebook-ready)[\s\S]{0,700}?(?:\n{2,}|$)/i,
+      /^i['’]?ve\s+(?:added|included|turned|rewritten|polished)[\s\S]{0,700}?(?:\n{2,}|$)/i,
       /^(?:revised|rewritten|updated|edited|final)\s+chapter[^:\n]*:\s*/im,
       /^ready\s+for\s+publication[^:\n]*:\s*/im,
       /^here'?s?\s+the\s+introduction[^:\n]*:\s*/im,
@@ -2006,11 +1863,43 @@ Generate ALL ${chapterCount} chapters (${fromChapter} through ${toChapter}). CRI
       result = result.replace(pattern, '').trim();
     }
 
+    const paragraphs = result.split(/\n{2,}/);
+    while (
+      paragraphs.length > 1 &&
+      this.isMetaCommentaryParagraph(paragraphs[0])
+    ) {
+      paragraphs.shift();
+    }
+    result = paragraphs.join('\n\n').trim();
+
+    result = result
+      .replace(
+        /\n{0,2}(?:would\s+you\s+like\s+me\s+to|do\s+you\s+want\s+me\s+to|let\s+me\s+know\s+if\s+you\s+want|i\s+can\s+also\s+expand)[\s\S]*$/i,
+        '',
+      )
+      .trim();
+
     // Also strip a repeated chapter title if it appears as the very first line
     // before any real paragraph content (bold heading leak)
     result = result.replace(/^#{1,6}\s+.+\n+/m, '').trim();
 
     return result;
+  }
+
+  private isMetaCommentaryParagraph(paragraph: string): boolean {
+    const normalized = paragraph.trim().toLowerCase();
+    if (!normalized) return false;
+
+    const hasAssistantOpening =
+      /^(certainly|sure|absolutely|of course|here is|here's|i've|i have)\b/.test(
+        normalized,
+      );
+    const hasEditorialTerms =
+      /\b(polished|guidebook-ready|revised|rewritten|updated|edited|final|chapter|section headings|practical details|reader(?:s)?|scan|act on|note-like fragments|recommendations)\b/.test(
+        normalized,
+      );
+
+    return hasAssistantOpening && hasEditorialTerms;
   }
 
   // ═══════════════════════════════════════════════════════════════
