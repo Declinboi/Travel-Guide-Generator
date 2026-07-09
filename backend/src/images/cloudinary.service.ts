@@ -11,27 +11,32 @@ import { Readable } from 'stream';
 @Injectable()
 export class CloudinaryService {
   private readonly logger = new Logger(CloudinaryService.name);
+  private readonly DEFAULT_UPLOAD_TIMEOUT_MS = 300000;
+  private readonly MAX_RETRIES = 6;
+  private readonly RETRY_DELAY_MS = 5000;
 
   constructor(private configService: ConfigService) {
+    const uploadTimeout = this.getUploadTimeoutMs();
+
     cloudinary.config({
       cloud_name: this.configService.get('CLOUDINARY_CLOUD_NAME'),
       api_key: this.configService.get('CLOUDINARY_API_KEY'),
       api_secret: this.configService.get('CLOUDINARY_API_SECRET'),
-      timeout: 120000, // 120 seconds
+      timeout: uploadTimeout,
     });
   }
 
   async uploadImage(
     file: Express.Multer.File,
     isMap: boolean = false,
-    retries: number = 3,
+    retries: number = this.MAX_RETRIES,
   ): Promise<UploadApiResponse> {
     let lastError: any;
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         this.logger.log(
-          `Upload attempt ${attempt}/${retries} for ${file.originalname}`,
+          `Upload attempt ${attempt}/${retries} for ${file.originalname} (${this.formatSize(this.getFileSize(file))})`,
         );
 
         return await this.performUpload(file, isMap);
@@ -42,9 +47,10 @@ export class CloudinaryService {
         );
 
         if (attempt < retries) {
-          // Wait before retrying (exponential backoff)
-          const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-          this.logger.log(`Waiting ${delay}ms before retry...`);
+          const delay = this.getUploadRetryDelay(attempt);
+          this.logger.log(
+            `Waiting ${Math.round(delay / 1000)}s before retry...`,
+          );
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
@@ -60,6 +66,10 @@ export class CloudinaryService {
     isMap: boolean,
   ): Promise<UploadApiResponse> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const uploadTimeout = this.getUploadTimeoutMs();
+      let localTimeout: NodeJS.Timeout;
+
       // Calculate dimensions for 6x9 inch book
       const transformation = isMap
         ? {
@@ -82,9 +92,16 @@ export class CloudinaryService {
           folder: 'travel-guides',
           transformation: [transformation],
           resource_type: 'image',
-          timeout: 120000, // 120 second timeout per upload
+          timeout: uploadTimeout,
         },
-        (error: UploadApiErrorResponse | undefined, result: UploadApiResponse | undefined) => {
+        (
+          error: UploadApiErrorResponse | undefined,
+          result: UploadApiResponse | undefined,
+        ) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(localTimeout);
+
           if (error) {
             this.logger.error('Cloudinary upload error:', error);
             reject(error);
@@ -98,9 +115,23 @@ export class CloudinaryService {
         },
       );
 
-      // FIXED: Use Readable.from() instead of streamifier
-      const stream = Readable.from(file.buffer);
-      stream.pipe(uploadStream);
+      localTimeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        uploadStream.destroy(
+          new Error(`Cloudinary upload timed out after ${uploadTimeout}ms`),
+        );
+        reject(new Error(`Cloudinary upload timed out after ${uploadTimeout}ms`));
+      }, uploadTimeout + 5000);
+
+      uploadStream.on('error', (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(localTimeout);
+        reject(error);
+      });
+
+      Readable.from(file.buffer).pipe(uploadStream);
     });
   }
 
@@ -174,8 +205,35 @@ export class CloudinaryService {
 
     // Check file size (max 10MB)
     const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
+    if (this.getFileSize(file) > maxSize) {
       throw new BadRequestException('File too large. Maximum size is 10MB.');
     }
+  }
+
+  private getUploadTimeoutMs(): number {
+    const configuredTimeout = Number(
+      this.configService.get('CLOUDINARY_IMAGE_UPLOAD_TIMEOUT_MS') ??
+        this.configService.get('CLOUDINARY_UPLOAD_TIMEOUT_MS'),
+    );
+
+    return Number.isFinite(configuredTimeout) && configuredTimeout > 0
+      ? configuredTimeout
+      : this.DEFAULT_UPLOAD_TIMEOUT_MS;
+  }
+
+  private getUploadRetryDelay(attempt: number): number {
+    const baseDelay = this.RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+    const jitter = Math.floor(Math.random() * 3000);
+    return Math.min(baseDelay + jitter, 60000);
+  }
+
+  private getFileSize(file: Express.Multer.File): number {
+    return file.size || file.buffer?.length || 0;
+  }
+
+  private formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 }

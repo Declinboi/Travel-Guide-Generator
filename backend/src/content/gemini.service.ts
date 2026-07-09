@@ -221,7 +221,10 @@ export class GeminiService {
   private readonly PROVIDER_COOLDOWN_MS = 5000; // Min 5s between calls to same key
   private readonly RATE_LIMIT_LOCKOUT_MS = 60000; // Lock out for 60s after 429
 
-  private readonly REQUEST_TIMEOUT_MS = 95000; // 95s timeout per request
+  private readonly REQUEST_TIMEOUT_MS = this.getPositiveNumberEnv(
+    'AI_REQUEST_TIMEOUT_MS',
+    180000,
+  ); // 3 min timeout per request
   private readonly PROVIDER_SWITCH_DELAY_MS = 4000; // 4s delay when switching after failure
   private readonly MAX_CONSECUTIVE_ERRORS = 5; // Max errors before extended lockout
   private readonly EXTENDED_LOCKOUT_MS = 300000; // 5 min lockout after too many errors
@@ -391,8 +394,10 @@ export class GeminiService {
       errorText.includes('enotfound') ||
       errorText.includes('enetunreach') ||
       errorText.includes('ehostunreach') ||
+      errorText.includes('request was aborted') ||
       error?.name === 'AbortError' ||
       error?.name === 'TimeoutError' ||
+      error?.name === 'APIUserAbortError' ||
       error?.name === 'APIConnectionTimeoutError'
     );
   }
@@ -429,6 +434,11 @@ export class GeminiService {
   private addJitter(baseMs: number, jitterPercent: number = 0.3): number {
     const jitter = baseMs * jitterPercent * (Math.random() - 0.5) * 2;
     return Math.max(100, Math.floor(baseMs + jitter));
+  }
+
+  private getPositiveNumberEnv(key: string, fallback: number): number {
+    const value = Number(process.env[key]);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -642,7 +652,7 @@ ${domainDetail}`;
       provider.lastErrorType = error?.name || error?.code || 'unknown';
 
       // Convert abort to timeout error for clearer logging
-      if (error?.name === 'AbortError') {
+      if (error?.name === 'AbortError' || error?.name === 'APIUserAbortError') {
         const timeoutError = new Error(
           `Request timeout after ${this.REQUEST_TIMEOUT_MS}ms`,
         );
@@ -662,7 +672,10 @@ ${domainDetail}`;
     systemPrompt?: string,
     options: GenerationOptions = {},
   ): Promise<string> {
-    const maxAttempts = this.apiProviders.length * 2;
+    const maxAttempts = Math.max(
+      this.apiProviders.length * this.MAX_RETRIES,
+      this.MAX_RETRIES,
+    );
     let lastError: any;
     let attemptCount = 0;
 

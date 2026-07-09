@@ -746,9 +746,9 @@ export class BookGenerationProcessor extends WorkerHost {
       buffer,
       originalname: fileData.originalname,
       mimetype: fileData.mimetype,
+      size: buffer.length,
       fieldname: 'file',
       encoding: '7bit',
-      size: buffer.length,
     } as Express.Multer.File;
   }
 
