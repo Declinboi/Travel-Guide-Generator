@@ -530,7 +530,8 @@ export class GeminiService {
   private buildTravelGuidebookQualityRules(): string {
     return `REAL GUIDEBOOK STANDARD:
 - Write like a finished commercial guidebook chapter, not scattered notes.
-- Use clear section headings from the outline, then write polished paragraphs under them.
+- Before writing content for each outline item, put the matching section or subsection heading exactly as it appears in the outline, in outline order, so readers always know which part they are reading.
+- After each heading, write polished paragraphs under it.
 - Each section should answer the reader's practical questions: why go, where exactly, best timing, time needed, cost range, booking/transport notes, who should skip it, and what mistake to avoid.
 - Include decision-making language: "choose this if...", "skip it if...", "do this before...", "leave extra time for...".
 - Keep factual claims modest when they may change. Say "usually", "often", "expect", or "check before you go" where appropriate.
@@ -542,7 +543,8 @@ ${PLAIN_LANGUAGE_RULES}`;
   private buildFarmingGuidebookQualityRules(): string {
     return `REAL FARMING GUIDEBOOK STANDARD:
 - Write like a finished practical farming chapter, not scattered notes or textbook summaries.
-- Use clear section headings from the outline, then write polished paragraphs under them.
+- Before writing content for each outline item, put the matching section or subsection heading exactly as it appears in the outline, in outline order, so readers always know which part they are reading.
+- After each heading, write polished paragraphs under it.
 - Each section should answer the reader's working questions: what to do, when to do it, what tools/materials are needed, what it costs, what can go wrong, and how to know it is working.
 - Include decision-making language: "start with...", "skip this unless...", "choose this if...", "do this before...", "watch for...".
 - Keep factual claims honest. Climate, prices, laws, disease pressure, suppliers, and yields vary by location, so use careful ranges and tell readers what to verify locally.
@@ -564,6 +566,7 @@ ${PLAIN_LANGUAGE_RULES}`;
     return `MAIN CHAPTER LENGTH AND DEPTH REQUIREMENTS:
 - This is a main content chapter, so make it long, full, and useful. Do not write a short overview.
 - Write 45-55 substantial paragraphs covering every section and subsection in the outline.
+- Follow the outline order exactly: write the section heading before its content, then each subsection heading before its content.
 - Each paragraph should usually have 3-5 clear sentences. Short punchy paragraphs are okay sometimes, but most paragraphs need useful detail.
 - Give step-by-step explanations in plain, layman language. Explain terms the first time you use them.
 - Do not pad with fluff. Add real detail: examples, trade-offs, warnings, practical ranges, simple explanations, and clear next steps.
@@ -923,7 +926,7 @@ ${domainDetail}`;
       issues.push({
         issue: 'few scannable guidebook headings',
         instruction:
-          'Add natural guidebook section headings from the outline so the chapter feels edited and easy to use.',
+          'Add the section and subsection headings from the outline before their matching content so the chapter feels edited and easy to use.',
       });
     }
 
@@ -947,7 +950,7 @@ ${domainDetail}`;
       issues.push({
         issue: 'content looks like notes or an outline',
         instruction:
-          'Convert note-like bullets and fragments into finished prose, keeping only polished headings where they help readers scan.',
+          'Convert note-like bullets and fragments into finished prose, keeping the outline section and subsection headings before their matching content.',
       });
     }
 
@@ -1014,7 +1017,7 @@ ${domainDetail}`;
       issues.push({
         issue: 'few scannable farming-guide headings',
         instruction:
-          'Add natural working-guide headings from the outline so the chapter feels edited and usable in the field.',
+          'Add the section and subsection headings from the outline before their matching content so the chapter feels edited and usable in the field.',
       });
     }
 
@@ -1046,7 +1049,7 @@ ${domainDetail}`;
       issues.push({
         issue: 'content looks like notes or an outline',
         instruction:
-          'Convert note-like bullets and fragments into finished prose, keeping only polished headings where they help readers scan.',
+          'Convert note-like bullets and fragments into finished prose, keeping the outline section and subsection headings before their matching content.',
       });
     }
 
@@ -1122,7 +1125,7 @@ EDITORIAL REQUIREMENTS:
 - Add grounded, stable details only when they are safe: named areas, common transport types, seasonal patterns, local foods, common visitor mistakes, and practical ranges.
 - Do not invent exact current opening hours, phone numbers, visa rules, legal rules, or schedules.
 - Make every section useful to a traveler planning the trip promised by the title/subtitle.
-- Use clear headings where helpful, but do not turn the chapter into bullet notes.
+- Preserve the section and subsection headings from the outline in order, with each heading before its content, but do not turn the chapter into bullet notes.
 - Keep the final chapter in plain English: common words, clear sentences, no jargon, no fancy phrasing.
 - Return only the finished chapter text.
 
@@ -1176,7 +1179,7 @@ EDITORIAL REQUIREMENTS:
 - Add grounded practical details only when they are safe: tools, materials, timing windows, cost ranges, labor estimates, spacing, feed/water needs, common mistakes, field checks, and troubleshooting signs.
 - Do not invent exact current laws, veterinary instructions, supplier prices, chemical labels, disease protocols, or guaranteed yields.
 - Make every section useful to the farmer, gardener, or homesteader promised by the title/subtitle.
-- Use clear headings where helpful, but do not turn the chapter into bullet notes.
+- Preserve the section and subsection headings from the outline in order, with each heading before its content, but do not turn the chapter into bullet notes.
 - Keep the final chapter in plain English: common words, clear sentences, no jargon, no academic phrasing.
 - Return only the finished chapter text.
 
@@ -1321,7 +1324,7 @@ ${this.buildMainChapterDepthRules('travel')}
 6. Remove any phrase that sounds like a tourism brochure
 7. Replace vague sensory language ("beautiful view") with specific sensory details ("the limestone cliffs dropped straight into water so clear you could count pebbles at ten meters")
 8. Preserve the exact destination, reader promise, route, count, year, and angle from the title/subtitle
-9. Turn note-like passages into finished guidebook prose with useful section headings and practical reader advice
+9. Turn note-like passages into finished guidebook prose with the outline's section and subsection headings placed before their matching content
 10. Do not add exact facts that may change unless the draft already had them; use careful ranges and "confirm before you go" wording for changeable details
 11. Keep every rewritten paragraph in plain English: common words, clear sentences, no jargon, no fancy phrasing
 
@@ -1370,7 +1373,7 @@ ${this.buildMainChapterDepthRules('farming')}
 7. Replace vague advice ("ensure proper drainage") with specific instructions ("dig a 6-inch trench along the downhill side of each bed, angled at about 2% grade toward your collection point")
 8. Add specific numbers where possible: pounds per acre, days to germination, cost per head, hours of labor
 9. Preserve the exact crop, animal, scale, climate, production goal, budget, timeline, and reader promise from the title/subtitle
-10. Turn note-like passages into finished guidebook prose with useful working-guide headings and field-ready advice
+10. Turn note-like passages into finished guidebook prose with the outline's section and subsection headings placed before their matching content
 11. Do not invent exact laws, veterinary instructions, supplier prices, chemical labels, disease protocols, or guaranteed yields
 12. Keep every rewritten paragraph in plain English: common words, clear sentences, no jargon, no academic phrasing
 
@@ -1968,6 +1971,7 @@ ${JSON.stringify(introChapter, null, 2)}
 
 STRUCTURE:
 Write 15-20 paragraphs covering all sections and subsections from the outline
+Follow the outline order exactly: put each section heading and subsection heading before the paragraphs for that part
 Vary paragraph length: some short (2 sentences), some longer (4-5 sentences)
 Open with a specific moment or scene from arriving at the destination, not a generic welcome
 Close the chapter with forward momentum — make readers want to turn the page
@@ -2015,6 +2019,7 @@ ${JSON.stringify(introChapter, null, 2)}
 STRUCTURE:
 
 Write 15-20 paragraphs covering all sections and subsections from the outline
+Follow the outline order exactly: put each section heading and subsection heading before the paragraphs for that part
 Vary paragraph length: some short (2 sentences), some longer (4-5 sentences)
 Open with a specific moment on the farm — early morning chores, first harvest, a mistake that taught you something — not a generic "welcome to farming"
 Close with what the reader will be able to do after reading this book
@@ -2336,7 +2341,7 @@ GUIDE BOOK CONTENT RULES (apply regardless of format):
 - Brief personal anecdotes ONLY when they illustrate something useful
 - Include one local name or phrase per section that readers can actually use
 - Sensory details should help readers recognize places: "look for the blue awning" not just "it smells nice"
-- Use section headings exactly when they help the reader scan the chapter. The chapter should feel edited, coherent, and ready for print.
+- Always put each section heading and subsection heading from the outline before its matching content, in outline order. The chapter should feel edited, coherent, and ready for print.
 - Tie advice back to the destination and reader promise from the title/subtitle at least once per section.
 - If you cannot be certain about a changing detail, write a responsible range or planning note instead of pretending certainty.
 - Prefer named, stable anchors: districts, transit hubs, trailheads, beaches, museums, market streets, common dishes, local holidays, and weather seasons.
@@ -2566,7 +2571,7 @@ GUIDE BOOK CONTENT RULES (apply regardless of format):
 - Compare methods with honest trade-offs: "A is cheaper but takes twice as long"
 - Mention specific breeds, varieties, or brands when it matters — and say why
 - Personal anecdotes ONLY when they illustrate a mistake to avoid or a technique that works
-- Use section headings exactly when they help the reader scan the chapter. The chapter should feel edited, coherent, and ready for print.
+- Always put each section heading and subsection heading from the outline before its matching content, in outline order. The chapter should feel edited, coherent, and ready for print.
 - Tie advice back to the crop, animal, scale, climate, production goal, or reader promise from the title/subtitle at least once per section.
 - If a detail varies by region or changes over time, write a responsible range or local verification note instead of pretending certainty.
 - Prefer concrete anchors: breed names, crop varieties, soil signs, tool sizes, feed types, fencing materials, pest symptoms, seasonal windows, and extension-office checks.
@@ -2647,6 +2652,7 @@ PURPOSE: This conclusion should be the chapter readers flip back to at the airpo
 STRUCTURE:
 - 18-20 paragraphs total
 - Open with brief, grounding context (2-3 sentences max), then get to the useful content
+- Follow the outline order exactly: put each section heading and subsection heading before the content for that part
 - Mix flowing prose with clearly formatted reference sections
 - Lists and quick-reference sections ARE appropriate here — this chapter gets used differently than the others
 - Close with a short final paragraph (2-3 sentences) — confident, not sentimental
@@ -2728,6 +2734,7 @@ PURPOSE: This conclusion should be the chapter readers flip back to repeatedly �
 STRUCTURE:
 - 18-20 paragraphs total
 - Open with brief, grounding context (2-3 sentences max), then get to the useful content
+- Follow the outline order exactly: put each section heading and subsection heading before the content for that part
 - Mix flowing prose with clearly formatted reference sections
 - Lists, timelines, and quick-reference sections ARE appropriate here — this chapter gets used differently
 - Close with a short final paragraph (2-3 sentences) — practical and honest
