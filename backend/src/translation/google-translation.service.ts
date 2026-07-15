@@ -400,8 +400,7 @@ export class LibreTranslationService {
     const paragraphs = text.split(/(\n{2,})/);
     for (let i = 0; i < paragraphs.length; i++) {
       const part = paragraphs[i];
-      if (!part || /^\n+$/.test(part) || part.includes('ZXQNE'))
-        continue;
+      if (!part || /^\n+$/.test(part) || part.includes('ZXQNE')) continue;
       if (await this.isDefinitelyNonEnglish(part)) {
         this.logger.debug(
           `Protecting non-English paragraph (${part.length} chars)`,
@@ -1272,10 +1271,15 @@ export class LibreTranslationService {
             : Promise.resolve(''),
         ]);
 
-        let finalTitle = translatedTitle;
-        const { percentage, unchangedWords } = this.getTranslationPercentage(
+        let finalTitle = await this.recoverDroppedTravelDestination(
           title,
           translatedTitle,
+          targetLanguage,
+          options,
+        );
+        const { percentage, unchangedWords } = this.getTranslationPercentage(
+          title,
+          finalTitle,
         );
 
         this.logger.log(
@@ -1445,6 +1449,109 @@ export class LibreTranslationService {
       response.data.translatedText,
       extractions,
     );
+  }
+
+  /**
+   * LibreTranslate occasionally translates a destination-first title such as
+   * "Leuven Travel Guide 2026" as only "Guida turistica 2026".  The old
+   * validation treated the omitted destination as translated, so that broken
+   * value was saved and later rendered on the cover.
+   *
+   * Recover only the well-defined travel-guide pattern.  Translating the
+   * destination by itself gives the engine the context it needs for exonyms
+   * (for example, Leuven -> Lovanio), then the target-language template keeps
+   * the resulting title grammatical.
+   */
+  private async recoverDroppedTravelDestination(
+    original: string,
+    translated: string,
+    targetLanguage: Language,
+    options: TranslationOptions,
+  ): Promise<string> {
+    const match = original.match(
+      /^(?<destination>.+?)\s+(?:travel\s+guide|guidebook)\b(?<suffix>.*)$/i,
+    );
+
+    if (
+      !match?.groups?.destination ||
+      targetLanguage === Language.ENGLISH ||
+      !this.isTravelDestinationMissing(
+        original,
+        translated,
+        match.groups.destination,
+      )
+    ) {
+      return translated;
+    }
+
+    try {
+      const destination = await this.translateMetadataField(
+        match.groups.destination,
+        targetLanguage,
+        options,
+      );
+      const suffix = match.groups.suffix.trim();
+      const withSuffix = suffix ? ` ${suffix}` : '';
+      const recovered = this.formatTravelGuideTitle(
+        destination,
+        withSuffix,
+        targetLanguage,
+      );
+
+      this.logger.warn(
+        `Destination was dropped from metadata title; recovered "${translated}" → "${recovered}"`,
+      );
+      return recovered;
+    } catch (error) {
+      this.logger.warn(
+        `Could not recover dropped destination from metadata title: ${error.message}`,
+      );
+      return translated;
+    }
+  }
+
+  private isTravelDestinationMissing(
+    original: string,
+    translated: string,
+    destination: string,
+  ): boolean {
+    const tokens = (value: string) => value.match(/[\p{L}\p{N}]+/gu) || [];
+    const originalTokenCount = tokens(original).length;
+    const translatedTokenCount = tokens(translated).length;
+    const destinationTokens = tokens(destination)
+      .filter((token) => token.length > 2)
+      .map((token) => token.toLocaleLowerCase());
+    const translatedTokens = new Set(
+      tokens(translated).map((token) => token.toLocaleLowerCase()),
+    );
+
+    // A localized destination need not retain its English spelling.  Only
+    // flag the result when it is also shorter than the source title, which is
+    // the signature of the known omission rather than a valid exonym.
+    return (
+      destinationTokens.length > 0 &&
+      destinationTokens.every((token) => !translatedTokens.has(token)) &&
+      translatedTokenCount < originalTokenCount
+    );
+  }
+
+  private formatTravelGuideTitle(
+    destination: string,
+    suffix: string,
+    targetLanguage: Language,
+  ): string {
+    switch (targetLanguage) {
+      case Language.ITALIAN:
+        return `Guida turistica di ${destination}${suffix}`;
+      case Language.FRENCH:
+        return `Guide de voyage de ${destination}${suffix}`;
+      case Language.SPANISH:
+        return `Guía de viaje de ${destination}${suffix}`;
+      case Language.GERMAN:
+        return `Reiseführer ${destination}${suffix}`;
+      default:
+        return `${destination} Travel Guide${suffix}`;
+    }
   }
 
   // ---------------------------------------------------------------------------
