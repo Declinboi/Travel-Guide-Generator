@@ -161,6 +161,8 @@ export class DocxService {
 
       // ✅ Calculate proper chapter number (starting from 1)
       const chapterNumber = i + 1;
+      const duplicateTitleToSkip =
+        i === 0 || i === mainChapters.length - 1 ? chapter.title : undefined;
 
       this.logger.log(`Building chapter ${chapterNumber}...`);
 
@@ -171,6 +173,7 @@ export class DocxService {
         title, // ADD THIS
         subtitle, // ADD THIS
         chapterNumber,
+        duplicateTitleToSkip,
       );
       allSections.push(...chapterSections);
 
@@ -289,6 +292,7 @@ export class DocxService {
     bookTitle?: string,
     bookSubtitle?: string,
     chapterNumber?: number, // Add this parameter
+    chapterTitleToSkip?: string,
   ): Promise<Paragraph[]> {
     const sections: Paragraph[] = [];
 
@@ -375,6 +379,7 @@ export class DocxService {
         redisCache,
         bookTitle,
         bookSubtitle,
+        chapterTitleToSkip,
       );
       sections.push(...contentSections);
       contentSections.length = 0;
@@ -383,6 +388,7 @@ export class DocxService {
         chapter.content,
         bookTitle,
         bookSubtitle,
+        chapterTitleToSkip,
       );
       sections.push(...contentSections);
       contentSections.length = 0;
@@ -482,6 +488,7 @@ export class DocxService {
     redisCache: RedisCacheService,
     bookTitle?: string,
     bookSubtitle?: string,
+    chapterTitleToSkip?: string,
   ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     const textParagraphs = content.split('\n\n').filter((p) => p.trim());
@@ -498,6 +505,7 @@ export class DocxService {
           section.paragraphs.join('\n\n'),
           bookTitle,
           bookSubtitle,
+          chapterTitleToSkip,
         );
         paragraphs.push(...textContent);
         textContent.length = 0;
@@ -908,6 +916,7 @@ export class DocxService {
     content: string,
     bookTitle?: string,
     bookSubtitle?: string,
+    chapterTitleToSkip?: string,
   ): Paragraph[] {
     const paragraphs: Paragraph[] = [];
     // Use aggressive cleaning
@@ -925,7 +934,14 @@ export class DocxService {
       const lowerTrimmed = trimmed.toLowerCase();
 
       // Skip various redundant content
-      if (this.shouldSkipSection(trimmed, bookTitle, bookSubtitle)) {
+      if (
+        this.shouldSkipSection(
+          trimmed,
+          bookTitle,
+          bookSubtitle,
+          chapterTitleToSkip,
+        )
+      ) {
         return;
       }
 
@@ -966,6 +982,7 @@ export class DocxService {
     trimmed: string,
     bookTitle?: string,
     bookSubtitle?: string,
+    chapterTitleToSkip?: string,
   ): boolean {
     if (this.isRedundantLine(trimmed)) return true;
 
@@ -1011,6 +1028,18 @@ export class DocxService {
           normalizedTrimmed.includes(normalizedSubtitle)) ||
         (normalizedTrimmed.length > 10 &&
           normalizedSubtitle.includes(normalizedTrimmed))
+      )
+        return true;
+    }
+
+    if (chapterTitleToSkip) {
+      const normalizedChapterTitle = normalize(chapterTitleToSkip);
+      if (
+        normalizedTrimmed === normalizedChapterTitle ||
+        (normalizedChapterTitle.length > 10 &&
+          normalizedTrimmed.includes(normalizedChapterTitle)) ||
+        (normalizedTrimmed.length > 10 &&
+          normalizedChapterTitle.includes(normalizedTrimmed))
       )
         return true;
     }

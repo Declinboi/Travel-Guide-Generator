@@ -142,6 +142,10 @@ export class PdfService {
 
           // Calculate proper chapter number (starting from 1)
           const chapterNumber = i + 1;
+          const duplicateTitleToSkip =
+            i === 0 || i === mainChapters.length - 1
+              ? chapter.title
+              : undefined;
 
           doc.addPage();
 
@@ -160,9 +164,16 @@ export class PdfService {
               redisCache,
               title,
               subtitle,
+              duplicateTitleToSkip,
             );
           } else {
-            this.addFormattedContent(doc, chapter.content, title, subtitle);
+            this.addFormattedContent(
+              doc,
+              chapter.content,
+              title,
+              subtitle,
+              duplicateTitleToSkip,
+            );
           }
 
           if (global.gc && i % 2 === 0) {
@@ -574,6 +585,7 @@ export class PdfService {
     content: string,
     bookTitle?: string,
     bookSubtitle?: string,
+    chapterTitleToSkip?: string,
   ): void {
     // Use aggressive cleaning
     const cleanedContent = this.cleanContent(content);
@@ -597,7 +609,14 @@ export class PdfService {
       const lowerTrimmed = trimmed.toLowerCase();
 
       // Skip various redundant content
-      if (this.shouldSkipSection(trimmed, bookTitle, bookSubtitle)) {
+      if (
+        this.shouldSkipSection(
+          trimmed,
+          bookTitle,
+          bookSubtitle,
+          chapterTitleToSkip,
+        )
+      ) {
         return;
       }
 
@@ -628,6 +647,7 @@ export class PdfService {
     // lowerTrimmed: string,
     bookTitle?: string,
     bookSubtitle?: string,
+    chapterTitleToSkip?: string,
   ): boolean {
     if (this.isRedundantLine(trimmed)) return true;
 
@@ -673,6 +693,18 @@ export class PdfService {
           normalizedTrimmed.includes(normalizedSubtitle)) ||
         (normalizedTrimmed.length > 10 &&
           normalizedSubtitle.includes(normalizedTrimmed))
+      )
+        return true;
+    }
+
+    if (chapterTitleToSkip) {
+      const normalizedChapterTitle = normalize(chapterTitleToSkip);
+      if (
+        normalizedTrimmed === normalizedChapterTitle ||
+        (normalizedChapterTitle.length > 10 &&
+          normalizedTrimmed.includes(normalizedChapterTitle)) ||
+        (normalizedTrimmed.length > 10 &&
+          normalizedChapterTitle.includes(normalizedTrimmed))
       )
         return true;
     }
@@ -757,6 +789,7 @@ export class PdfService {
     redisCache: RedisCacheService,
     bookTitle?: string,
     bookSubtitle?: string,
+    chapterTitleToSkip?: string,
   ): Promise<void> {
     const paragraphs = content.split('\n\n').filter((p) => p.trim());
 
@@ -772,6 +805,7 @@ export class PdfService {
           section.paragraphs.join('\n\n'),
           bookTitle,
           bookSubtitle,
+          chapterTitleToSkip,
         ); // UPDATE THIS
       }
 
